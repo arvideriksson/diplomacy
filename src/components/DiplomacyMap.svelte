@@ -114,6 +114,24 @@
       {/if}
     {/each}
 
+    <!-- Coast markers for multi-coast territories -->
+    {#each Object.entries(mapDef.territories) as [id, t] (id)}
+      {#if t.coasts}
+        {#each Object.entries(t.coasts) as [coastId, coast]}
+          {@const [cx, cy] = coast.render.center}
+          <text
+            x={cx}
+            y={cy}
+            text-anchor="middle"
+            dominant-baseline="central"
+            class="coast-label"
+          >
+            {id}/{coastId}
+          </text>
+        {/each}
+      {/if}
+    {/each}
+
     <!-- Territory labels -->
     {#each Object.entries(mapDef.territories) as [id, t] (id)}
       {@const [cx, cy] = t.render.center}
@@ -237,6 +255,16 @@
   .territory-label.sea {
     fill: #000;
     font-weight: 400;
+  }
+
+  .coast-label {
+    font-size: 5px;
+    font-weight: 400;
+    fill: #555;
+    pointer-events: none;
+    user-select: none;
+    font-family: 'Liberation Sans', sans-serif;
+    font-style: italic;
   }
 
   .unit-label {

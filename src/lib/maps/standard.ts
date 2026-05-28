@@ -180,10 +180,10 @@ export const standardMap: MapDefinition = {
     // ──────────────────────────── RUSSIA ────────────────────────────
     STP: {
       name: 'St. Petersburg', type: 'coast', supplyCenter: true, homePower: 'russia',
-      adjacent: ['NOR', 'FIN', 'MOS', 'LVN', 'BAR', 'BOT', 'NWG'],
+      adjacent: ['NOR', 'FIN', 'MOS', 'LVN', 'BAR', 'BOT'],
       coasts: {
-        nc: { name: 'North Coast', fleetAdjacency: ['BAR', 'NOR', 'NWG'], render: { center: [500, 50] } },
-        sc: { name: 'South Coast', fleetAdjacency: ['BOT', 'LVN', 'FIN'], render: { center: [430, 170] } },
+        nc: { name: 'North Coast', fleetAdjacency: ['BAR', 'NOR'], render: { center: [530, 40] } },
+        sc: { name: 'South Coast', fleetAdjacency: ['BOT', 'LVN', 'FIN'], render: { center: [440, 165] } },
       },
       render: { center: [460, 149], path: 'm534 164l30-5 9-16 25-11 11-15v-117h-69l-5 9-5-3-13 13-1 14-3 5v-15l-6-3-2 6-6 7-7 15 3 10-7 2-9-3-2-2 4-5-8-7-7 2 6 17 6 4v8l-6-2-4 2-11 17 12 9-2 6-5 3-18-8-2 9 5 5 7 4-2 3-18-4-8-15v-9l-12-6-2-5 33 1 12-5 2-13-6-5-36-14-12 2-4-4-4 3-9 13-1 7 6 5-1 19 9 18 1 8 8 12 4 17' },
     },
@@ -275,8 +275,8 @@ export const standardMap: MapDefinition = {
       name: 'Spain', type: 'coast', supplyCenter: true,
       adjacent: ['POR', 'GAS', 'MAR', 'MAO', 'GOL', 'WES'],
       coasts: {
-        nc: { name: 'North Coast', fleetAdjacency: ['POR', 'GAS', 'MAO'], render: { center: [70, 430] } },
-        sc: { name: 'South Coast', fleetAdjacency: ['POR', 'MAR', 'GOL', 'WES'], render: { center: [100, 475] } },
+        nc: { name: 'North Coast', fleetAdjacency: ['POR', 'GAS', 'MAO'], render: { center: [65, 430] } },
+        sc: { name: 'South Coast', fleetAdjacency: ['POR', 'MAR', 'GOL', 'WES'], render: { center: [90, 480] } },
       },
       render: { center: [85, 450], path: 'm40 441l-6 6 2 10-9 11 6 7 1 9 3 6 10-2 5 1 8-3 18 5 5 3 3-9 4-2 8 1 9-10 6-1 2-4-5-8 14-17 7-5 15-1 11-6 1-7-4 2-12-10-7-3-1 3-11-5' },
     },
@@ -333,7 +333,7 @@ export const standardMap: MapDefinition = {
     },
     NWG: {
       name: 'Norwegian Sea', type: 'sea', supplyCenter: false,
-      adjacent: ['NAO', 'CLY', 'EDI', 'NOR', 'BAR', 'NTH', 'STP'],
+      adjacent: ['NAO', 'CLY', 'EDI', 'NOR', 'BAR', 'NTH'],
       render: { center: [220, 70], path: 'm362 33l-5 6-14 5-19 10-4 10-10 11-1 9-6 2-11 25-15 21-8 2-5 8-6-1-22 13h-38l-27 27v16l-13-4-6 1 2-6 7-3 1-4-14-4v-177h214z' },
     },
     BAR: {
