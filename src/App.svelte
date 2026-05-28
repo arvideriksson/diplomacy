@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
-  import { initAuth, isAuthenticated, user } from './lib/auth'
+  import { initAuth, isAuthenticated, isSiteAdmin, user } from './lib/auth'
   import { fetchGames } from './lib/game'
   import type { GameState } from './lib/game'
   import LoginButton from './components/LoginButton.svelte'
@@ -9,21 +9,19 @@
   import GameList from './components/GameList.svelte'
   import GameLobby from './components/GameLobby.svelte'
   import DiplomacyMap from './components/DiplomacyMap.svelte'
+  import AdminPanel from './components/AdminPanel.svelte'
   import type { Unit } from './lib/game'
+  import { standardMap } from './lib/maps/standard'
 
   let ready = false
   let view: 'list' | 'game-lobby' | 'game' = 'list'
   let selectedGame: GameState | null = null
 
-  const demoUnits: Unit[] = [
-    { type: 'fleet', nation: 'England', territory: 'LON' },
-    { type: 'army', nation: 'France', territory: 'PAR' },
-    { type: 'army', nation: 'Germany', territory: 'BER' },
-    { type: 'army', nation: 'Italy', territory: 'ROM' },
-    { type: 'army', nation: 'Austria', territory: 'VIE' },
-    { type: 'army', nation: 'Russia', territory: 'MOS' },
-    { type: 'army', nation: 'Turkey', territory: 'CON' },
-  ]
+  const demoUnits: Unit[] = standardMap.startingUnits.map((u) => ({
+    type: u.type,
+    nation: u.power,
+    territory: u.territory,
+  }))
 
   onMount(async () => {
     await initAuth()
@@ -81,7 +79,7 @@
             <h1>Diplomacy</h1>
             <p>The classic game of strategy, negotiation, and betrayal.</p>
           </div>
-          <DiplomacyMap units={demoUnits} />
+          <DiplomacyMap mapDef={standardMap} units={demoUnits} />
           <div class="login-container">
             <LoginButton />
             <p class="login-hint">Sign in to create or join games</p>
@@ -90,12 +88,16 @@
       </div>
     {:else if view === 'list'}
       <div class="list-view">
+        {#if $isSiteAdmin}
+          <AdminPanel />
+        {/if}
         <GameList onSelectGame={handleSelectGame} />
       </div>
     {:else if view === 'game-lobby' && selectedGame}
       <div>
         <GameLobby
           gameId={selectedGame.id}
+          initialGame={selectedGame}
           onBack={handleBackToList}
           onStart={handleGameStarted}
         />
@@ -113,7 +115,7 @@
           <span class="game-meta">{selectedGame.season} {selectedGame.year}</span>
           <span class="game-phase-pill">{selectedGame.phase}</span>
         </div>
-        <DiplomacyMap units={selectedGame.units} />
+        <DiplomacyMap mapDef={standardMap} units={selectedGame.units} />
       </div>
     {/if}
   </main>
