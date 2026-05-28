@@ -27,24 +27,20 @@
 
   function territoryFill(id: string): string {
     const t = mapDef.territories[id]
-    if (t.type === 'sea') return 'transparent'
+    if (t.type === 'sea') return '#c6dbef'
     const ownerColor = getOwnerColor(id)
-    if (ownerColor) return ownerColor + '30'
+    if (ownerColor) return ownerColor + '40'
     const unit = getUnitAt(id)
     if (unit) {
       const p = getPower(unit.nation)
-      return p ? p.color + '20' : '#f8faf8'
+      return p ? p.color + '25' : '#ffffdd'
     }
-    return '#f0f0ee'
+    return '#ffffdd'
   }
 
   function territoryStroke(id: string): string {
     if (selectedTerritory === id) return '#f59e0b'
-    const t = mapDef.territories[id]
-    if (t.type === 'sea') return 'none'
-    const ownerColor = getOwnerColor(id)
-    if (ownerColor) return ownerColor + '50'
-    return '#bbb'
+    return '#000'
   }
 
   function handleTerritoryClick(id: string) {
@@ -59,33 +55,41 @@
 <div class="map-container">
   <svg viewBox={mapDef.viewBox} xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="3" result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
-      </filter>
-      <pattern id="water" width="24" height="24" patternUnits="userSpaceOnUse">
-        <rect width="24" height="24" fill="#dbeafe" />
-        <path d="M0 12 Q6 9 12 12 Q18 15 24 12" stroke="#bfdbfe" stroke-width="0.5" fill="none" opacity="0.6" />
-      </pattern>
       <filter id="unit-shadow" x="-20%" y="-20%" width="140%" height="140%">
-        <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.15" />
+        <feDropShadow dx="0" dy="0.5" stdDeviation="1" flood-opacity="0.2" />
       </filter>
     </defs>
 
-    <!-- Water background -->
-    <rect width="100%" height="100%" fill="url(#water)" rx="8" />
+    <!-- Background -->
+    <rect width="100%" height="100%" fill="#c6dbef" />
 
-    <!-- Land territories -->
+    <!-- Sea zones first (below land) -->
     {#each Object.entries(mapDef.territories) as [id, t] (id)}
-      {#if t.render.path && t.type !== 'sea'}
+      {#if t.type === 'sea' && t.render.path}
+        <path
+          d={t.render.path}
+          fill="#99ccff"
+          stroke="#000"
+          stroke-width={selectedTerritory === id ? 1.5 : 0.3}
+          stroke-linejoin="round"
+          class="territory-path"
+          on:click={() => handleTerritoryClick(id)}
+          on:keydown={(e) => e.key === 'Enter' && handleTerritoryClick(id)}
+          role="button"
+          tabindex="0"
+        />
+      {/if}
+    {/each}
+
+    <!-- Land/coast territories -->
+    {#each Object.entries(mapDef.territories) as [id, t] (id)}
+      {#if t.type !== 'sea' && t.render.path}
         <path
           d={t.render.path}
           fill={territoryFill(id)}
           stroke={territoryStroke(id)}
-          stroke-width={selectedTerritory === id ? 2 : 0.8}
+          stroke-width={selectedTerritory === id ? 1.5 : 0.5}
+          stroke-linejoin="round"
           class="territory-path"
           on:click={() => handleTerritoryClick(id)}
           on:keydown={(e) => e.key === 'Enter' && handleTerritoryClick(id)}
@@ -100,13 +104,12 @@
       {#if t.supplyCenter}
         {@const [cx, cy] = t.render.center}
         <circle
-          cx={cx}
-          cy={cy + 10}
+          cx={cx + 12}
+          cy={cy - 4}
           r="3"
           fill="none"
-          stroke={t.homePower ? (getPower(t.homePower)?.color ?? '#444') : '#444'}
-          stroke-width="1.2"
-          class="supply-center"
+          stroke={t.homePower ? (getPower(t.homePower)?.color ?? '#333') : '#333'}
+          stroke-width="1"
         />
       {/if}
     {/each}
@@ -114,18 +117,13 @@
     <!-- Territory labels -->
     {#each Object.entries(mapDef.territories) as [id, t] (id)}
       {@const [cx, cy] = t.render.center}
-      {@const unit = getUnitAt(id)}
       <text
-        x={cx + (t.render.labelOffset?.[0] ?? 0)}
-        y={cy - (unit ? 10 : 2) + (t.render.labelOffset?.[1] ?? 0)}
-        text-anchor="middle"
+        x={cx}
+        y={cy}
+        text-anchor="start"
         dominant-baseline="central"
         class="territory-label"
         class:sea={t.type === 'sea'}
-        on:click={() => handleTerritoryClick(id)}
-        on:keydown={(e) => e.key === 'Enter' && handleTerritoryClick(id)}
-        role="button"
-        tabindex="-1"
       >
         {id}
       </text>
@@ -139,46 +137,28 @@
         <g transition:scale={{ duration: 300, easing: cubicOut }}>
           {#if unit.type === 'army'}
             <rect
-              x={cx - 8}
-              y={cy - 8}
-              width="16"
-              height="16"
-              rx="3"
+              x={cx - 6}
+              y={cy + 4}
+              width="12"
+              height="12"
+              rx="2"
               fill={unitColor(unit)}
               stroke="white"
-              stroke-width="1.2"
+              stroke-width="1"
               filter="url(#unit-shadow)"
             />
-            <text x={cx} y={cy} text-anchor="middle" dominant-baseline="central" class="unit-label">A</text>
+            <text x={cx} y={cy + 10} text-anchor="middle" dominant-baseline="central" class="unit-label">A</text>
           {:else}
             <polygon
-              points="{cx},{cy - 10} {cx + 10},{cy + 6} {cx - 10},{cy + 6}"
+              points="{cx},{cy + 2} {cx + 7},{cy + 13} {cx - 7},{cy + 13}"
               fill={unitColor(unit)}
               stroke="white"
-              stroke-width="1.2"
+              stroke-width="1"
               filter="url(#unit-shadow)"
             />
-            <text x={cx} y={cy} text-anchor="middle" dominant-baseline="central" class="unit-label">F</text>
+            <text x={cx} y={cy + 9} text-anchor="middle" dominant-baseline="central" class="unit-label">F</text>
           {/if}
         </g>
-      {/if}
-    {/each}
-
-    <!-- Sea zone click targets (invisible) -->
-    {#each Object.entries(mapDef.territories) as [id, t] (id)}
-      {#if t.type === 'sea'}
-        {@const [cx, cy] = t.render.center}
-        <circle
-          {cx}
-          {cy}
-          r="20"
-          fill="transparent"
-          class="sea-target"
-          on:click={() => handleTerritoryClick(id)}
-          on:keydown={(e) => e.key === 'Enter' && handleTerritoryClick(id)}
-          role="button"
-          tabindex="0"
-        />
       {/if}
     {/each}
   </svg>
@@ -206,7 +186,7 @@
       {/if}
       {#if terr.adjacent.length}
         <div class="adjacent-info">
-          <span class="adj-label">Adjacent:</span>
+          <span class="adj-label">Adj:</span>
           <span class="adj-list">{terr.adjacent.join(', ')}</span>
         </div>
       {/if}
@@ -232,53 +212,39 @@
   .territory-path {
     cursor: pointer;
     outline: none;
-    transition: fill 0.15s, stroke 0.15s, stroke-width 0.1s;
+    transition: fill-opacity 0.15s, stroke-width 0.1s;
   }
 
   .territory-path:hover {
-    filter: brightness(0.95);
-    stroke-width: 2;
+    fill-opacity: 0.8;
+    stroke-width: 1.5;
   }
 
   .territory-path:focus-visible {
     stroke: #f59e0b;
-    stroke-width: 2.5;
+    stroke-width: 2;
   }
 
   .territory-label {
-    font-size: 7px;
-    font-weight: 600;
-    fill: #4b5563;
+    font-size: 8px;
+    font-weight: 700;
+    fill: #000;
     pointer-events: none;
     user-select: none;
-    letter-spacing: 0.3px;
-    font-family: var(--font, system-ui);
-    cursor: pointer;
-    pointer-events: auto;
+    font-family: 'Liberation Sans', sans-serif;
   }
 
   .territory-label.sea {
-    fill: #3b82f6;
-    font-weight: 500;
-    font-size: 6px;
-    opacity: 0.7;
-  }
-
-  .supply-center {
-    pointer-events: none;
+    fill: #000;
+    font-weight: 400;
   }
 
   .unit-label {
-    font-size: 8px;
+    font-size: 7px;
     font-weight: 700;
     fill: white;
     pointer-events: none;
     font-family: var(--font, system-ui);
-  }
-
-  .sea-target {
-    cursor: pointer;
-    outline: none;
   }
 
   .territory-info {
