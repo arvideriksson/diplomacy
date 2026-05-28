@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { tweened } from 'svelte/motion'
   import { cubicOut } from 'svelte/easing'
   import { fade, scale } from 'svelte/transition'
-  import { flip } from 'svelte/animate'
   import type { Unit } from '../lib/game'
 
   export let units: Unit[] = []
@@ -57,17 +55,21 @@
         </feMerge>
       </filter>
       <pattern id="water" width="20" height="20" patternUnits="userSpaceOnUse">
-        <rect width="20" height="20" fill="#bfdbfe" />
-        <path d="M0 10 Q5 8 10 10 Q15 12 20 10" stroke="#93c5fd" stroke-width="0.5" fill="none" />
+        <rect width="20" height="20" fill="#dbeafe" />
+        <path d="M0 10 Q5 7 10 10 Q15 13 20 10" stroke="#bfdbfe" stroke-width="0.6" fill="none" opacity="0.7" />
       </pattern>
+      <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.1" />
+      </filter>
     </defs>
 
-    <rect width="700" height="560" fill="url(#water)" rx="8" />
+    <rect width="700" height="560" fill="url(#water)" rx="12" />
 
     {#each Object.entries(TERRITORIES) as [id, t] (id)}
+      {@const unit = getUnitAt(id)}
+      {@const isSelected = selectedTerritory === id}
       <g
         class="territory"
-        class:selected={selectedTerritory === id}
         on:click={() => handleTerritoryClick(id)}
         on:keydown={(e) => e.key === 'Enter' && handleTerritoryClick(id)}
         role="button"
@@ -78,25 +80,27 @@
             cx={t.x}
             cy={t.y}
             r="28"
-            fill={getUnitAt(id) ? NATIONS[getUnitAt(id)!.nation] + '33' : '#f0fdf4'}
-            stroke={selectedTerritory === id ? '#f59e0b' : '#94a3b8'}
-            stroke-width={selectedTerritory === id ? 2.5 : 1}
+            fill={unit ? NATIONS[unit.nation] + '20' : '#f8faf8'}
+            stroke={isSelected ? '#f59e0b' : unit ? NATIONS[unit.nation] + '60' : '#c8d0d8'}
+            stroke-width={isSelected ? 2.5 : 1}
+            class="territory-bg"
           />
         {:else}
           <circle
             cx={t.x}
             cy={t.y}
             r="24"
-            fill="none"
-            stroke={selectedTerritory === id ? '#f59e0b' : '#60a5fa'}
-            stroke-width={selectedTerritory === id ? 2.5 : 1}
+            fill="rgba(255,255,255,0.15)"
+            stroke={isSelected ? '#f59e0b' : '#93c5fd'}
+            stroke-width={isSelected ? 2.5 : 1}
             stroke-dasharray="4 3"
+            class="territory-bg"
           />
         {/if}
 
         <text
           x={t.x}
-          y={t.y - (getUnitAt(id) ? 18 : 0)}
+          y={t.y - (unit ? 18 : 0)}
           text-anchor="middle"
           dominant-baseline="central"
           class="territory-label"
@@ -105,19 +109,19 @@
           {id}
         </text>
 
-        {#if getUnitAt(id)}
-          {@const unit = getUnitAt(id)!}
-          <g transition:scale={{ duration: 400, easing: cubicOut }}>
+        {#if unit}
+          <g transition:scale={{ duration: 350, easing: cubicOut }}>
             {#if unit.type === 'army'}
               <rect
                 x={t.x - 10}
                 y={t.y - 10}
                 width="20"
                 height="20"
-                rx="3"
+                rx="4"
                 fill={NATIONS[unit.nation]}
                 stroke="white"
                 stroke-width="1.5"
+                filter="url(#card-shadow)"
               />
               <text x={t.x} y={t.y} text-anchor="middle" dominant-baseline="central" class="unit-label">A</text>
             {:else}
@@ -126,6 +130,7 @@
                 fill={NATIONS[unit.nation]}
                 stroke="white"
                 stroke-width="1.5"
+                filter="url(#card-shadow)"
               />
               <text x={t.x} y={t.y + 1} text-anchor="middle" dominant-baseline="central" class="unit-label">F</text>
             {/if}
@@ -136,17 +141,19 @@
   </svg>
 
   {#if selectedTerritory}
-    <div class="territory-info" transition:fade={{ duration: 200 }}>
-      <h3>{TERRITORIES[selectedTerritory].name}</h3>
-      <p class="territory-type">{TERRITORIES[selectedTerritory].type === 'sea' ? 'Sea zone' : 'Land territory'}</p>
-      {#if getUnitAt(selectedTerritory)}
-        {@const unit = getUnitAt(selectedTerritory)!}
-        <p class="unit-info">
+    {@const terr = TERRITORIES[selectedTerritory]}
+    {@const unit = getUnitAt(selectedTerritory)}
+    <div class="territory-info" transition:fade={{ duration: 150 }}>
+      <h3>{terr.name}</h3>
+      <span class="territory-type-badge" class:sea={terr.type === 'sea'}>
+        {terr.type === 'sea' ? 'Sea' : 'Land'}
+      </span>
+      {#if unit}
+        <div class="unit-info">
           <span class="nation-dot" style="background: {NATIONS[unit.nation]}"></span>
-          {unit.nation} {unit.type}
-        </p>
-      {:else}
-        <p class="empty">No units</p>
+          <span class="nation-name">{unit.nation}</span>
+          <span class="unit-type">{unit.type}</span>
+        </div>
       {/if}
     </div>
   {/if}
@@ -163,85 +170,112 @@
   svg {
     width: 100%;
     height: auto;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-lg, 14px);
+    box-shadow: var(--shadow-lg, 0 8px 30px rgba(0, 0, 0, 0.08));
   }
 
   .territory {
     cursor: pointer;
-    transition: opacity 0.2s;
+    outline: none;
   }
 
-  .territory:hover {
-    opacity: 0.85;
+  .territory-bg {
+    transition: stroke 0.2s, stroke-width 0.15s, fill 0.2s;
+  }
+
+  .territory:hover .territory-bg {
+    fill-opacity: 0.9;
+    stroke-width: 2;
+  }
+
+  .territory:focus-visible .territory-bg {
+    stroke: #f59e0b;
+    stroke-width: 2.5;
   }
 
   .territory-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
-    fill: #374151;
+    fill: #4b5563;
     pointer-events: none;
     user-select: none;
+    letter-spacing: 0.5px;
+    font-family: var(--font, system-ui);
   }
 
   .territory-label.sea {
-    fill: #2563eb;
-    font-size: 10px;
+    fill: #3b82f6;
     font-weight: 500;
+    font-size: 9px;
   }
 
   .unit-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     fill: white;
     pointer-events: none;
+    font-family: var(--font, system-ui);
   }
 
   .territory-info {
     position: absolute;
     bottom: 16px;
     left: 16px;
-    background: white;
-    border-radius: 8px;
+    background: var(--bg-card, white);
+    border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+    border-radius: var(--radius-md, 10px);
     padding: 12px 16px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-    min-width: 160px;
+    box-shadow: var(--shadow-lg, 0 8px 30px rgba(0, 0, 0, 0.08));
+    min-width: 140px;
   }
 
   .territory-info h3 {
     margin: 0 0 4px;
-    font-size: 16px;
-    color: #1a202c;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text, #1a1a1a);
   }
 
-  .territory-type {
-    margin: 0 0 6px;
-    font-size: 12px;
-    color: #718096;
+  .territory-type-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    padding: 1px 7px;
+    border-radius: var(--radius-full, 9999px);
+    background: var(--green-subtle, rgba(5, 150, 105, 0.1));
+    color: var(--green, #059669);
+  }
+
+  .territory-type-badge.sea {
+    background: var(--accent-subtle, rgba(37, 99, 235, 0.08));
+    color: var(--accent, #2563eb);
   }
 
   .unit-info {
-    margin: 0;
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 14px;
-    color: #2d3748;
+    margin-top: 8px;
+    font-size: 13px;
   }
 
   .nation-dot {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     display: inline-block;
+    flex-shrink: 0;
   }
 
-  .empty {
-    margin: 0;
-    font-size: 13px;
-    color: #a0aec0;
-    font-style: italic;
+  .nation-name {
+    font-weight: 600;
+    color: var(--text, #1a1a1a);
+  }
+
+  .unit-type {
+    color: var(--text-tertiary, #8c8c8c);
+    text-transform: capitalize;
   }
 </style>
