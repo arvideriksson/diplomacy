@@ -12,15 +12,16 @@
   let joinCode = ''
   let joining = false
   let joinError = ''
+  let copied = ''
 
   async function handleCreate() {
     if (!newGameName.trim() || !$user) return
     creating = true
     try {
-      await createGame(newGameName.trim(), $user.id, isPrivate)
+      const game = await createGame(newGameName.trim(), $user.id, isPrivate)
       newGameName = ''
       isPrivate = false
-      await fetchGames()
+      onSelectGame(game)
     } finally {
       creating = false
     }
@@ -35,7 +36,7 @@
       joinCode = ''
       await fetchGames()
     } catch (e: any) {
-      joinError = e.message ?? 'Invalid code'
+      joinError = e.message ?? 'Invalid invite code'
     } finally {
       joining = false
     }
@@ -43,48 +44,55 @@
 
   function copyInviteCode(code: string) {
     navigator.clipboard.writeText(code)
+    copied = code
+    setTimeout(() => (copied = ''), 1500)
   }
 
   export let onSelectGame: (game: GameState) => void = () => {}
 </script>
 
 <div class="game-list">
-  <div class="create-section">
-    <div class="create-form">
-      <input
-        bind:value={newGameName}
-        placeholder="New game name..."
-        on:keydown={(e) => e.key === 'Enter' && handleCreate()}
-      />
-      <button class="create-btn" on:click={handleCreate} disabled={creating || !newGameName.trim()}>
-        {creating ? 'Creating...' : 'Create Game'}
-      </button>
+  <div class="actions-row">
+    <div class="action-card">
+      <div class="action-label">Create a new game</div>
+      <div class="action-form">
+        <input
+          bind:value={newGameName}
+          placeholder="Game name"
+          on:keydown={(e) => e.key === 'Enter' && handleCreate()}
+        />
+        <button class="btn btn-primary" on:click={handleCreate} disabled={creating || !newGameName.trim()}>
+          {creating ? 'Creating...' : 'Create'}
+        </button>
+      </div>
+      <label class="private-toggle">
+        <input type="checkbox" bind:checked={isPrivate} />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-text">{isPrivate ? 'Private' : 'Public'}</span>
+        {#if isPrivate}
+          <span class="toggle-hint" transition:fade={{ duration: 120 }}>Invite code required to join</span>
+        {/if}
+      </label>
     </div>
-    <label class="private-toggle">
-      <input type="checkbox" bind:checked={isPrivate} />
-      <span class="toggle-track">
-        <span class="toggle-thumb"></span>
-      </span>
-      <span class="toggle-label">Private</span>
-    </label>
-  </div>
 
-  <div class="join-section">
-    <div class="join-form">
-      <input
-        bind:value={joinCode}
-        placeholder="Enter invite code..."
-        maxlength="6"
-        on:keydown={(e) => e.key === 'Enter' && handleJoin()}
-        class="code-input"
-      />
-      <button class="join-btn" on:click={handleJoin} disabled={joining || !joinCode.trim()}>
-        {joining ? 'Joining...' : 'Join Game'}
-      </button>
+    <div class="action-card">
+      <div class="action-label">Join with invite code</div>
+      <div class="action-form">
+        <input
+          bind:value={joinCode}
+          placeholder="ABC123"
+          maxlength="6"
+          on:keydown={(e) => e.key === 'Enter' && handleJoin()}
+          class="code-input"
+        />
+        <button class="btn btn-secondary" on:click={handleJoin} disabled={joining || !joinCode.trim()}>
+          {joining ? 'Joining...' : 'Join'}
+        </button>
+      </div>
+      {#if joinError}
+        <p class="error" transition:slide={{ duration: 150 }}>{joinError}</p>
+      {/if}
     </div>
-    {#if joinError}
-      <p class="error" transition:slide={{ duration: 200 }}>{joinError}</p>
-    {/if}
   </div>
 
   <div class="games">
@@ -95,36 +103,67 @@
         tabindex="0"
         on:click={() => onSelectGame(game)}
         on:keydown={(e) => e.key === 'Enter' && onSelectGame(game)}
-        transition:fly={{ y: 20, duration: 300 }}
-        animate:flip={{ duration: 300 }}
+        transition:fly={{ y: 12, duration: 250 }}
+        animate:flip={{ duration: 250 }}
       >
-        <div class="card-header">
-          <h3>{game.name}</h3>
-          {#if game.is_private}
-            <span class="badge private">Private</span>
-          {:else}
-            <span class="badge public">Public</span>
-          {/if}
+        <div class="card-left">
+          <div class="card-title-row">
+            <h3>{game.name}</h3>
+            {#if game.is_private}
+              <span class="visibility-badge private">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                Private
+              </span>
+            {:else}
+              <span class="visibility-badge public">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M2 12h20" />
+                </svg>
+                Public
+              </span>
+            {/if}
+          </div>
+          <div class="card-meta">
+            <span class="phase-pill">{game.phase}</span>
+            <span class="season">{game.season} {game.year}</span>
+            <span class="player-count">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              {Object.keys(game.players).length}/7
+            </span>
+          </div>
         </div>
-        <div class="meta">
-          <span class="phase">{game.phase}</span>
-          <span class="date">{game.season} {game.year}</span>
-        </div>
-        <div class="card-footer">
-          <p class="players">{Object.keys(game.players).length}/7 players</p>
-          {#if game.invite_code}
-            <button
-              class="invite-code"
-              on:click|stopPropagation={() => copyInviteCode(game.invite_code ?? '')}
-              title="Click to copy"
-            >
-              {game.invite_code}
-            </button>
-          {/if}
-        </div>
+        {#if game.invite_code}
+          <button
+            class="invite-chip"
+            class:copied={copied === game.invite_code}
+            on:click|stopPropagation={() => copyInviteCode(game.invite_code ?? '')}
+            title="Copy invite code"
+          >
+            {copied === game.invite_code ? 'Copied!' : game.invite_code}
+          </button>
+        {:else}
+          <svg class="card-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        {/if}
       </div>
     {:else}
-      <p class="empty" transition:fade>No games yet. Create one or join with an invite code.</p>
+      <div class="empty-state" transition:fade>
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.2">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+        <p>No games yet</p>
+        <p class="sub">Create a game or join one with an invite code.</p>
+      </div>
     {/each}
   </div>
 </div>
@@ -132,92 +171,119 @@
 <style>
   .game-list {
     width: 100%;
-    max-width: 600px;
-    margin: 0 auto;
   }
 
-  .create-section {
-    margin-bottom: 16px;
+  .actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 32px;
   }
 
-  .create-form {
-    display: flex;
-    gap: 8px;
+  @media (max-width: 600px) {
+    .actions-row {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .join-section {
-    margin-bottom: 24px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--border, #e2e8f0);
+  .action-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
   }
 
-  .join-form {
+  .action-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .action-form {
     display: flex;
     gap: 8px;
   }
 
   input {
     flex: 1;
-    padding: 10px 14px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    padding: 9px 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     font-size: 14px;
     outline: none;
-    transition: border-color 0.15s;
-    background: var(--bg-card, white);
-    color: var(--text, #2d3748);
+    background: var(--bg-input);
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    min-width: 0;
+  }
+
+  input::placeholder {
+    color: var(--text-tertiary);
   }
 
   input:focus {
-    border-color: #3b82f6;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
   }
 
   .code-input {
-    font-family: monospace;
-    font-size: 16px;
-    letter-spacing: 2px;
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 3px;
     text-transform: uppercase;
-    max-width: 160px;
+    text-align: center;
   }
 
-  .create-btn, .join-btn {
-    padding: 10px 20px;
-    color: white;
+  .btn {
+    padding: 9px 18px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.12s, transform 0.1s, box-shadow 0.12s;
     white-space: nowrap;
+    font-family: var(--font);
   }
 
-  .create-btn {
-    background: #3b82f6;
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
-  .create-btn:hover:not(:disabled) {
-    background: #2563eb;
-  }
-
-  .join-btn {
-    background: #6b7280;
-  }
-
-  .join-btn:hover:not(:disabled) {
-    background: #4b5563;
-  }
-
-  .create-btn:disabled, .join-btn:disabled {
-    opacity: 0.5;
+  .btn:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--text-inverse);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
   }
 
   .private-toggle {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 12px;
     cursor: pointer;
     user-select: none;
   }
@@ -227,17 +293,17 @@
   }
 
   .toggle-track {
-    width: 36px;
+    width: 34px;
     height: 20px;
-    background: #cbd5e0;
-    border-radius: 10px;
+    background: var(--border-strong);
+    border-radius: var(--radius-full);
     position: relative;
     transition: background 0.2s;
     flex-shrink: 0;
   }
 
   .private-toggle input:checked + .toggle-track {
-    background: #f59e0b;
+    background: var(--amber);
   }
 
   .toggle-thumb {
@@ -249,133 +315,196 @@
     background: white;
     border-radius: 50%;
     transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
   }
 
   .private-toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(16px);
+    transform: translateX(14px);
   }
 
-  .toggle-label {
+  .toggle-text {
     font-size: 13px;
-    color: var(--text-muted, #718096);
+    color: var(--text-secondary);
     font-weight: 500;
   }
 
+  .toggle-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
   .error {
-    color: #e53e3e;
+    color: var(--red);
     font-size: 13px;
-    margin: 6px 0 0;
+    margin: 8px 0 0;
   }
 
   .games {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
 
   .game-card {
-    display: block;
-    width: 100%;
-    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     padding: 16px 20px;
-    background: var(--bg-card, white);
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: box-shadow 0.2s, transform 0.1s;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+    outline: none;
   }
 
   .game-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
   }
 
-  .card-header {
+  .game-card:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+
+  .game-card:active {
+    transform: scale(0.995);
+  }
+
+  .card-left {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .card-title-row {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 6px;
   }
 
-  .card-header h3 {
+  .card-title-row h3 {
     margin: 0;
-    font-size: 16px;
-    color: var(--text, #1a202c);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .badge {
+  .visibility-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 11px;
-    padding: 1px 7px;
-    border-radius: 4px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+  }
+
+  .visibility-badge.private {
+    background: var(--amber-subtle);
+    color: var(--amber);
+  }
+
+  .visibility-badge.public {
+    background: var(--green-subtle);
+    color: var(--green);
+  }
+
+  .card-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .phase-pill {
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
-  }
-
-  .badge.private {
-    background: #fef3c7;
-    color: #92400e;
-  }
-
-  .badge.public {
-    background: #d1fae5;
-    color: #065f46;
-  }
-
-  .meta {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 6px;
-  }
-
-  .phase {
-    font-size: 12px;
-    color: white;
-    background: #3b82f6;
+    letter-spacing: 0.5px;
     padding: 2px 8px;
-    border-radius: 4px;
-    text-transform: uppercase;
+    border-radius: var(--radius-full);
+    background: var(--accent-subtle);
+    color: var(--accent);
+  }
+
+  .season {
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  .player-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  .card-arrow {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    transition: transform 0.15s;
+  }
+
+  .game-card:hover .card-arrow {
+    transform: translateX(2px);
+  }
+
+  .invite-chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    padding: 4px 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
     font-weight: 500;
   }
 
-  .date {
-    font-size: 13px;
-    color: var(--text-muted, #718096);
+  .invite-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
-  .card-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  .invite-chip.copied {
+    border-color: var(--green);
+    color: var(--green);
+    background: var(--green-subtle);
   }
 
-  .players {
-    margin: 0;
-    font-size: 13px;
-    color: #a0aec0;
-  }
-
-  .invite-code {
-    font-family: monospace;
-    font-size: 13px;
-    letter-spacing: 1.5px;
-    padding: 2px 8px;
-    background: #f7fafc;
-    border: 1px dashed #cbd5e0;
-    border-radius: 4px;
-    color: #4a5568;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  .invite-code:hover {
-    background: #edf2f7;
-  }
-
-  .empty {
+  .empty-state {
     text-align: center;
-    color: #a0aec0;
-    padding: 40px;
-    font-style: italic;
+    padding: 60px 20px;
+    color: var(--text-tertiary);
+  }
+
+  .empty-state svg {
+    margin-bottom: 16px;
+    opacity: 0.4;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .empty-state .sub {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-tertiary);
+    margin-top: 4px;
   }
 </style>

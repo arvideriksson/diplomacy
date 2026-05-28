@@ -1,15 +1,25 @@
 <script lang="ts">
   import { user, signOut } from '../lib/auth'
-  import { fade } from 'svelte/transition'
+  import { fade, fly } from 'svelte/transition'
 
   let showMenu = false
+
+  function handleClickOutside(e: MouseEvent) {
+    if (showMenu) showMenu = false
+  }
 </script>
 
+<svelte:window on:click={handleClickOutside} />
+
 {#if $user}
-  <div class="user-menu" transition:fade={{ duration: 200 }}>
-    <button class="avatar-btn" on:click={() => (showMenu = !showMenu)}>
+  <div class="user-menu" transition:fade={{ duration: 150 }}>
+    <button
+      class="avatar-btn"
+      on:click|stopPropagation={() => (showMenu = !showMenu)}
+      aria-expanded={showMenu}
+    >
       {#if $user.user_metadata?.avatar_url}
-        <img src={$user.user_metadata.avatar_url} alt="avatar" class="avatar" />
+        <img src={$user.user_metadata.avatar_url} alt="" class="avatar" />
       {:else}
         <div class="avatar placeholder">
           {$user.email?.[0]?.toUpperCase() ?? '?'}
@@ -18,9 +28,21 @@
     </button>
 
     {#if showMenu}
-      <div class="dropdown" transition:fade={{ duration: 150 }}>
-        <p class="email">{$user.email}</p>
-        <button class="sign-out" on:click={signOut}>Sign out</button>
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="dropdown" transition:fly={{ y: -8, duration: 180 }} on:click|stopPropagation>
+        <div class="dropdown-header">
+          {#if $user.user_metadata?.full_name}
+            <p class="name">{$user.user_metadata.full_name}</p>
+          {/if}
+          <p class="email">{$user.email}</p>
+        </div>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item sign-out" on:click={signOut}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+          </svg>
+          Sign out
+        </button>
       </div>
     {/if}
   </div>
@@ -33,60 +55,90 @@
 
   .avatar-btn {
     background: none;
-    border: none;
+    border: 2px solid transparent;
+    border-radius: 50%;
     cursor: pointer;
-    padding: 0;
+    padding: 2px;
+    transition: border-color 0.15s;
+  }
+
+  .avatar-btn:hover, .avatar-btn[aria-expanded="true"] {
+    border-color: var(--border-strong);
   }
 
   .avatar {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     object-fit: cover;
+    display: block;
   }
 
   .placeholder {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #4a5568;
-    color: white;
+    background: var(--accent);
+    color: var(--text-inverse);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .dropdown {
     position: absolute;
     right: 0;
-    top: 44px;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 12px 16px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    min-width: 200px;
+    top: calc(100% + 8px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 220px;
     z-index: 100;
+    overflow: hidden;
+  }
+
+  .dropdown-header {
+    padding: 14px 16px;
+  }
+
+  .name {
+    margin: 0 0 2px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
   }
 
   .email {
     font-size: 13px;
-    color: #718096;
-    margin: 0 0 8px;
+    color: var(--text-tertiary);
+    margin: 0;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: var(--border);
+  }
+
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: var(--font);
+    transition: background 0.12s;
+    text-align: left;
+  }
+
+  .dropdown-item:hover {
+    background: var(--bg-hover);
   }
 
   .sign-out {
-    width: 100%;
-    padding: 8px;
-    background: none;
-    border: 1px solid #e2e8f0;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    color: #e53e3e;
-    transition: background 0.15s;
-  }
-
-  .sign-out:hover {
-    background: #fff5f5;
+    color: var(--red);
   }
 </style>
