@@ -4,6 +4,7 @@ export interface MapDefinition {
   description: string
   playerCount: number
   viewBox: string
+  svgContent: string
   powers: PowerDefinition[]
   territories: Record<string, TerritoryDefinition>
   startingUnits: StartingUnit[]
