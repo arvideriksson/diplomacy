@@ -141,6 +141,12 @@ export async function kickPlayer(gameId: string, playerId: string) {
   if (error) throw error
 }
 
+export async function adminDeleteAllGames(): Promise<number> {
+  const { data, error } = await supabase.rpc('admin_delete_all_games')
+  if (error) throw error
+  return data as number
+}
+
 export function subscribeToGame(id: string, callback: (game: GameState) => void) {
   return supabase
     .channel(`game:${id}`)

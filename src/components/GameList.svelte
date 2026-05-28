@@ -6,7 +6,6 @@
   import type { GameState } from '../lib/game'
 
   let newGameName = ''
-  let isPrivate = false
   let creating = false
 
   let joinCode = ''
@@ -18,9 +17,8 @@
     if (!newGameName.trim() || !$user) return
     creating = true
     try {
-      const game = await createGame(newGameName.trim(), $user.id, isPrivate)
+      const game = await createGame(newGameName.trim(), $user.id)
       newGameName = ''
-      isPrivate = false
       onSelectGame(game)
     } finally {
       creating = false
@@ -65,14 +63,6 @@
           {creating ? 'Creating...' : 'Create'}
         </button>
       </div>
-      <label class="private-toggle">
-        <input type="checkbox" bind:checked={isPrivate} />
-        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        <span class="toggle-text">{isPrivate ? 'Private' : 'Public'}</span>
-        {#if isPrivate}
-          <span class="toggle-hint" transition:fade={{ duration: 120 }}>Invite code required to join</span>
-        {/if}
-      </label>
     </div>
 
     <div class="action-card">
@@ -277,60 +267,6 @@
   .btn-secondary:hover:not(:disabled) {
     background: var(--bg-hover);
     border-color: var(--border-strong);
-  }
-
-  .private-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .private-toggle input[type="checkbox"] {
-    display: none;
-  }
-
-  .toggle-track {
-    width: 34px;
-    height: 20px;
-    background: var(--border-strong);
-    border-radius: var(--radius-full);
-    position: relative;
-    transition: background 0.2s;
-    flex-shrink: 0;
-  }
-
-  .private-toggle input:checked + .toggle-track {
-    background: var(--amber);
-  }
-
-  .toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  }
-
-  .private-toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(14px);
-  }
-
-  .toggle-text {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  .toggle-hint {
-    font-size: 12px;
-    color: var(--text-tertiary);
   }
 
   .error {

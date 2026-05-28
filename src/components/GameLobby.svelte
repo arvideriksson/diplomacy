@@ -9,11 +9,12 @@
   import type { GameState, GameSettings, PlayerInfo } from '../lib/game'
 
   export let gameId: string
+  export let initialGame: GameState | null = null
   export let onBack: () => void = () => {}
   export let onStart: (game: GameState) => void = () => {}
 
-  let game: GameState | null = null
-  let loading = true
+  let game: GameState | null = initialGame
+  let loading = !initialGame
   let saving = false
   let starting = false
   let copied = false
@@ -35,8 +36,9 @@
 
   onMount(async () => {
     try {
-      game = await fetchGame(gameId)
-
+      if (!game) {
+        game = await fetchGame(gameId)
+      }
       channel = subscribeToGame(gameId, (updated) => {
         game = updated
       })
@@ -130,11 +132,11 @@
 </script>
 
 {#if loading}
-  <div class="loading" transition:fade>
+  <div class="loading">
     <div class="spinner"></div>
   </div>
 {:else if game}
-  <div class="lobby" transition:fade={{ duration: 200 }}>
+  <div class="lobby">
     <button class="back-btn" on:click={onBack}>
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 12H5M12 19l-7-7 7-7" />
