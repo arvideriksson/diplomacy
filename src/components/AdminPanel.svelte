@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte'
   import { adminDeleteAllGames, fetchGames } from '../lib/game'
+
+  const dispatch = createEventDispatcher()
 
   let deleting = false
   let result = ''
@@ -29,20 +32,17 @@
   </div>
 
   <div class="admin-actions">
-    <div class="action-row">
-      <div>
-        <span class="action-title">Delete all games</span>
-        <span class="action-desc">Permanently removes every game from the database</span>
-      </div>
-      <button class="btn-danger" on:click={handleDeleteAll} disabled={deleting}>
-        {deleting ? 'Deleting...' : 'Delete all'}
-      </button>
-    </div>
-
-    {#if result}
-      <p class="result">{result}</p>
-    {/if}
+    <button class="btn-danger" on:click={handleDeleteAll} disabled={deleting}>
+      {deleting ? 'Deleting...' : 'Delete all games'}
+    </button>
+    <button class="btn-admin" on:click={() => dispatch('openMapEditor')}>
+      Map editor
+    </button>
   </div>
+
+  {#if result}
+    <p class="result">{result}</p>
+  {/if}
 </section>
 
 <style>
@@ -71,29 +71,7 @@
 
   .admin-actions {
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .action-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .action-title {
-    display: block;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .action-desc {
-    display: block;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-top: 1px;
+    gap: 10px;
   }
 
   .btn-danger {
@@ -121,6 +99,24 @@
   .btn-danger:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .btn-admin {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: var(--font);
+    white-space: nowrap;
+    transition: background 0.12s;
+  }
+
+  .btn-admin:hover {
+    background: var(--accent-subtle);
   }
 
   .result {

@@ -14,7 +14,7 @@
   import { standardMap } from './lib/maps/standard'
 
   let ready = false
-  let view: 'list' | 'game-lobby' | 'game' = 'list'
+  let view: 'list' | 'game-lobby' | 'game' | 'map-editor' = 'list'
   let selectedGame: GameState | null = null
 
   const demoUnits: Unit[] = standardMap.startingUnits.map((u) => ({
@@ -79,7 +79,7 @@
             <h1>Diplomacy</h1>
             <p>The classic game of strategy, negotiation, and betrayal.</p>
           </div>
-          <DiplomacyMap mapDef={standardMap} units={demoUnits} />
+          <DiplomacyMap mapDef={standardMap} units={demoUnits} isAdmin={$isSiteAdmin} />
           <div class="login-container">
             <LoginButton />
             <p class="login-hint">Sign in to create or join games</p>
@@ -89,9 +89,23 @@
     {:else if view === 'list'}
       <div class="list-view">
         {#if $isSiteAdmin}
-          <AdminPanel />
+          <AdminPanel on:openMapEditor={() => view = 'map-editor'} />
         {/if}
         <GameList onSelectGame={handleSelectGame} />
+      </div>
+    {:else if view === 'map-editor'}
+      <div class="game-view">
+        <button class="back-btn" on:click={handleBackToList}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+        <div class="game-header">
+          <h2>Map Editor</h2>
+          <span class="game-meta">Standard — 1901</span>
+        </div>
+        <DiplomacyMap mapDef={standardMap} units={demoUnits} isAdmin={true} />
       </div>
     {:else if view === 'game-lobby' && selectedGame}
       <div>
