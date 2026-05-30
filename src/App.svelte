@@ -23,6 +23,13 @@
     territory: u.territory,
   }))
 
+  // Starting political map: home supply centers tinted by their owning power.
+  const homeOwnership: Record<string, string> = Object.fromEntries(
+    Object.entries(standardMap.territories)
+      .filter(([, t]) => t.supplyCenter && t.homePower)
+      .map(([id, t]) => [id, t.homePower as string])
+  )
+
   onMount(async () => {
     await initAuth()
     ready = true
@@ -37,6 +44,15 @@
     selectedGame = game
     view = 'game'
   }
+
+  // Tint supply-center provinces by the nation currently occupying them.
+  $: gameOwnership = selectedGame
+    ? Object.fromEntries(
+        selectedGame.units
+          .filter((u) => standardMap.territories[u.territory]?.supplyCenter)
+          .map((u) => [u.territory, u.nation])
+      )
+    : {}
 
   function handleBackToList() {
     view = 'list'
@@ -79,7 +95,7 @@
             <h1>Diplomacy</h1>
             <p>The classic game of strategy, negotiation, and betrayal.</p>
           </div>
-          <DiplomacyMap mapDef={standardMap} units={demoUnits} isAdmin={$isSiteAdmin} />
+          <DiplomacyMap mapDef={standardMap} units={demoUnits} ownership={homeOwnership} interactive={false} />
           <div class="login-container">
             <LoginButton />
             <p class="login-hint">Sign in to create or join games</p>
@@ -105,7 +121,7 @@
           <h2>Map Editor</h2>
           <span class="game-meta">Standard — 1901</span>
         </div>
-        <DiplomacyMap mapDef={standardMap} units={demoUnits} isAdmin={true} />
+        <DiplomacyMap mapDef={standardMap} units={demoUnits} />
       </div>
     {:else if view === 'game-lobby' && selectedGame}
       <div>
@@ -129,7 +145,7 @@
           <span class="game-meta">{selectedGame.season} {selectedGame.year}</span>
           <span class="game-phase-pill">{selectedGame.phase}</span>
         </div>
-        <DiplomacyMap mapDef={standardMap} units={selectedGame.units} />
+        <DiplomacyMap mapDef={standardMap} units={selectedGame.units} ownership={gameOwnership} />
       </div>
     {/if}
   </main>
