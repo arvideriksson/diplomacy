@@ -121,7 +121,7 @@
           <h2>Map Editor</h2>
           <span class="game-meta">Standard — 1901</span>
         </div>
-        <DiplomacyMap mapDef={standardMap} units={demoUnits} />
+        <DiplomacyMap mapDef={standardMap} units={demoUnits} ownership={homeOwnership} />
       </div>
     {:else if view === 'game-lobby' && selectedGame}
       <div>
