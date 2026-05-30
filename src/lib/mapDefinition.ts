@@ -3,8 +3,9 @@ export interface MapDefinition {
   name: string
   description: string
   playerCount: number
-  viewBox: string
-  svgContent: string
+  /** Legacy inline-SVG fields — unused now that maps render from the layered dSVG. */
+  viewBox?: string
+  svgContent?: string
   powers: PowerDefinition[]
   territories: Record<string, TerritoryDefinition>
   startingUnits: StartingUnit[]

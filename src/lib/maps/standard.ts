@@ -1,13 +1,10 @@
 import type { MapDefinition } from '../mapDefinition'
-import { standardMapSvgContent } from './standard-svg'
 
 export const standardMap: MapDefinition = {
   id: 'standard',
   name: 'Standard',
   description: 'Classic Diplomacy — Europe 1901, 7 great powers, 34 supply centers',
   playerCount: 7,
-  viewBox: '0 0 610 560',
-  svgContent: standardMapSvgContent,
   powers: [
     { id: 'england', name: 'England',         color: '#1e40af' },
     { id: 'france',  name: 'France',           color: '#2563eb' },
