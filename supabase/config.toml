@@ -1,0 +1,9 @@
+project_id = "diplomacy"
+
+[edge_runtime]
+enabled = true
+
+# We authenticate the cron->function call with the service-role key ourselves,
+# so JWT verification is disabled for this function.
+[functions.adjudicate]
+verify_jwt = false
