@@ -4,7 +4,8 @@
   import type { MapDefinition } from '../lib/mapDefinition'
   import { DiplicityMap, type OrderState } from '../lib/map/mapRenderer'
   import { toRenderState } from '../lib/map/renderState'
-  import { toDsvgId, toGameId } from '../lib/map/idMap'
+  import { toGameId } from '../lib/map/idMap'
+  import { renderableProvinces } from '../lib/map/coasts'
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
@@ -12,16 +13,17 @@
   export let selectedTerritory: string | null = null
   export let orders: OrderState[] | undefined = undefined
   export let interactive: boolean = true
+  /** dSVG ids to highlight (also reveals named coasts, hiding their parent). */
+  export let highlighted: string[] = []
+  /** Explicit set of clickable dSVG ids. When null, derived from `highlighted`. */
+  export let selectable: string[] | null = null
+  /** When set, the parent owns selection — receives the clicked dSVG id. */
+  export let onProvinceClick: ((dsvgId: string) => void) | null = null
 
-  // Which dSVG regions belong to a real game territory (incl. named coasts).
-  $: renderableSet = (() => {
-    const set = new Set<string>()
-    for (const [id, t] of Object.entries(mapDef.territories)) {
-      set.add(toDsvgId(id))
-      for (const coastId of Object.keys(t.coasts ?? {})) set.add(toDsvgId(id, coastId))
-    }
-    return set
-  })()
+  // Which regions are interactive. An explicit `selectable` wins; otherwise show
+  // main provinces by default and reveal coasts only where highlighted.
+  $: allRegionIds = [...provincePaths.keys(), ...namedCoastPaths.keys()]
+  $: renderableSet = new Set(selectable ?? renderableProvinces(allRegionIds, highlighted))
 
   let renderer: DiplicityMap | null = null
   let hitPaths: [string, string][] = []
@@ -89,7 +91,7 @@
       ? split(
           stripWrapper(
             renderer.render(
-              toRenderState({ mapDef, units, ownership, selectedTerritory, orders })
+              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, orders })
             )
           )
         )
@@ -108,6 +110,10 @@
   }
   function handleClickPath(id: string) {
     if (!interactive || moved || !renderableSet.has(id)) return
+    if (onProvinceClick) {
+      onProvinceClick(id)
+      return
+    }
     const gameId = toGameId(id)
     selectedTerritory = selectedTerritory === gameId ? null : gameId
   }
