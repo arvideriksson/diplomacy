@@ -39,7 +39,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
   }
 
   const unitStates: UnitState[] = units.map((unit) => ({
-    province: toDsvgId(unit.territory),
+    province: toDsvgId(unit.territory, unit.coast),
     nation: register(unit.nation),
     type: unit.type === 'fleet' ? 'Fleet' : 'Army',
   }))

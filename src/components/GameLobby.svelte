@@ -3,7 +3,7 @@
   import { fade, slide, fly } from 'svelte/transition'
   import { user } from '../lib/auth'
   import {
-    fetchGame, updateGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
+    fetchGame, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
     currentGame, NATIONS, DEFAULT_SETTINGS,
   } from '../lib/game'
   import type { GameState, GameSettings, PlayerInfo } from '../lib/game'
@@ -78,7 +78,7 @@
     if (!game || !isAdmin) return
     starting = true
     try {
-      game = await updateGame(gameId, { phase: 'active' })
+      game = await startGame(gameId, game.map_id ?? 'standard')
       onStart(game)
     } finally {
       starting = false

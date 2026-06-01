@@ -9,6 +9,7 @@
   import GameList from './components/GameList.svelte'
   import GameLobby from './components/GameLobby.svelte'
   import DiplomacyMap from './components/DiplomacyMap.svelte'
+  import GameBoard from './components/GameBoard.svelte'
   import AdminPanel from './components/AdminPanel.svelte'
   import type { Unit } from './lib/game'
   import { standardMap } from './lib/maps/standard'
@@ -21,6 +22,7 @@
     type: u.type,
     nation: u.power,
     territory: u.territory,
+    coast: u.coast,
   }))
 
   // Starting political map: home supply centers tinted by their owning power.
@@ -44,6 +46,9 @@
     selectedGame = game
     view = 'game'
   }
+
+  // The viewer's assigned nation in the selected game (empty if spectating/unassigned).
+  $: viewerNation = selectedGame && $user ? selectedGame.players[$user.id]?.nation ?? '' : ''
 
   // Tint supply-center provinces by the nation currently occupying them.
   $: gameOwnership = selectedGame
@@ -145,7 +150,12 @@
           <span class="game-meta">{selectedGame.season} {selectedGame.year}</span>
           <span class="game-phase-pill">{selectedGame.phase}</span>
         </div>
-        <DiplomacyMap mapDef={standardMap} units={selectedGame.units} ownership={gameOwnership} />
+        <GameBoard
+          mapDef={standardMap}
+          units={selectedGame.units}
+          ownership={gameOwnership}
+          nation={viewerNation}
+        />
       </div>
     {/if}
   </main>

@@ -1,5 +1,9 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
+import { getMap } from './maps'
+import type { Unit } from './types'
+
+export type { Unit }
 
 export interface GameSettings {
   turn_timer: '12h' | '24h' | '48h' | '72h' | '1w'
@@ -21,6 +25,8 @@ export interface GameState {
   phase: string
   year: number
   season: 'Spring' | 'Fall'
+  /** Key into the map registry (see src/lib/maps/index.ts). */
+  map_id: string
   players: Record<string, PlayerInfo>
   units: Unit[]
   settings: GameSettings
@@ -37,12 +43,6 @@ export interface PlayerInfo {
   display_name?: string
   avatar_url?: string
   joined_at: string
-}
-
-export interface Unit {
-  type: 'army' | 'fleet'
-  nation: string
-  territory: string
 }
 
 export const NATIONS = [
@@ -75,7 +75,7 @@ export async function fetchGame(id: string) {
   return data as GameState
 }
 
-export async function createGame(name: string, userId: string, isPrivate: boolean = false) {
+export async function createGame(name: string, userId: string, isPrivate: boolean = false, mapId: string = 'standard') {
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
 
@@ -93,6 +93,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
       phase: 'lobby',
       year: 1901,
       season: 'Spring',
+      map_id: mapId,
       players: { [userId]: playerInfo },
       units: [],
       settings: DEFAULT_SETTINGS,
@@ -106,7 +107,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   return data as GameState
 }
 
-export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players'>>) {
+export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'units'>>) {
   const { data, error } = await supabase
     .from('games')
     .update(updates)
@@ -117,6 +118,31 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
   if (error) throw error
   currentGame.set(data)
   return data as GameState
+}
+
+/** The initial unit placement for a map variant, as game-state units. */
+export function startingUnits(mapId: string): Unit[] {
+  return getMap(mapId).startingUnits.map((u) => ({
+    type: u.type,
+    nation: u.power,
+    territory: u.territory,
+    coast: u.coast,
+  }))
+}
+
+/**
+ * Move a game from lobby to active play: stamp the opening Spring 1901 phase and
+ * seed the board with the map variant's starting units. Supply-center ownership
+ * is derived from occupying units, so placing the units sets the opening political
+ * map too.
+ */
+export async function startGame(id: string, mapId: string) {
+  return updateGame(id, {
+    phase: 'active',
+    year: 1901,
+    season: 'Spring',
+    units: startingUnits(mapId),
+  })
 }
 
 export async function joinGameByCode(code: string): Promise<string> {
