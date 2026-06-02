@@ -76,21 +76,24 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
 
     case 'Move': {
       if (!draft.target) {
-        const choices = moveTargets(map, unit).map((t) => ({ id: t.province, label: name(map, t.province) }))
-        return { kind: 'province', field: 'target', prompt: 'Choose destination', choices }
-      }
-      const coasts = reachableCoasts(map, draft.target, draft.source)
-      if (coasts.length > 1 && !draft.targetCoast) {
-        return {
-          kind: 'province',
-          field: 'coast',
-          prompt: 'Choose coast',
-          choices: coasts.map((c) => ({
-            id: draft.target as string,
-            coast: c,
-            label: coastName(map, draft.target as string, c),
-          })),
+        // Destinations are coast-specific for multi-coast provinces: each reachable
+        // coast is its own choice (highlighting that coast on the map), so picking a
+        // coast is a single click — no separate coast step, even with one coast.
+        const choices: Choice[] = []
+        for (const t of moveTargets(map, unit)) {
+          if (t.coasts.length > 0) {
+            for (const c of t.coasts) {
+              choices.push({
+                id: t.province,
+                coast: c,
+                label: `${name(map, t.province)} (${coastName(map, t.province, c)})`,
+              })
+            }
+          } else {
+            choices.push({ id: t.province, label: name(map, t.province) })
+          }
         }
+        return { kind: 'province', field: 'target', prompt: 'Choose destination', choices }
       }
       return { kind: 'done' }
     }
@@ -152,7 +155,7 @@ export const finalize = (draft: Draft, ctx: WizardContext): Order => {
     targetCoast: draft.targetCoast,
     aux: draft.aux,
   }
-  if (order.type === 'Move' && order.target && !order.targetCoast) {
+  if (order.type === 'Move' && ctx.unit.type === 'fleet' && order.target && !order.targetCoast) {
     const coasts = reachableCoasts(ctx.map, order.target, order.source)
     if (coasts.length === 1) order.targetCoast = coasts[0]
   }
