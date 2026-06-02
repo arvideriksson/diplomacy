@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import GameBoard from './GameBoard.svelte'
+  import ChatPanel from './ChatPanel.svelte'
   import { fetchResolvedLog } from '../lib/game'
   import type { GameState, Unit } from '../lib/game'
   import { replayFrames, type HistoryFrame } from '../lib/history'
@@ -55,7 +56,8 @@
 </script>
 
 {#if frame}
-  <GameBoard
+  <div class="game-shell">
+    <GameBoard
     mapDef={map}
     gameId={game.id}
     units={frame.board.units}
@@ -75,5 +77,20 @@
     canPhaseBack={canBack}
     canPhaseForward={canForward}
     seedKey={String(cursor)}
-  />
+    />
+
+    <!-- Press dock: live secret chat, available once nations are assigned. -->
+    {#if nation && game.phase !== 'lobby'}
+      <ChatPanel gameId={game.id} {nation} players={game.players} />
+    {/if}
+  </div>
 {/if}
+
+<style>
+  /* Positioning context for the docked ChatPanel (absolute, bottom-left of the board). */
+  .game-shell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+</style>

@@ -6,13 +6,16 @@ export const standardMap: MapDefinition = {
   description: 'Classic Diplomacy — Europe 1901, 7 great powers, 34 supply centers',
   playerCount: 7,
   powers: [
-    { id: 'england', name: 'England',         color: '#1e40af' },
-    { id: 'france',  name: 'France',           color: '#2563eb' },
-    { id: 'germany', name: 'Germany',          color: '#6b7280' },
-    { id: 'italy',   name: 'Italy',            color: '#16a34a' },
-    { id: 'austria', name: 'Austria-Hungary',  color: '#dc2626' },
-    { id: 'russia',  name: 'Russia',           color: '#7c3aed' },
-    { id: 'turkey',  name: 'Turkey',           color: '#f59e0b' },
+    // OKLCH-balanced palette (hues preserved). Most powers sit at L=0.66; chroma is pushed
+    // per-hue toward each one's gamut so reds/blues/purples stay vivid. Turkey is lifted to
+    // L=0.80 so its amber reads as gold, not brown (brown = a dark, low-chroma amber).
+    { id: 'england', name: 'England',         color: '#4b85fe' }, // L.64 C.190 h263
+    { id: 'france',  name: 'France',           color: '#0c9edc' }, // L.66 C.140 h236
+    { id: 'germany', name: 'Germany',          color: '#8c929f' }, // L.66 C.020 (neutral)
+    { id: 'italy',   name: 'Italy',            color: '#4aa961' }, // L.66 C.140 h149
+    { id: 'austria', name: 'Austria-Hungary',  color: '#f0574e' }, // L.66 C.190 h27
+    { id: 'russia',  name: 'Russia',           color: '#9975fa' }, // L.66 C.190 h293
+    { id: 'turkey',  name: 'Turkey',           color: '#f5af20' }, // L.80 C.160 h78
   ],
 
   territories: {
