@@ -17,6 +17,7 @@ import {
   buildConvoyRoute,
   type ConvoyRoute,
 } from './orderGeometry'
+import { unitTokenSvg, DEFAULT_UNIT_STYLE, type UnitStyle } from './unitStyles'
 
 export type UnitState = {
   province: string
@@ -53,26 +54,47 @@ export type RenderState = {
   orders?: OrderState[]
   selected?: string[]
   highlighted?: string[]
+  /** Open build centers — highlighted with the green variant of the movement highlight. */
+  buildSlots?: string[]
+  /** Removable units — highlighted with the red variant of the movement highlight. */
+  removeSlots?: string[]
+  /** Own units still awaiting an order — amber pulsing border so none are forgotten. */
+  unorderedSlots?: string[]
+  /** Army/fleet token style. Defaults to the classic disc + letter. */
+  unitStyle?: UnitStyle
 }
 
 const DEFAULT_FILL = 'transparent'
 const SELECTED_FILL = 'rgba(255, 255, 255, 0.8)'
 const SELECTED_STROKE_COLOR = 'white'
 const HIGHLIGHTED_STROKE_COLOR = '#FFFFFF'
+// Build/remove reuse the movement highlight's pulsing border, recoloured so the phases
+// stay distinct: green = buildable, red = removable. No hatch overlay (movement only).
+// The remove red is the OKLCH sibling of the green (L≈0.72 C≈0.175 h29 — same chroma,
+// matched as close in lightness as red's gamut allows) so the pair feels coordinated.
+const BUILD_HIGHLIGHT_COLOR = '#3ddc84'
+const REMOVE_HIGHLIGHT_COLOR = '#ff7262'
+// Amber border for own units that haven't been ordered yet — a "don't forget me" cue
+// distinct from the white movement highlight and the green/red build markers.
+const UNORDERED_HIGHLIGHT_COLOR = '#fbbf24'
 const SELECTED_STROKE_WIDTH = 5
 const HIGHLIGHTED_STROKE_WIDTH = 5
+// Build/remove borders are drawn clipped to the province (inner stroke), so only the
+// inner half shows — adjacent green/red highlights then meet at the shared edge instead
+// of overpainting it. Width is doubled to compensate for clipping away the outer half.
+const INNER_STROKE_WIDTH = 9
 const DEFAULT_STROKE_WIDTH = 1
 const SUPPLY_CENTER_OPACITY_ACTIVE = 0.3
 const SUPPLY_CENTER_OPACITY_DEFAULT = 0.4
 const NON_SC_PROVINCE_OPACITY_ACTIVE = 0.3
 const NON_SC_PROVINCE_OPACITY_DEFAULT = 0.4
 
-const UNIT_RADIUS = 10
+const UNIT_RADIUS = 11
 const UNIT_OFFSET_RADIUS = 5
 const DISLODGED_OFFSET = 8
 const SUPPLY_CENTER_OUTER_RADIUS = 7
 const SUPPLY_CENTER_INNER_RADIUS = 4
-const DIMMED_UNIT_OPACITY = 0.7
+// Shared faded opacity for pending changes: a build ghost and a disbanding unit.
 const GHOST_UNIT_OPACITY = 0.6
 
 const ORDER_LINE_WIDTH = 3
@@ -88,10 +110,9 @@ const FAILED_CROSS_ANGLE = 45
 const ORDER_MARKER_WIDTH = 3
 const ORDER_MARKER_LENGTH = 12
 const ORDER_MARKER_ANGLE = 90
+// Shared offset for the build "+" and the remove "−" so the two markers sit identically.
 const BUILD_CROSS_OFFSET_X = 8
 const BUILD_CROSS_OFFSET_Y = -8
-const DISBAND_MARKER_OFFSET_X = 10
-const DISBAND_MARKER_OFFSET_Y = -6
 
 const HIGHLIGHTED_STRIPES_DEFS =
   '<defs><pattern patternTransform="rotate(45)" height="8" width="8"' +
@@ -99,9 +120,8 @@ const HIGHLIGHTED_STRIPES_DEFS =
   '<line stroke-width="2" stroke-opacity="0.6" stroke="#FFFFFF"' +
   ' y2="8" x2="0" y1="0" x1="0"/></pattern></defs>'
 
-const layer = (id: string, markup: string): string => `<g id="${id}">${markup}</g>`
 
-const opacityAttr = (opacity: number): string => (opacity === 1 ? '' : ` opacity="${opacity}"`)
+const layer = (id: string, markup: string): string => `<g id="${id}">${markup}</g>`
 
 const nationColor = (state: RenderState, nation: string): string => {
   const color = state.nationColors?.[nation]
@@ -131,12 +151,30 @@ type ProvinceFill = {
   strokeWidth: number
   selected: boolean
   highlighted: boolean
+  /** Diagonal hatch overlay — movement highlights only; build/remove use the border alone. */
+  stripe: boolean
+  /** Clip the border to the province (inner stroke) — build/remove, so shared edges split. */
+  inner: boolean
 }
 
 const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
   const selected = state.selected?.includes(provinceId) ?? false
-  const highlighted = state.highlighted?.includes(provinceId) ?? false
+  const buildSlot = state.buildSlots?.includes(provinceId) ?? false
+  const removeSlot = state.removeSlots?.includes(provinceId) ?? false
+  const movementHl = state.highlighted?.includes(provinceId) ?? false
+  // Unordered cue only when nothing more specific applies to this province.
+  const unordered =
+    (state.unorderedSlots?.includes(provinceId) ?? false) && !movementHl && !buildSlot && !removeSlot
+  const highlighted = movementHl || buildSlot || removeSlot || unordered
   const owner = state.supplyCenters?.find((sc) => sc.province === provinceId)
+
+  const highlightColor = removeSlot
+    ? REMOVE_HIGHLIGHT_COLOR
+    : buildSlot
+      ? BUILD_HIGHLIGHT_COLOR
+      : unordered
+        ? UNORDERED_HIGHLIGHT_COLOR
+        : HIGHLIGHTED_STROKE_COLOR
 
   let fill = DEFAULT_FILL
   if (owner) {
@@ -157,7 +195,7 @@ const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
   if (selected) {
     stroke = SELECTED_STROKE_COLOR
   } else if (highlighted) {
-    stroke = HIGHLIGHTED_STROKE_COLOR
+    stroke = highlightColor
   }
 
   const strokeWidth = selected
@@ -166,17 +204,38 @@ const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
       ? HIGHLIGHTED_STROKE_WIDTH
       : DEFAULT_STROKE_WIDTH
 
-  return { fill, stroke, strokeWidth, selected, highlighted }
+  // Only movement highlights get the hatch; build/remove are border-only.
+  const stripe = movementHl && !buildSlot && !removeSlot
+  // Build/remove borders are clipped to the province (inner stroke) so a green build and
+  // a red remove sharing a border each keep their own colour on their own side.
+  const inner = (buildSlot || removeSlot) && !selected
+
+  return { fill, stroke, strokeWidth, selected, highlighted, stripe, inner }
 }
+
+const clipId = (id: string): string => `hlclip-${id.replace(/[^a-zA-Z0-9]/g, '-')}`
 
 const provinceFillsLayer = (
   regionPaths: Map<string, string>,
   state: RenderState
 ): string => {
+  const defs: string[] = []
   const parts: string[] = []
   for (const [id, d] of regionPaths) {
     const style = provinceFill(id, state)
     if (style.fill === DEFAULT_FILL && style.stroke === 'none') {
+      continue
+    }
+    if (style.inner) {
+      // Inner stroke: clip the (over-wide) border to the province so only its inner half
+      // shows. Neighbouring build/remove highlights then abut at the shared edge.
+      const cid = clipId(id)
+      defs.push(`<clipPath id="${cid}"><path d="${d}"/></clipPath>`)
+      const w = INNER_STROKE_WIDTH
+      const values = `${w};${w + 3};${w}`
+      parts.push(
+        `<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${w}" clip-path="url(#${cid})"><animate attributeName="stroke-width" values="${values}" dur="2s" repeatCount="indefinite"/></path>`
+      )
       continue
     }
     const attributes = `d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"`
@@ -188,13 +247,13 @@ const provinceFillsLayer = (
     } else {
       parts.push(`<path ${attributes}/>`)
     }
-    if (style.highlighted) {
+    if (style.stripe) {
       parts.push(
         `<path d="${d}" fill="url(#highlightedStripes)" stroke="none" pointer-events="none"/>`
       )
     }
   }
-  return parts.join('\n')
+  return defs.join('') + parts.join('\n')
 }
 
 const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>): string => {
@@ -230,32 +289,30 @@ const unitToken = (
   cy: number,
   type: 'Army' | 'Fleet',
   color: string,
-  circleOpacity: number,
-  textOpacity: number
-): string => {
-  const label = type === 'Army' ? 'A' : 'F'
-  return (
-    `<circle cx="${formatCoord(cx)}" cy="${formatCoord(cy)}" r="${UNIT_RADIUS}" fill="${color}" stroke="black" stroke-width="2"${opacityAttr(circleOpacity)}/>` +
-    `<text x="${formatCoord(cx)}" y="${formatCoord(cy + 5)}" font-size="15" font-weight="bold" fill="black" text-anchor="middle"${opacityAttr(textOpacity)}>${label}</text>`
-  )
-}
+  style: UnitStyle,
+  opacity = 1
+): string => unitTokenSvg(cx, cy, type, color, UNIT_RADIUS, style, opacity)
 
 const unitMarkup = (
   unit: UnitState,
   position: Point,
   color: string,
-  dimmed: boolean
+  dimmed: boolean,
+  style: UnitStyle
 ): string => {
   const offset = unit.dislodged ? DISLODGED_OFFSET : 0
   const cx = position.x + offset
   const cy = position.y + offset
-  const token = unitToken(cx, cy, unit.type, color, dimmed ? DIMMED_UNIT_OPACITY : 1, 1)
+  // A disbanding unit fades to the same ghost opacity as a pending build.
+  const op = dimmed ? GHOST_UNIT_OPACITY : 1
+  const token = unitToken(cx, cy, unit.type, color, style, op)
   const flag = unit.dislodged && !dimmed ? retreatFlag(cx, cy) : ''
   const cdBadge = unit.civilDisorder && !dimmed ? civilDisorderBadge(cx, cy) : ''
   return `<g>${token}${flag}${cdBadge}</g>`
 }
 
 const unitsLayer = (unitPositions: Map<string, Point>, state: RenderState): string => {
+  const style = state.unitStyle ?? DEFAULT_UNIT_STYLE
   const ordered = [...(state.units ?? [])].sort(
     (a, b) => Number(a.dislodged ?? false) - Number(b.dislodged ?? false)
   )
@@ -271,7 +328,7 @@ const unitsLayer = (unitPositions: Map<string, Point>, state: RenderState): stri
       continue
     }
     parts.push(
-      unitMarkup(unit, position, nationColor(state, unit.nation), disbanding.has(unit.province))
+      unitMarkup(unit, position, nationColor(state, unit.nation), disbanding.has(unit.province), style)
     )
   }
   return parts.join('\n')
@@ -300,13 +357,18 @@ const holdMarkup = (order: OrderState, position: Point): string =>
     renderBottomCenter: order.failed ? failureCross : undefined,
   })
 
-const buildMarkup = (order: OrderState, position: Point, color: string): string => {
+const buildMarkup = (
+  order: OrderState,
+  position: Point,
+  color: string,
+  style: UnitStyle
+): string => {
   const token = unitToken(
     position.x,
     position.y,
     order.unitType ?? 'Army',
     color,
-    GHOST_UNIT_OPACITY,
+    style,
     GHOST_UNIT_OPACITY
   )
   const marker = cross({
@@ -322,10 +384,12 @@ const buildMarkup = (order: OrderState, position: Point, color: string): string 
   return `<g>${token}${marker}</g>`
 }
 
-const disbandMarkup = (position: Point): string =>
+// `offset` is the unit token's dislodge offset (0 unless dislodged) so the minus lands at
+// the same spot relative to the token as the build "+" does on a ghost unit.
+const disbandMarkup = (position: Point, offset: number): string =>
   minus({
-    x: position.x + DISLODGED_OFFSET + DISBAND_MARKER_OFFSET_X,
-    y: position.y + DISLODGED_OFFSET + DISBAND_MARKER_OFFSET_Y,
+    x: position.x + offset + BUILD_CROSS_OFFSET_X,
+    y: position.y + offset + BUILD_CROSS_OFFSET_Y,
     width: ORDER_MARKER_WIDTH,
     length: ORDER_MARKER_LENGTH,
     angle: ORDER_MARKER_ANGLE,
@@ -604,13 +668,16 @@ const ordersLayer = (unitPositions: Map<string, Point>, state: RenderState): str
   for (const order of ofType('Build')) {
     const position = unitPositions.get(order.source)
     if (position) {
-      parts.push(buildMarkup(order, position, nationColor(state, order.nation)))
+      parts.push(
+        buildMarkup(order, position, nationColor(state, order.nation), state.unitStyle ?? DEFAULT_UNIT_STYLE)
+      )
     }
   }
   for (const order of ofType('Disband')) {
     const position = unitPositions.get(order.source)
     if (position) {
-      parts.push(disbandMarkup(position))
+      const unit = state.units?.find((u) => u.province === order.source)
+      parts.push(disbandMarkup(position, unit?.dislodged ? DISLODGED_OFFSET : 0))
     }
   }
   return parts.join('\n')

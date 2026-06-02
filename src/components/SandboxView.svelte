@@ -2,6 +2,7 @@
   import { standardMap } from '../lib/maps/standard'
   import { getMap } from '../lib/maps'
   import GameBoard from './GameBoard.svelte'
+  import UnitStylePicker from './UnitStylePicker.svelte'
   import {
     sandboxes,
     resolveCurrent,
@@ -81,6 +82,8 @@
     <button on:click={onBack}>Back</button>
   </div>
 {:else}
+  <div class="sandbox-stage">
+  <UnitStylePicker />
   <GameBoard
     mapDef={map}
     gameId=""
@@ -137,9 +140,14 @@
       {/if}
     </svelte:fragment>
   </GameBoard>
+  </div>
 {/if}
 
 <style>
+  .sandbox-stage {
+    position: relative;
+    height: 100%;
+  }
   .missing {
     max-width: 600px;
     margin: 80px auto;

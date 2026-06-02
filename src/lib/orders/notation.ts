@@ -9,11 +9,15 @@ import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { AnyOrder, Order } from './types'
 
-/** A unit's type letter, looked up on the board (or among dislodged units). */
 type Dislodged = { unit: Unit }
-const letterAt = (units: Unit[], dislodged: Dislodged[], province: string): string => {
-  const u = units.find((x) => x.territory === province) ?? dislodged.find((d) => d.unit.territory === province)?.unit
-  return u ? (u.type === 'fleet' ? 'F' : 'A') : ''
+
+/** A unit's type letter (A/F), searching the given unit lists in priority order. */
+const letterFrom = (lists: Unit[][], province: string): string => {
+  for (const list of lists) {
+    const u = list.find((x) => x.territory === province)
+    if (u) return u.type === 'fleet' ? 'F' : 'A'
+  }
+  return ''
 }
 
 /** Format a province id (+ optional coast) per the casing convention. */
@@ -68,11 +72,12 @@ export function formatAnyOrder(
     case 'Convoy':
       return formatOrder(map, units, o)
     case 'Retreat': {
-      const a = letterAt(units, dislodged, o.source)
+      // the actor is the dislodged unit — a survivor may sit on the same province
+      const a = letterFrom([dislodged.map((d) => d.unit), units], o.source)
       return `${a} ${fmtProvince(map, o.source, o.sourceCoast)} - ${fmtProvince(map, o.target ?? '', o.targetCoast)}`
     }
     case 'Disband': {
-      const a = letterAt(units, dislodged, o.source)
+      const a = letterFrom([dislodged.map((d) => d.unit), units], o.source)
       return `${a} ${fmtProvince(map, o.source, o.sourceCoast)} D`
     }
     case 'Build': {
@@ -80,7 +85,7 @@ export function formatAnyOrder(
       return `Build ${a} ${fmtProvince(map, o.source, o.sourceCoast)}`
     }
     case 'Remove': {
-      const a = letterAt(units, [], o.source)
+      const a = letterFrom([units], o.source)
       return `Remove ${a} ${fmtProvince(map, o.source, o.sourceCoast)}`
     }
   }
