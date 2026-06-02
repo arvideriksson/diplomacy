@@ -2,6 +2,7 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../game'
 import type { RenderState, UnitState, OrderState } from './mapRenderer'
+import type { UnitStyle } from './unitStyles'
 import { toDsvgId } from './idMap'
 
 const normalize = (nation: string): string => nation.toLowerCase()
@@ -22,11 +23,26 @@ export type ToRenderStateInput = {
   ownership?: Record<string, string>
   selectedTerritory?: string | null
   highlighted?: string[]
+  buildSlots?: string[]
+  removeSlots?: string[]
+  unorderedSlots?: string[]
   orders?: OrderState[]
+  unitStyle?: UnitStyle
 }
 
 export const toRenderState = (input: ToRenderStateInput): RenderState => {
-  const { mapDef, units = [], ownership = {}, selectedTerritory, highlighted = [], orders } = input
+  const {
+    mapDef,
+    units = [],
+    ownership = {},
+    selectedTerritory,
+    highlighted = [],
+    buildSlots = [],
+    removeSlots = [],
+    unorderedSlots = [],
+    orders,
+    unitStyle,
+  } = input
   const resolveColor = makeColorResolver(mapDef)
   const nationColors: Record<string, string> = {}
 
@@ -64,5 +80,9 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     orders,
     selected: selectedTerritory ? [toDsvgId(selectedTerritory)] : [],
     highlighted: highlighted.map((id) => toDsvgId(id)),
+    buildSlots: buildSlots.map((id) => toDsvgId(id)),
+    removeSlots: removeSlots.map((id) => toDsvgId(id)),
+    unorderedSlots: unorderedSlots.map((id) => toDsvgId(id)),
+    unitStyle,
   }
 }

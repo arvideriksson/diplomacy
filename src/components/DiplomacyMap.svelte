@@ -6,6 +6,7 @@
   import { toRenderState } from '../lib/map/renderState'
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
+  import { unitStyle } from '../lib/unitStyle'
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
@@ -17,6 +18,11 @@
   export let highlighted: string[] = []
   /** Explicit set of clickable dSVG ids. When null, derived from `highlighted`. */
   export let selectable: string[] | null = null
+  /** Open build centers (green highlight) and removable units (red highlight). */
+  export let buildSlots: string[] = []
+  export let removeSlots: string[] = []
+  /** Own units still missing an order (amber highlight) — a forget-me-not cue. */
+  export let unorderedSlots: string[] = []
   /** When set, the parent owns selection — receives the clicked dSVG id. */
   export let onProvinceClick: ((dsvgId: string) => void) | null = null
   /** Fill the parent container (immersive in-game view) instead of sizing by aspect ratio. */
@@ -93,7 +99,7 @@
       ? split(
           stripWrapper(
             renderer.render(
-              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, orders })
+              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders, unitStyle: $unitStyle })
             )
           )
         )
