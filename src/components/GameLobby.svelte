@@ -4,9 +4,10 @@
   import { user } from '../lib/auth'
   import {
     fetchGame, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
-    currentGame, NATIONS, DEFAULT_SETTINGS,
+    claimNation, DEFAULT_SETTINGS,
   } from '../lib/game'
   import type { GameState, GameSettings, PlayerInfo } from '../lib/game'
+  import { getMap } from '../lib/maps'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -33,6 +34,37 @@
   $: settingsVariant = game?.settings?.variant ?? DEFAULT_SETTINGS.variant
   $: settingsSpectators = game?.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   $: settingsRandomNations = game?.settings?.random_nations ?? DEFAULT_SETTINGS.random_nations
+
+  // ── Power picker (shown when nations aren't random) ──────────────────────────
+  $: map = getMap(game?.map_id ?? 'standard')
+  $: powers = map.powers
+  $: myNation = game && $user ? game.players[$user.id]?.nation : undefined
+  // power id -> the player holding it
+  $: holderByNation = game
+    ? Object.entries(game.players).reduce(
+        (acc, [uid, p]) => {
+          if (p.nation) acc[p.nation] = { uid, info: p }
+          return acc
+        },
+        {} as Record<string, { uid: string; info: PlayerInfo }>,
+      )
+    : {}
+  const homeCenters = (id: string): number =>
+    Object.values(map.territories).filter((t) => t.supplyCenter && t.homePower === id).length
+  const powerName = (id: string): string => powers.find((p) => p.id === id)?.name ?? id
+  const powerColor = (id: string): string | undefined => powers.find((p) => p.id === id)?.color
+
+  let claimError = ''
+  async function claimPower(nation: string) {
+    if (!game || !isMember || game.phase !== 'lobby') return
+    claimError = ''
+    try {
+      // clicking your own power releases it
+      await claimNation(gameId, myNation === nation ? null : nation)
+    } catch (e) {
+      claimError = e instanceof Error ? e.message : String(e)
+    }
+  }
 
   onMount(async () => {
     try {
@@ -78,7 +110,7 @@
     if (!game || !isAdmin) return
     starting = true
     try {
-      game = await startGame(gameId, game.map_id ?? 'standard')
+      game = await startGame(game)
       onStart(game)
     } finally {
       starting = false
@@ -97,10 +129,8 @@
 
   async function handleLeave() {
     if (!game || !$user) return
-    const uid = $user.id
     await leaveGame(gameId)
-    const { [uid]: _, ...remaining } = game.players
-    game = { ...game, players: remaining }
+    onBack() // leaving returns to the game list
   }
 
   async function handleKick(playerId: string) {
@@ -123,12 +153,12 @@
     { value: '48h', label: '2 days' },
     { value: '72h', label: '3 days' },
     { value: '1w', label: '1 week' },
-  ]
+  ] as const
 
   const VARIANT_OPTIONS = [
     { value: 'standard', label: 'Standard', desc: 'Full diplomacy with negotiations' },
     { value: 'gunboat', label: 'Gunboat', desc: 'No communication between players' },
-  ]
+  ] as const
 </script>
 
 {#if loading}
@@ -137,13 +167,6 @@
   </div>
 {:else if game}
   <div class="lobby">
-    <button class="back-btn" on:click={onBack}>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      Games
-    </button>
-
     <div class="lobby-top">
       <div class="lobby-title-row">
         {#if isAdmin}
@@ -240,17 +263,47 @@
           <div class="setting-group">
             <div class="toggle-row">
               <div>
-                <span class="setting-label">Private</span>
+                <span class="setting-label">Public</span>
                 <p class="setting-desc">{game.is_private ? 'Only invited players can find this game' : 'Anyone can find and join this game'}</p>
               </div>
               <label class="toggle">
-                <input type="checkbox" checked={game.is_private} disabled={!isAdmin}
+                <input type="checkbox" checked={!game.is_private} disabled={!isAdmin}
                   on:change={togglePrivate} />
-                <span class="toggle-track amber"><span class="toggle-thumb"></span></span>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
               </label>
             </div>
           </div>
         </section>
+
+        {#if game.phase === 'lobby' && !settingsRandomNations && isMember}
+          <section class="card power-picker">
+            <div class="card-head"><h2>Choose your power</h2></div>
+            {#if claimError}<p class="error">{claimError}</p>{/if}
+            <div class="power-grid">
+              {#each powers as power (power.id)}
+                {@const holder = holderByNation[power.id]}
+                {@const mine = myNation === power.id}
+                {@const takenByOther = Boolean(holder) && !mine}
+                <button
+                  class="power-card"
+                  class:mine
+                  class:taken={takenByOther}
+                  style={`--power: ${power.color}`}
+                  disabled={takenByOther}
+                  on:click={() => claimPower(power.id)}
+                >
+                  <span class="power-name">{power.name}</span>
+                  <span class="power-centers">{homeCenters(power.id)} centers</span>
+                  <span class="power-holder">
+                    {#if mine}✓ You
+                    {:else if holder}{holder.info.display_name ?? 'Player'}
+                    {:else}Available{/if}
+                  </span>
+                </button>
+              {/each}
+            </div>
+          </section>
+        {/if}
       </div>
 
       <div class="lobby-sidebar">
@@ -302,7 +355,12 @@
           <div class="player-list">
             {#each Object.entries(game.players) as [uid, player] (uid)}
               {@const info = player}
-              <div class="player-row" transition:fly={{ y: 10, duration: 200 }}>
+              <div
+                class="player-row"
+                class:has-nation={info.nation}
+                style={info.nation ? `--power: ${powerColor(info.nation)}` : ''}
+                transition:fly={{ y: 10, duration: 200 }}
+              >
                 <div class="player-avatar-wrap">
                   {#if info.avatar_url}
                     <img src={info.avatar_url} alt="" class="player-avatar" />
@@ -320,7 +378,7 @@
                     {/if}
                   </span>
                   {#if info.nation}
-                    <span class="player-nation">{info.nation}</span>
+                    <span class="player-nation">{powerName(info.nation)}</span>
                   {/if}
                 </div>
                 {#if uid === $user?.id && !isAdmin}
@@ -429,24 +487,56 @@
     to { transform: rotate(360deg); }
   }
 
-  .back-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    padding: 4px 0;
-    margin-bottom: 20px;
-    font-family: var(--font);
-    transition: color 0.15s;
+  .power-picker {
+    margin-bottom: 24px;
   }
-
-  .back-btn:hover {
+  .power-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .power-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+    text-align: left;
+    padding: 10px 12px 10px 14px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--power, var(--border-strong));
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
     color: var(--text);
+    cursor: pointer;
+    font-family: var(--font);
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+  .power-card:hover:not(:disabled) {
+    box-shadow: var(--shadow-sm);
+  }
+  .power-card:disabled {
+    cursor: default;
+  }
+  .power-card.taken {
+    opacity: 0.55;
+  }
+  .power-card.mine {
+    border-color: var(--power, var(--accent));
+    background: color-mix(in srgb, var(--power, var(--accent)) 12%, var(--bg-card));
+  }
+  .power-name {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .power-centers {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+  .power-holder {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-top: 2px;
   }
 
   .lobby-top {
@@ -703,10 +793,6 @@
     background: var(--accent);
   }
 
-  .toggle input:checked + .toggle-track.amber {
-    background: var(--amber);
-  }
-
   .toggle input:disabled + .toggle-track {
     opacity: 0.5;
     cursor: default;
@@ -807,6 +893,13 @@
     background: var(--bg-hover);
   }
 
+  /* Tint a seated player's row in their chosen nation's color. */
+  .player-row.has-nation,
+  .player-row.has-nation:not(.empty-slot):hover {
+    background: color-mix(in srgb, var(--power) 14%, var(--bg-card));
+    box-shadow: inset 3px 0 0 var(--power);
+  }
+
   .player-avatar-wrap {
     flex-shrink: 0;
   }
@@ -864,9 +957,14 @@
   }
 
   .player-nation {
-    display: block;
-    font-size: 12px;
-    color: var(--text-tertiary);
+    display: inline-block;
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--power, var(--border-strong)) 22%, transparent);
+    color: var(--text-secondary);
   }
 
   .empty-label {

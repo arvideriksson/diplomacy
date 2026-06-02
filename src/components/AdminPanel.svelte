@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { adminDeleteAllGames, fetchGames } from '../lib/game'
-
-  const dispatch = createEventDispatcher()
 
   let deleting = false
   let result = ''
@@ -34,9 +31,6 @@
   <div class="admin-actions">
     <button class="btn-danger" on:click={handleDeleteAll} disabled={deleting}>
       {deleting ? 'Deleting...' : 'Delete all games'}
-    </button>
-    <button class="btn-admin" on:click={() => dispatch('openMapEditor')}>
-      Map editor
     </button>
   </div>
 
@@ -99,24 +93,6 @@
   .btn-danger:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-
-  .btn-admin {
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-family: var(--font);
-    white-space: nowrap;
-    transition: background 0.12s;
-  }
-
-  .btn-admin:hover {
-    background: var(--accent-subtle);
   }
 
   .result {

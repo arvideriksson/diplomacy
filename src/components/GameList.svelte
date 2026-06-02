@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { fade, fly, slide } from 'svelte/transition'
+  import { fade, slide } from 'svelte/transition'
   import { flip } from 'svelte/animate'
-  import { games, fetchGames, createGame, joinGameByCode } from '../lib/game'
+  import { games, gamesLoaded, fetchGames, createGame, joinGameByCode } from '../lib/game'
   import { user } from '../lib/auth'
   import type { GameState } from '../lib/game'
 
@@ -93,7 +93,7 @@
         tabindex="0"
         on:click={() => onSelectGame(game)}
         on:keydown={(e) => e.key === 'Enter' && onSelectGame(game)}
-        transition:fly={{ y: 12, duration: 250 }}
+        transition:fade={{ duration: 200 }}
         animate:flip={{ duration: 250 }}
       >
         <div class="card-left">
@@ -145,8 +145,11 @@
           </svg>
         {/if}
       </div>
-    {:else}
-      <div class="empty-state" transition:fade>
+    {/each}
+
+    <!-- Only after the backend responds, to avoid flashing on load. -->
+    {#if $gamesLoaded && $games.length === 0}
+      <div class="empty-state" transition:fade={{ duration: 200 }}>
         <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.2">
           <circle cx="12" cy="12" r="10" />
           <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
@@ -154,7 +157,7 @@
         <p>No games yet</p>
         <p class="sub">Create a game or join one with an invite code.</p>
       </div>
-    {/each}
+    {/if}
   </div>
 </div>
 

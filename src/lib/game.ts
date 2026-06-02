@@ -2,6 +2,8 @@ import { writable } from 'svelte/store'
 import { supabase } from './supabase'
 import { getMap } from './maps'
 import type { Unit } from './types'
+import type { AnyOrder } from './orders/types'
+import type { ResolvedOrderRow } from './history'
 
 export type { Unit }
 
@@ -35,6 +37,12 @@ export interface GameState {
   created_by: string
   created_at: string
   updated_at: string
+  /** When the current phase auto-resolves (ISO). Null in the lobby / once complete. */
+  deadline?: string | null
+  /** Authoritative board snapshot written by the adjudicator; clients read this. */
+  snapshot?: unknown | null
+  /** Per-nation early-resolution flags, e.g. { france: true }. */
+  ready?: Record<string, boolean>
 }
 
 export interface PlayerInfo {
@@ -51,16 +59,22 @@ export const NATIONS = [
 
 export const games = writable<GameState[]>([])
 export const currentGame = writable<GameState | null>(null)
+/** False until the first fetchGames resolves — gates the "no games yet" empty state. */
+export const gamesLoaded = writable(false)
 
 export async function fetchGames() {
-  const { data, error } = await supabase
-    .from('games')
-    .select('*')
-    .order('updated_at', { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .order('updated_at', { ascending: false })
 
-  if (error) throw error
-  games.set(data ?? [])
-  return data
+    if (error) throw error
+    games.set(data ?? [])
+    return data
+  } finally {
+    gamesLoaded.set(true)
+  }
 }
 
 export async function fetchGame(id: string) {
@@ -75,7 +89,7 @@ export async function fetchGame(id: string) {
   return data as GameState
 }
 
-export async function createGame(name: string, userId: string, isPrivate: boolean = false, mapId: string = 'standard') {
+export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'standard') {
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
 
@@ -107,7 +121,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   return data as GameState
 }
 
-export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'units'>>) {
+export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'units' | 'deadline'>>) {
   const { data, error } = await supabase
     .from('games')
     .update(updates)
@@ -130,18 +144,86 @@ export function startingUnits(mapId: string): Unit[] {
   }))
 }
 
+/** How long each phase lasts before the cron backstop auto-resolves it. */
+const TURN_TIMER_MS: Record<string, number> = {
+  '12h': 12 * 3600_000,
+  '24h': 24 * 3600_000,
+  '48h': 48 * 3600_000,
+  '72h': 72 * 3600_000,
+  '1w': 7 * 24 * 3600_000,
+}
+
+/** ISO deadline one turn-timer from now (the cron's backstop trigger). */
+export function nextDeadline(turnTimer: string): string {
+  const ms = TURN_TIMER_MS[turnTimer] ?? TURN_TIMER_MS['24h']
+  return new Date(Date.now() + ms).toISOString()
+}
+
+/** Fisher–Yates shuffle (app-side; not the deterministic engine). */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 /**
- * Move a game from lobby to active play: stamp the opening Spring 1901 phase and
- * seed the board with the map variant's starting units. Supply-center ownership
- * is derived from occupying units, so placing the units sets the opening political
- * map too.
+ * Resolve final nation assignments at start. Random mode assigns everyone a fresh
+ * distinct power; otherwise players keep the power they claimed in the lobby and any
+ * who didn't pick are filled from the remaining free powers at random.
  */
-export async function startGame(id: string, mapId: string) {
-  return updateGame(id, {
-    phase: 'active',
+export function assignNations(
+  players: Record<string, PlayerInfo>,
+  powerIds: string[],
+  random: boolean,
+): Record<string, PlayerInfo> {
+  const uids = Object.keys(players)
+  const next: Record<string, PlayerInfo> = {}
+
+  if (random) {
+    const pool = shuffle(powerIds)
+    uids.forEach((uid, i) => (next[uid] = { ...players[uid], nation: pool[i] }))
+    return next
+  }
+
+  // Keep claimed powers; random-fill players who never picked from what's left.
+  const taken = new Set(uids.map((u) => players[u].nation).filter(Boolean) as string[])
+  const free = shuffle(powerIds.filter((id) => !taken.has(id)))
+  let fi = 0
+  for (const uid of uids) {
+    next[uid] = { ...players[uid], nation: players[uid].nation ?? free[fi++] }
+  }
+  return next
+}
+
+/** Claim a power in the lobby (atomic, server-checked). Pass null to release. */
+export async function claimNation(gameId: string, nation: string | null) {
+  const { error } = await supabase.rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
+  if (error) throw error
+}
+
+/**
+ * Move a game from lobby to active play: assign nations to the players, stamp the
+ * opening Spring 1901 movement phase, seed the board with the map's starting units,
+ * and set the first deadline so the cron backstop resolves the turn even if not
+ * everyone readies. Powers with no human player simply hold (civil disorder).
+ */
+export async function startGame(game: GameState) {
+  const mapId = game.map_id ?? 'standard'
+  const map = getMap(mapId)
+  const powerIds = map.powers.map((p) => p.id)
+  if (Object.keys(game.players).length > powerIds.length) {
+    throw new Error(`Too many players for ${map.name} (max ${powerIds.length})`)
+  }
+  return updateGame(game.id, {
+    phase: 'movement',
     year: 1901,
     season: 'Spring',
     units: startingUnits(mapId),
+    deadline: nextDeadline(game.settings?.turn_timer ?? '24h'),
+    players: assignNations(game.players, powerIds, game.settings?.random_nations ?? false),
   })
 }
 
@@ -165,6 +247,56 @@ export async function leaveGame(gameId: string) {
 export async function kickPlayer(gameId: string, playerId: string) {
   const { error } = await supabase.rpc('kick_player', { game_id: gameId, player_id: playerId })
   if (error) throw error
+}
+
+/**
+ * Submit (upsert) the caller's own-nation orders for the current unresolved round
+ * via the RLS-guarded RPC, optionally marking the nation ready. Editing orders
+ * un-readies the nation unless `ready` is true. The server derives the nation and
+ * round, so the client cannot write another nation's or a resolved round's orders.
+ */
+export async function submitOrders(gameId: string, orders: AnyOrder[], ready: boolean = false) {
+  const { error } = await supabase.rpc('submit_orders', {
+    p_game_id: gameId,
+    p_orders: orders,
+    p_ready: ready,
+  })
+  if (error) throw error
+}
+
+/** Toggle the nation's ready flag without resubmitting orders. */
+export async function setReady(gameId: string, ready: boolean) {
+  const { error } = await supabase.rpc('set_ready', { p_game_id: gameId, p_ready: ready })
+  if (error) throw error
+}
+
+/**
+ * The caller's own orders for the current unresolved round (RLS lets a player read
+ * their own orders before reveal). Used to repopulate the order panel on load.
+ */
+/**
+ * The full resolved-order log for a game (all nations, all past rounds). Resolved
+ * orders are public, so RLS permits reading them — this is the immutable history.
+ */
+export async function fetchResolvedLog(gameId: string): Promise<ResolvedOrderRow[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('year, season, phase, nation, orders')
+    .eq('game_id', gameId)
+    .eq('resolved', true)
+  if (error) throw error
+  return (data ?? []) as ResolvedOrderRow[]
+}
+
+export async function fetchMyOrders(gameId: string): Promise<AnyOrder[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('orders')
+    .eq('game_id', gameId)
+    .eq('resolved', false)
+    .maybeSingle()
+  if (error) throw error
+  return ((data?.orders as AnyOrder[]) ?? [])
 }
 
 export async function adminDeleteAllGames(): Promise<number> {
