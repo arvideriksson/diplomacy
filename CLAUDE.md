@@ -79,3 +79,7 @@ The design is sized to fit Supabase's free tier for ~100 games/month. Two constr
 - Supabase env vars are injected at build time via Vite (`import.meta.env.VITE_*`); production secrets come from GitHub Actions secrets.
 - Board-advancing logic lives only in the adjudicator Edge Function (service role); player writes go through RLS-guarded, own-nation order submissions. Never trust the client to mutate game state.
 - Diplomacy province notation: **seas in ALL CAPS**, **land in Title Case**, **coasts as `Stp(sc)`**.
+
+## References
+
+- **[johnpooch/diplicity-react](https://github.com/johnpooch/diplicity-react)** — a React Diplomacy client to study for UI/UX patterns (order entry wizard, board interaction, game lifecycle). Good reference for how an online Diplomacy front-end is structured; adapt ideas to our Svelte + Supabase stack rather than copying.

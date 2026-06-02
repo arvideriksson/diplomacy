@@ -2,7 +2,6 @@
 // the zero-dependency shared types and map/order type-only imports.
 
 import type { Unit } from '../types'
-import type { Order } from '../orders/types'
 
 export type Season = 'Spring' | 'Fall'
 export type Phase = 'movement' | 'retreat' | 'build'
@@ -33,29 +32,9 @@ export interface BoardState {
   contested: string[]
 }
 
-// ── Order kinds the existing movement `Order` doesn't cover ──────────────────
-
-export interface RetreatOrder {
-  type: 'Retreat' | 'Disband'
-  nation: string
-  source: string
-  sourceCoast?: string
-  /** Destination (required for 'Retreat'). */
-  target?: string
-  targetCoast?: string
-}
-
-export interface BuildOrder {
-  type: 'Build' | 'Remove'
-  nation: string
-  /** Home SC for Build; occupied province for Remove. */
-  source: string
-  sourceCoast?: string
-  /** Required for Build. */
-  unitType?: 'army' | 'fleet'
-}
-
-export type AnyOrder = Order | RetreatOrder | BuildOrder
+// Retreat/build order kinds live with the other order types (entry-time concepts).
+import type { AnyOrder } from '../orders/types'
+export type { RetreatOrder, BuildOrder, AnyOrder } from '../orders/types'
 
 // ── Results ──────────────────────────────────────────────────────────────────
 
