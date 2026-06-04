@@ -1,6 +1,7 @@
 // Derives plausible order options from the map's own adjacency data
-// (territory.adjacent + coasts[].fleetAdjacency). This is a client-side approximation
-// of legality for order entry — final adjudication would belong to a game engine.
+// (territory.adjacent for armies; territory.fleetAdjacent / coasts[].fleetAdjacency
+// for fleets). This is a client-side approximation of legality for order entry —
+// final adjudication would belong to a game engine.
 import type { MapDefinition, TerritoryDefinition } from '../mapDefinition'
 import { canArmyEnter, canFleetEnter } from '../mapDefinition'
 import type { Unit } from '../types'
@@ -24,6 +25,11 @@ export const reachable = (map: Def, unit: Unit): string[] => {
   if (unit.coast && t.coasts?.[unit.coast]) {
     return [...t.coasts[unit.coast].fleetAdjacency]
   }
+  // Single-coast coastal provinces carry explicit sea-border adjacency: a fleet
+  // may follow the coast, not every land-adjacent neighbour (F Gas can't reach Mar).
+  if (t.fleetAdjacent) return [...t.fleetAdjacent]
+  // Seas (and any province lacking explicit fleet adjacency): adjacency is already
+  // all sea-reachable, so fall back to the type filter.
   return t.adjacent.filter((id) => {
     const adj = territory(map, id)
     return adj ? canFleetEnter(adj) : false

@@ -1,14 +1,18 @@
 // Authoritative adjudicator Edge Function. Invoked by pg_cron via pg_net with a
-// service-role bearer token and { game_id }. It is the only writer of resolved
+// shared-secret bearer token and { game_id }. It is the only writer of resolved
 // state; the actual rules live in the pure engine under src/lib/adjudicator.
 
 import { clearResolving, serviceClient } from './db.ts'
 import { resolveGame } from './resolve.ts'
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  // We do our own service-key check (config has verify_jwt = false).
+  // Gate on a DEDICATED shared secret (config has verify_jwt = false), set via
+  // `supabase secrets set ADJUDICATOR_SECRET=…` and mirrored in private.engine_config.
+  // Decoupled from Supabase's anon/service_role keys, so this survives API-key
+  // rotation/migration. Fail closed if the secret isn't configured.
+  const expected = Deno.env.get('ADJUDICATOR_SECRET')
   const auth = req.headers.get('Authorization') ?? ''
-  if (auth !== `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`) {
+  if (!expected || auth !== `Bearer ${expected}`) {
     return new Response('forbidden', { status: 403 })
   }
 

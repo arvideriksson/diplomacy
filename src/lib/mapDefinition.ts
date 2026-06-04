@@ -23,7 +23,15 @@ export interface TerritoryDefinition {
   supplyCenter: boolean
   homePower?: string
   coasts?: Record<string, CoastDefinition>
+  /** General province adjacency (army + convoy graph): land and coast borders. */
   adjacent: string[]
+  /**
+   * Sea-border adjacency for single-coast coastal provinces — the provinces a
+   * fleet here may sail to. Required on every coastal province WITHOUT named
+   * `coasts` (multi-coast provinces carry per-coast `fleetAdjacency` instead).
+   * Seas omit it: their `adjacent` is already all sea-reachable.
+   */
+  fleetAdjacent?: string[]
   render: TerritoryRender
 }
 

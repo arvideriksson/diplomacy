@@ -218,6 +218,35 @@ export function unitTokenSvg(
   return `<g transform="translate(${tx} ${ty}) scale(${scale})"${op}>${defMarkup(def, color, style)}</g>`
 }
 
+/**
+ * The chip silhouette positioned at (cx, cy) and scaled to `radius` — the exact shape the
+ * token uses, so it hugs an army's disc, a fleet's triangle, etc. Stroked (and optionally
+ * filled), with `inner` injected inside the shape element (e.g. an <animate> for a pulsing
+ * border). Used both for the white spotlight outline (fill 'none') and the matching black
+ * veil cutout (fill '#000').
+ */
+export function unitOutlineSvg(
+  cx: number,
+  cy: number,
+  type: 'Army' | 'Fleet',
+  radius: number,
+  style: UnitStyle,
+  stroke: string,
+  strokeWidth: number,
+  inner = '',
+  fill = 'none'
+): string {
+  const def = type === 'Army' ? ARMY_BY_ID[style.army] : FLEET_BY_ID[style.fleet]
+  const scale = radius / BOX_R
+  const tx = cx - BOX_C * scale
+  const ty = cy - BOX_C * scale
+  const el = chip[def.chip](fill, `stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linejoin="round"`)
+  // The chip is a single self-closing element; reopen it so `inner` (the pulse) sits inside.
+  const tag = el.match(/^<(\w+)/)?.[1] ?? 'path'
+  const open = inner ? el.replace(/\s*\/>\s*$/, `>${inner}</${tag}>`) : el
+  return `<g transform="translate(${tx} ${ty}) scale(${scale})">${open}</g>`
+}
+
 /** Standalone preview token in its own <svg>, for menus/swatches. */
 export function previewSvg(
   def: Def,

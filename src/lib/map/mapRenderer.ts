@@ -17,7 +17,7 @@ import {
   buildConvoyRoute,
   type ConvoyRoute,
 } from './orderGeometry'
-import { unitTokenSvg, DEFAULT_UNIT_STYLE, type UnitStyle } from './unitStyles'
+import { unitTokenSvg, unitOutlineSvg, DEFAULT_UNIT_STYLE, type UnitStyle } from './unitStyles'
 
 export type UnitState = {
   province: string
@@ -60,6 +60,8 @@ export type RenderState = {
   removeSlots?: string[]
   /** Own units still awaiting an order — amber pulsing border so none are forgotten. */
   unorderedSlots?: string[]
+  /** Nation id to spotlight: its supply centers flood-fill in colour, the rest dims. */
+  spotlightNation?: string
   /** Army/fleet token style. Defaults to the classic disc + letter. */
   unitStyle?: UnitStyle
 }
@@ -75,8 +77,16 @@ const HIGHLIGHTED_STROKE_COLOR = '#FFFFFF'
 const BUILD_HIGHLIGHT_COLOR = '#3ddc84'
 const REMOVE_HIGHLIGHT_COLOR = '#ff7262'
 // Amber border for own units that haven't been ordered yet — a "don't forget me" cue
-// distinct from the white movement highlight and the green/red build markers.
-const UNORDERED_HIGHLIGHT_COLOR = '#fbbf24'
+// distinct from the white movement highlight and the green/red build markers. The third
+// OKLCH sibling of the build/remove pair: same lightness as the green (L≈0.79), hue 80
+// (amber, between the green's 154 and the red's 29), chroma at the gamut edge (C≈0.164)
+// like the red — so all three "needs attention" cues read as one coordinated family.
+const UNORDERED_HIGHLIGHT_COLOR = '#f2ad02'
+// Spotlight (hovering a nation's badge in the SC card): a dark veil drops over the
+// whole board with that nation's supply-center provinces punched out, so its holding
+// stays fully lit while everything else recedes into shadow.
+const SPOTLIGHT_SHADOW_COLOR = '#0b0e14'
+const SPOTLIGHT_SHADOW_OPACITY = 0.55
 const SELECTED_STROKE_WIDTH = 5
 const HIGHLIGHTED_STROKE_WIDTH = 5
 // Build/remove borders are drawn clipped to the province (inner stroke), so only the
@@ -92,6 +102,16 @@ const NON_SC_PROVINCE_OPACITY_DEFAULT = 0.4
 const UNIT_RADIUS = 11
 const UNIT_OFFSET_RADIUS = 5
 const DISLODGED_OFFSET = 8
+// The spotlit nation's units get a pulsing white outline, plus a matching hole in the
+// veil so they stay lit even outside that nation's supply centers. The chip is drawn in
+// the 64-box then scaled to UNIT_RADIUS (a 0.5× shrink), so widths are doubled here to
+// land at the same on-map size as the province border highlight.
+const UNIT_OUTLINE_SCALE = 2
+const SPOTLIGHT_UNIT_OUTLINE_WIDTH = HIGHLIGHTED_STROKE_WIDTH * UNIT_OUTLINE_SCALE
+const SPOTLIGHT_UNIT_OUTLINE_PULSE = 2 * UNIT_OUTLINE_SCALE
+// The veil cutout traces the same chip shape, a touch wider than the white outline, and
+// pulses in lockstep — so the lit patch hugs the breathing outline instead of a circle.
+const SPOTLIGHT_UNIT_HOLE_WIDTH = SPOTLIGHT_UNIT_OUTLINE_WIDTH + 6
 const SUPPLY_CENTER_OUTER_RADIUS = 7
 const SUPPLY_CENTER_INNER_RADIUS = 4
 // Shared faded opacity for pending changes: a build ghost and a disbanding unit.
@@ -122,6 +142,8 @@ const HIGHLIGHTED_STRIPES_DEFS =
 
 
 const layer = (id: string, markup: string): string => `<g id="${id}">${markup}</g>`
+
+const sameNation = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
 const nationColor = (state: RenderState, nation: string): string => {
   const color = state.nationColors?.[nation]
@@ -206,14 +228,21 @@ const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
 
   // Only movement highlights get the hatch; build/remove are border-only.
   const stripe = movementHl && !buildSlot && !removeSlot
-  // Build/remove borders are clipped to the province (inner stroke) so a green build and
-  // a red remove sharing a border each keep their own colour on their own side.
-  const inner = (buildSlot || removeSlot) && !selected
+  // Build/remove/unordered borders are clipped to the province (inner stroke): the colour
+  // glows inward from the edge. This groups the "needs attention" cues into one visual
+  // language and lets adjacent build/remove highlights keep their colour on their own side.
+  const inner = (buildSlot || removeSlot || unordered) && !selected
 
   return { fill, stroke, strokeWidth, selected, highlighted, stripe, inner }
 }
 
 const clipId = (id: string): string => `hlclip-${id.replace(/[^a-zA-Z0-9]/g, '-')}`
+
+// A pulsing stroke-width animation, shared by the province highlights and the spotlit
+// unit outline so both "breathe" in sync. `delta` is how much the width grows at the peak.
+const PULSE_DUR = '2s'
+const strokeWidthPulse = (base: number, delta = 2): string =>
+  `<animate attributeName="stroke-width" values="${base};${base + delta};${base}" dur="${PULSE_DUR}" repeatCount="indefinite"/>`
 
 const provinceFillsLayer = (
   regionPaths: Map<string, string>,
@@ -232,18 +261,14 @@ const provinceFillsLayer = (
       const cid = clipId(id)
       defs.push(`<clipPath id="${cid}"><path d="${d}"/></clipPath>`)
       const w = INNER_STROKE_WIDTH
-      const values = `${w};${w + 3};${w}`
       parts.push(
-        `<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${w}" clip-path="url(#${cid})"><animate attributeName="stroke-width" values="${values}" dur="2s" repeatCount="indefinite"/></path>`
+        `<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${w}" clip-path="url(#${cid})">${strokeWidthPulse(w, 3)}</path>`
       )
       continue
     }
     const attributes = `d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"`
     if (style.highlighted && !style.selected) {
-      const values = `${HIGHLIGHTED_STROKE_WIDTH};${HIGHLIGHTED_STROKE_WIDTH + 2};${HIGHLIGHTED_STROKE_WIDTH}`
-      parts.push(
-        `<path ${attributes}><animate attributeName="stroke-width" values="${values}" dur="2s" repeatCount="indefinite"/></path>`
-      )
+      parts.push(`<path ${attributes}>${strokeWidthPulse(HIGHLIGHTED_STROKE_WIDTH)}</path>`)
     } else {
       parts.push(`<path ${attributes}/>`)
     }
@@ -267,6 +292,48 @@ const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>): string => 
     )
   }
   return parts.join('\n')
+}
+
+// Dark veil over the whole board with the spotlit nation's supply-center provinces
+// punched out (mask: white = veil shows, black = hole). Drawn last so it shadows
+// fills, labels, borders, and other nations' units alike — the spotlit holding,
+// rendered underneath the holes, stays fully lit.
+const spotlightOverlayLayer = (
+  regionPaths: Map<string, string>,
+  unitPositions: Map<string, Point>,
+  state: RenderState,
+  viewBox: { minX: number; minY: number; width: number; height: number },
+): string => {
+  if (!state.spotlightNation) return ''
+  const style = state.unitStyle ?? DEFAULT_UNIT_STYLE
+  const cuts: string[] = []
+  // Punch out the nation's supply-center provinces…
+  for (const [id, d] of regionPaths) {
+    const owner = state.supplyCenters?.find((sc) => sc.province === id)
+    if (owner && sameNation(owner.nation, state.spotlightNation)) cuts.push(`<path d="${d}" fill="black"/>`)
+  }
+  // …and its units, so they stay lit even outside those supply centers. The cutout traces
+  // the same chip shape and pulses in lockstep with the white outline.
+  for (const unit of state.units ?? []) {
+    if (!sameNation(unit.nation, state.spotlightNation)) continue
+    const p = unitPositions.get(unit.province)
+    if (!p) continue
+    const offset = unit.dislodged ? DISLODGED_OFFSET : 0
+    cuts.push(
+      unitOutlineSvg(
+        p.x + offset, p.y + offset, unit.type, UNIT_RADIUS, style, '#000',
+        SPOTLIGHT_UNIT_HOLE_WIDTH,
+        strokeWidthPulse(SPOTLIGHT_UNIT_HOLE_WIDTH, SPOTLIGHT_UNIT_OUTLINE_PULSE),
+        '#000',
+      ),
+    )
+  }
+  if (cuts.length === 0) return ''
+  const rect = `x="${viewBox.minX}" y="${viewBox.minY}" width="${viewBox.width}" height="${viewBox.height}"`
+  return (
+    `<defs><mask id="spotlightMask"><rect ${rect} fill="white"/>${cuts.join('')}</mask></defs>` +
+    `<rect ${rect} fill="${SPOTLIGHT_SHADOW_COLOR}" opacity="${SPOTLIGHT_SHADOW_OPACITY}" mask="url(#spotlightMask)" pointer-events="none"/>`
+  )
 }
 
 const retreatFlag = (cx: number, cy: number): string =>
@@ -298,17 +365,27 @@ const unitMarkup = (
   position: Point,
   color: string,
   dimmed: boolean,
-  style: UnitStyle
+  style: UnitStyle,
+  spotlit = false
 ): string => {
   const offset = unit.dislodged ? DISLODGED_OFFSET : 0
   const cx = position.x + offset
   const cy = position.y + offset
   // A disbanding unit fades to the same ghost opacity as a pending build.
   const op = dimmed ? GHOST_UNIT_OPACITY : 1
+  // Pulsing white outline tracing the token's own shape when its nation is spotlit
+  // (SC-card hover) — the same breathing stroke as the province highlight.
+  const ring = spotlit
+    ? unitOutlineSvg(
+        cx, cy, unit.type, UNIT_RADIUS, style, '#fff',
+        SPOTLIGHT_UNIT_OUTLINE_WIDTH,
+        strokeWidthPulse(SPOTLIGHT_UNIT_OUTLINE_WIDTH, SPOTLIGHT_UNIT_OUTLINE_PULSE),
+      )
+    : ''
   const token = unitToken(cx, cy, unit.type, color, style, op)
   const flag = unit.dislodged && !dimmed ? retreatFlag(cx, cy) : ''
   const cdBadge = unit.civilDisorder && !dimmed ? civilDisorderBadge(cx, cy) : ''
-  return `<g>${token}${flag}${cdBadge}</g>`
+  return `<g>${ring}${token}${flag}${cdBadge}</g>`
 }
 
 const unitsLayer = (unitPositions: Map<string, Point>, state: RenderState): string => {
@@ -327,8 +404,9 @@ const unitsLayer = (unitPositions: Map<string, Point>, state: RenderState): stri
     if (!position) {
       continue
     }
+    const spotlit = !!state.spotlightNation && sameNation(unit.nation, state.spotlightNation)
     parts.push(
-      unitMarkup(unit, position, nationColor(state, unit.nation), disbanding.has(unit.province), style)
+      unitMarkup(unit, position, nationColor(state, unit.nation), disbanding.has(unit.province), style, spotlit)
     )
   }
   return parts.join('\n')
@@ -575,6 +653,7 @@ const moveOrderParts = (
         parts.push(
           moveViaConvoyArrow({
             waypoints: route.waypoints,
+            startOffset: 0,
             lineWidth: ORDER_LINE_WIDTH,
             arrowWidth: ORDER_ARROW_WIDTH,
             arrowLength: ORDER_ARROW_LENGTH,
@@ -599,6 +678,7 @@ const moveOrderParts = (
         arrowLength: ORDER_ARROW_LENGTH,
         strokeWidth: ORDER_STROKE_WIDTH,
         offset: UNIT_RADIUS,
+        startOffset: 0, // tail begins at the unit center; the unit (drawn on top) covers it
         stroke: SUCCESS_COLOR,
         fill: color,
         controlPoint: headToHead.get(`${order.source}->${order.target}`),
@@ -648,27 +728,33 @@ const convoyOrderParts = (
   return parts
 }
 
-const ordersLayer = (unitPositions: Map<string, Point>, state: RenderState): string => {
+// Orders split into two z-layers: `behind` (move arrows, drawn under the units so a
+// triangular fleet's token cleanly covers the arrow's center-anchored tail) and
+// `front` (everything else, drawn over the units as before).
+const ordersLayer = (
+  unitPositions: Map<string, Point>,
+  state: RenderState
+): { behind: string; front: string } => {
   const orders = state.orders ?? []
   const ofType = (type: OrderType): OrderState[] => orders.filter((order) => order.type === type)
   const headToHead = headToHeadControlPoints(orders, unitPositions)
   const groups = supportMoveGroups(orders)
   const routes = convoyRoutes(orders, unitPositions)
-  const parts: string[] = []
+  const behind: string[] = moveOrderParts(orders, unitPositions, state, headToHead, routes)
+  const front: string[] = []
 
   for (const order of ofType('Hold')) {
     const position = unitPositions.get(order.source)
     if (position) {
-      parts.push(holdMarkup(order, position))
+      front.push(holdMarkup(order, position))
     }
   }
-  parts.push(...supportOrderParts(orders, unitPositions, state, groups, headToHead))
-  parts.push(...moveOrderParts(orders, unitPositions, state, headToHead, routes))
-  parts.push(...convoyOrderParts(orders, unitPositions, state, routes))
+  front.push(...supportOrderParts(orders, unitPositions, state, groups, headToHead))
+  front.push(...convoyOrderParts(orders, unitPositions, state, routes))
   for (const order of ofType('Build')) {
     const position = unitPositions.get(order.source)
     if (position) {
-      parts.push(
+      front.push(
         buildMarkup(order, position, nationColor(state, order.nation), state.unitStyle ?? DEFAULT_UNIT_STYLE)
       )
     }
@@ -677,10 +763,10 @@ const ordersLayer = (unitPositions: Map<string, Point>, state: RenderState): str
     const position = unitPositions.get(order.source)
     if (position) {
       const unit = state.units?.find((u) => u.province === order.source)
-      parts.push(disbandMarkup(position, unit?.dislodged ? DISLODGED_OFFSET : 0))
+      front.push(disbandMarkup(position, unit?.dislodged ? DISLODGED_OFFSET : 0))
     }
   }
-  return parts.join('\n')
+  return { behind: behind.join('\n'), front: front.join('\n') }
 }
 
 export class DiplicityMap {
@@ -707,13 +793,12 @@ export class DiplicityMap {
       this.parsed
     const viewBoxAttr = `${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`
     const fillAttr = rootFill !== null ? ` fill="${rootFill}"` : ''
-    const fills = provinceFillsLayer(
-      new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths]),
-      state
-    )
+    const regionPaths = new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths])
+    const fills = provinceFillsLayer(regionPaths, state)
     const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters)
     const units = unitsLayer(this.parsed.unitPositions, state)
     const orders = ordersLayer(this.parsed.unitPositions, state)
+    const spotlight = spotlightOverlayLayer(regionPaths, this.parsed.unitPositions, state, viewBox)
 
     const parts = [
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBoxAttr}"${fillAttr}>`,
@@ -732,11 +817,17 @@ export class DiplicityMap {
     parts.push(layer('province-names', provinceNames))
     parts.push(layer('borders', borders))
     parts.push(layer('foreground', foreground))
+    if (orders.behind) {
+      parts.push(layer('order-arrows', orders.behind))
+    }
     if (units) {
       parts.push(layer('units', units))
     }
-    if (orders) {
-      parts.push(layer('orders', orders))
+    if (orders.front) {
+      parts.push(layer('orders', orders.front))
+    }
+    if (spotlight) {
+      parts.push(layer('spotlight', spotlight))
     }
     parts.push('</svg>')
     return parts.join('\n')

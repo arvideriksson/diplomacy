@@ -49,8 +49,13 @@ export async function resolveGame(
 
   const map = getMap(game.map_id)
   const board = loadBoard(game)
+  // Single-row model: a nation's orders count only if it submitted (games.ready). An
+  // unsubmitted draft row is present but inert — its units hold.
+  const ready = game.ready ?? {}
   const orderRows = await getRoundOrders(db, gameId, game.year, game.season, game.phase)
-  const orders: AnyOrder[] = orderRows.flatMap((r) => (r.orders as AnyOrder[]) ?? [])
+  const orders: AnyOrder[] = orderRows
+    .filter((r) => ready[r.nation] === true)
+    .flatMap((r) => (r.orders as AnyOrder[]) ?? [])
 
   const { newBoardState, victory } = adjudicate(map, board, orders)
 

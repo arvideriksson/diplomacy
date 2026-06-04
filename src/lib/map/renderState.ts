@@ -26,6 +26,7 @@ export type ToRenderStateInput = {
   buildSlots?: string[]
   removeSlots?: string[]
   unorderedSlots?: string[]
+  spotlightNation?: string
   orders?: OrderState[]
   unitStyle?: UnitStyle
 }
@@ -40,6 +41,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     buildSlots = [],
     removeSlots = [],
     unorderedSlots = [],
+    spotlightNation,
     orders,
     unitStyle,
   } = input
@@ -83,6 +85,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     buildSlots: buildSlots.map((id) => toDsvgId(id)),
     removeSlots: removeSlots.map((id) => toDsvgId(id)),
     unorderedSlots: unorderedSlots.map((id) => toDsvgId(id)),
+    spotlightNation,
     unitStyle,
   }
 }
