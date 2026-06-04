@@ -2,8 +2,8 @@
 
 ## `adjudicate`
 
-The single authoritative turn resolver. Invoked by `pg_cron` (see
-`supabase/012_cron.sql`) via `pg_net` with a service-role bearer token and a
+The single authoritative turn resolver. Invoked by `pg_cron` (see the cron
+migration in `supabase/migrations/`) via `pg_net` with a service-role bearer token and a
 `{ "game_id": "..." }` body. It loads the game, runs the **pure engine** in
 `src/lib/adjudicator`, and atomically commits the result via the
 `apply_resolution` RPC. It is the only writer of resolved state.

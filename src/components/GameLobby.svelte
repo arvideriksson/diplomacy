@@ -8,6 +8,7 @@
   } from '../lib/game'
   import type { GameState, GameSettings, PlayerInfo } from '../lib/game'
   import { getMap } from '../lib/maps'
+  import { errorMessage } from '../lib/errors'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -62,7 +63,7 @@
       // clicking your own power releases it
       await claimNation(gameId, myNation === nation ? null : nation)
     } catch (e) {
-      claimError = e instanceof Error ? e.message : String(e)
+      claimError = errorMessage(e)
     }
   }
 

@@ -11,6 +11,8 @@
 
   export let game: GameState
   export let nation: string = ''
+  /** Leave the game and return to the menu (header is hidden in-game). */
+  export let onExit: (() => void) | null = null
 
   $: map = getMap(game.map_id)
 
@@ -56,9 +58,11 @@
 </script>
 
 {#if frame}
-  <div class="game-shell">
-    <GameBoard
+  <GameBoard
     mapDef={map}
+    {onExit}
+    leftWidth={nation && game.phase !== 'lobby' ? '560px' : '320px'}
+    title={game.name}
     gameId={game.id}
     units={frame.board.units}
     ownership={frame.board.supplyCenters}
@@ -77,20 +81,12 @@
     canPhaseBack={canBack}
     canPhaseForward={canForward}
     seedKey={String(cursor)}
-    />
-
-    <!-- Press dock: live secret chat, available once nations are assigned. -->
-    {#if nation && game.phase !== 'lobby'}
-      <ChatPanel gameId={game.id} {nation} players={game.players} />
-    {/if}
-  </div>
+  >
+    <svelte:fragment slot="left">
+      {#if nation && game.phase !== 'lobby'}
+        <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} />
+      {/if}
+    </svelte:fragment>
+  </GameBoard>
 {/if}
 
-<style>
-  /* Positioning context for the docked ChatPanel (absolute, bottom-left of the board). */
-  .game-shell {
-    position: relative;
-    width: 100%;
-    height: 100%;
-  }
-</style>

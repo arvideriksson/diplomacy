@@ -87,6 +87,7 @@
     <div class="spinner"></div>
   </div>
 {:else}
+  {#if view !== 'game' && view !== 'sandbox'}
   <header>
     <div class="header-inner">
       <div class="header-left">
@@ -109,6 +110,7 @@
       </nav>
     </div>
   </header>
+  {/if}
 
   <main class:immersive={view === 'game' || view === 'sandbox'}>
     {#if !$isAuthenticated}
@@ -167,7 +169,7 @@
         />
       </div>
     {:else if view === 'game' && selectedGame}
-      <GameView game={selectedGame} nation={viewerNation} />
+      <GameView game={selectedGame} nation={viewerNation} onExit={handleBackToList} />
     {/if}
   </main>
 {/if}
@@ -326,14 +328,14 @@
     width: 100%;
   }
 
-  /* Immersive in-game / sandbox: map fills the viewport below the header.
-     flex:none + a fixed height stops the item from growing to the map's
-     intrinsic SVG height (which would push the overlays off-screen). */
+  /* Immersive in-game / sandbox: the header is hidden, so the board claims the
+     full viewport. flex:none + a fixed height stops the item from growing to the
+     map's intrinsic SVG height (which would push the overlays off-screen). */
   main.immersive {
     flex: none;
     max-width: none;
     padding: 0;
-    height: calc(100dvh - 56px);
+    height: 100dvh;
     min-height: 0;
     overflow: hidden;
   }

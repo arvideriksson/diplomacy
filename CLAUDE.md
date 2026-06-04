@@ -33,7 +33,7 @@ A web application for playing the board game **Diplomacy** online.
   - `orders/` — order types, legal-move *options*, and the order-entry wizard (legality candidates for entry — **not** an adjudicator)
   - `adjudicator/` — pure, dependency-free TS adjudication engine, parameterized by a `MapDefinition`. Imported by the Edge Function; avoids browser/Node-specific APIs so Deno can run it.
 - `supabase/` — backend.
-  - numbered SQL migrations (`001_schema.sql`, …). RLS policies and RPC functions live here; apply them in order.
+  - `migrations/` — timestamp-prefixed SQL migrations (`20250101000101_schema.sql`, …), applied in filename order. RLS policies and RPC functions live here. Apply with **`supabase db push`** (it runs any migration not yet in the remote's history); add new ones with `supabase migration new <name>`. Never hand-edit an applied migration — write a new one.
   - `functions/` — Edge Functions (Deno). Houses the single authoritative adjudicator, which imports the engine in `src/lib/adjudicator/`.
 
 ## Turn Engine & State Model

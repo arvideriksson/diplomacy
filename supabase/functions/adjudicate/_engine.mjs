@@ -47,6 +47,7 @@ var reachable = (map, unit) => {
   if (unit.coast && t.coasts?.[unit.coast]) {
     return [...t.coasts[unit.coast].fleetAdjacency];
   }
+  if (t.fleetAdjacent) return [...t.fleetAdjacent];
   return t.adjacent.filter((id) => {
     const adj = territory(map, id);
     return adj ? canFleetEnter(adj) : false;
@@ -715,13 +716,23 @@ var standardMap = {
   description: "Classic Diplomacy \u2014 Europe 1901, 7 great powers, 34 supply centers",
   playerCount: 7,
   powers: [
-    { id: "england", name: "England", color: "#1e40af" },
-    { id: "france", name: "France", color: "#2563eb" },
-    { id: "germany", name: "Germany", color: "#6b7280" },
-    { id: "italy", name: "Italy", color: "#16a34a" },
-    { id: "austria", name: "Austria-Hungary", color: "#dc2626" },
-    { id: "russia", name: "Russia", color: "#7c3aed" },
-    { id: "turkey", name: "Turkey", color: "#f59e0b" }
+    // OKLCH-balanced palette (hues preserved). Most powers sit at L=0.66; chroma is pushed
+    // per-hue toward each one's gamut so reds/blues/purples stay vivid. Turkey is lifted to
+    // L=0.80 so its amber reads as gold, not brown (brown = a dark, low-chroma amber).
+    { id: "england", name: "England", color: "#4b85fe" },
+    // L.64 C.190 h263 (royal blue)
+    { id: "france", name: "France", color: "#00a8ca" },
+    // L.66 C.150 h214 (teal — hue-shifted off England's blue)
+    { id: "germany", name: "Germany", color: "#8c929f" },
+    // L.66 C.020 (neutral)
+    { id: "italy", name: "Italy", color: "#4aa961" },
+    // L.66 C.140 h149
+    { id: "austria", name: "Austria-Hungary", color: "#f0574e" },
+    // L.66 C.190 h27
+    { id: "russia", name: "Russia", color: "#9975fa" },
+    // L.66 C.190 h293
+    { id: "turkey", name: "Turkey", color: "#f5af20" }
+    // L.80 C.160 h78
   ],
   territories: {
     // ──────────────────────────── ENGLAND ────────────────────────────
@@ -730,6 +741,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["EDI", "LVP", "NWG", "NAO"],
+      fleetAdjacent: ["EDI", "LVP", "NWG", "NAO"],
       render: { center: [133, 201] }
     },
     EDI: {
@@ -738,6 +750,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["CLY", "YOR", "LVP", "NTH", "NWG"],
+      fleetAdjacent: ["CLY", "YOR", "NTH", "NWG"],
       render: { center: [152, 202] }
     },
     LVP: {
@@ -746,6 +759,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["CLY", "EDI", "YOR", "WAL", "NAO", "IRI"],
+      fleetAdjacent: ["CLY", "WAL", "NAO", "IRI"],
       render: { center: [138, 230] }
     },
     YOR: {
@@ -753,6 +767,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["EDI", "LVP", "LON", "WAL", "NTH"],
+      fleetAdjacent: ["EDI", "LON", "NTH"],
       render: { center: [155, 254] }
     },
     WAL: {
@@ -760,6 +775,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["LVP", "YOR", "LON", "ENG", "IRI"],
+      fleetAdjacent: ["LVP", "LON", "ENG", "IRI"],
       render: { center: [130, 275] }
     },
     LON: {
@@ -768,6 +784,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["YOR", "WAL", "NTH", "ENG"],
+      fleetAdjacent: ["YOR", "WAL", "NTH", "ENG"],
       render: { center: [160, 280] }
     },
     // ──────────────────────────── FRANCE ────────────────────────────
@@ -777,6 +794,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "france",
       adjacent: ["PIC", "PAR", "GAS", "ENG", "MAO"],
+      fleetAdjacent: ["PIC", "GAS", "ENG", "MAO"],
       render: { center: [130, 345] }
     },
     PIC: {
@@ -784,6 +802,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["BRE", "PAR", "BUR", "BEL", "ENG"],
+      fleetAdjacent: ["BRE", "BEL", "ENG"],
       render: { center: [168, 326] }
     },
     PAR: {
@@ -806,6 +825,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["BRE", "PAR", "BUR", "MAR", "SPA", "MAO"],
+      // Not MAR: Gascony and Marseilles share only a land border, no coastline.
+      fleetAdjacent: ["BRE", "SPA", "MAO"],
       render: { center: [130, 400] }
     },
     MAR: {
@@ -814,6 +835,8 @@ var standardMap = {
       supplyCenter: true,
       homePower: "france",
       adjacent: ["GAS", "BUR", "PIE", "SPA", "GOL"],
+      // Not GAS: land border only.
+      fleetAdjacent: ["PIE", "SPA", "GOL"],
       render: { center: [173, 412] }
     },
     // ──────────────────────────── GERMANY ────────────────────────────
@@ -822,7 +845,10 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       homePower: "germany",
-      adjacent: ["HOL", "DEN", "BER", "MUN", "RUH", "HEL"],
+      // BAL belongs here (Kiel is the canal joining HEL and BAL); it was missing,
+      // which broke F Kie–Bal and convoys staged out of Kiel via the Baltic.
+      adjacent: ["HOL", "DEN", "BER", "MUN", "RUH", "HEL", "BAL"],
+      fleetAdjacent: ["HOL", "DEN", "BER", "HEL", "BAL"],
       render: { center: [237, 285] }
     },
     BER: {
@@ -831,6 +857,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "germany",
       adjacent: ["KIE", "MUN", "SIL", "PRU", "BAL"],
+      fleetAdjacent: ["KIE", "PRU", "BAL"],
       render: { center: [272, 292] }
     },
     MUN: {
@@ -846,6 +873,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["BER", "SIL", "WAR", "LVN", "BAL"],
+      fleetAdjacent: ["BER", "LVN", "BAL"],
       render: { center: [335, 283] }
     },
     RUH: {
@@ -868,6 +896,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["MAR", "TYR", "VEN", "TUS", "GOL"],
+      // Not VEN: Piedmont (Ligurian coast) and Venice (Adriatic) share land only.
+      fleetAdjacent: ["MAR", "TUS", "GOL"],
       render: { center: [215, 408] }
     },
     VEN: {
@@ -876,6 +906,8 @@ var standardMap = {
       supplyCenter: true,
       homePower: "italy",
       adjacent: ["PIE", "TYR", "TRI", "TUS", "APU", "ADR"],
+      // Not PIE/TUS: those border Venice by land only (Venice is Adriatic-side).
+      fleetAdjacent: ["TRI", "APU", "ADR"],
       render: { center: [245, 407] }
     },
     TUS: {
@@ -883,6 +915,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["PIE", "VEN", "ROM", "GOL", "TYS"],
+      // Not VEN: land border only.
+      fleetAdjacent: ["PIE", "ROM", "GOL", "TYS"],
       render: { center: [240, 425] }
     },
     ROM: {
@@ -891,6 +925,8 @@ var standardMap = {
       supplyCenter: true,
       homePower: "italy",
       adjacent: ["TUS", "NAP", "APU", "TYS", "VEN"],
+      // Not APU/VEN: both border Rome by land only (DATC 6.A.9 / 6.A.10).
+      fleetAdjacent: ["TUS", "NAP", "TYS"],
       render: { center: [257, 452] }
     },
     NAP: {
@@ -899,6 +935,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "italy",
       adjacent: ["ROM", "APU", "TYS", "ION"],
+      fleetAdjacent: ["ROM", "APU", "TYS", "ION"],
       render: { center: [293, 493] }
     },
     APU: {
@@ -906,6 +943,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["VEN", "ROM", "NAP", "ADR", "ION"],
+      // Not ROM: land border only (Apulia is Adriatic/Ionian-side).
+      fleetAdjacent: ["VEN", "NAP", "ADR", "ION"],
       render: { center: [291, 470] }
     },
     // ──────────────────────────── AUSTRIA-HUNGARY ────────────────────────────
@@ -937,6 +976,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "austria",
       adjacent: ["TYR", "VIE", "BUD", "SER", "ALB", "ADR", "VEN"],
+      fleetAdjacent: ["ALB", "ADR", "VEN"],
       render: { center: [305, 425] }
     },
     BUD: {
@@ -980,6 +1020,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["STP", "NOR", "SWE", "BOT"],
+      // Not NOR: Finland and Norway share a land border only.
+      fleetAdjacent: ["STP", "SWE", "BOT"],
       render: { center: [375, 160] }
     },
     LVN: {
@@ -987,6 +1029,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["STP", "MOS", "WAR", "PRU", "BAL", "BOT"],
+      fleetAdjacent: ["STP", "PRU", "BAL", "BOT"],
       render: { center: [380, 260] }
     },
     WAR: {
@@ -1010,6 +1053,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "russia",
       adjacent: ["MOS", "UKR", "RUM", "ARM", "BLA"],
+      fleetAdjacent: ["RUM", "ARM", "BLA"],
       render: { center: [540, 350] }
     },
     // ──────────────────────────── TURKEY ────────────────────────────
@@ -1019,6 +1063,8 @@ var standardMap = {
       supplyCenter: true,
       homePower: "turkey",
       adjacent: ["BUL", "BLA", "ANK", "SMY", "AEG"],
+      // Constantinople is the strait joining the Black Sea (BLA) and the Aegean (AEG).
+      fleetAdjacent: ["BUL", "BLA", "ANK", "SMY", "AEG"],
       render: { center: [435, 483] }
     },
     ANK: {
@@ -1027,6 +1073,7 @@ var standardMap = {
       supplyCenter: true,
       homePower: "turkey",
       adjacent: ["CON", "BLA", "ARM"],
+      fleetAdjacent: ["CON", "BLA", "ARM"],
       render: { center: [510, 455] }
     },
     SMY: {
@@ -1035,6 +1082,8 @@ var standardMap = {
       supplyCenter: true,
       homePower: "turkey",
       adjacent: ["CON", "AEG", "EAS", "SYR", "ARM", "ANK"],
+      // Not ARM/ANK: Smyrna (Aegean side) reaches them by land only.
+      fleetAdjacent: ["CON", "AEG", "EAS", "SYR"],
       render: { center: [460, 510] }
     },
     ARM: {
@@ -1042,6 +1091,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["SEV", "BLA", "ANK", "SMY", "SYR"],
+      // Not SMY/SYR: Armenia (Black Sea side) reaches them by land only.
+      fleetAdjacent: ["SEV", "BLA", "ANK"],
       render: { center: [585, 467] }
     },
     SYR: {
@@ -1049,6 +1100,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["SMY", "ARM", "EAS"],
+      // Not ARM: land border only.
+      fleetAdjacent: ["SMY", "EAS"],
       render: { center: [570, 535] }
     },
     // ──────────────────────────── NEUTRALS ────────────────────────────
@@ -1057,6 +1110,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["NWG", "NTH", "SKA", "SWE", "FIN", "STP", "BAR"],
+      // Not FIN: Norway and Finland share a land border only.
+      fleetAdjacent: ["NWG", "NTH", "SKA", "SWE", "STP", "BAR"],
       render: { center: [250, 175] }
     },
     SWE: {
@@ -1064,6 +1119,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["NOR", "FIN", "DEN", "SKA", "BAL", "BOT"],
+      fleetAdjacent: ["NOR", "FIN", "DEN", "SKA", "BAL", "BOT"],
       render: { center: [300, 170] }
     },
     DEN: {
@@ -1071,6 +1127,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["NTH", "SKA", "SWE", "KIE", "HEL", "BAL"],
+      fleetAdjacent: ["NTH", "SKA", "SWE", "KIE", "HEL", "BAL"],
       render: { center: [250, 235] }
     },
     HOL: {
@@ -1078,6 +1135,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["BEL", "RUH", "KIE", "NTH", "HEL"],
+      fleetAdjacent: ["BEL", "KIE", "NTH", "HEL"],
       render: { center: [210, 290] }
     },
     BEL: {
@@ -1085,6 +1143,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["HOL", "RUH", "BUR", "PIC", "ENG", "NTH"],
+      fleetAdjacent: ["HOL", "PIC", "ENG", "NTH"],
       render: { center: [192, 321] }
     },
     SPA: {
@@ -1103,6 +1162,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["SPA", "MAO"],
+      fleetAdjacent: ["SPA", "MAO"],
       render: { center: [22, 440] }
     },
     NAF: {
@@ -1110,6 +1170,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["MAO", "WES", "TUN"],
+      fleetAdjacent: ["MAO", "WES", "TUN"],
       render: { center: [130, 536] }
     },
     TUN: {
@@ -1117,6 +1178,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["NAF", "WES", "TYS", "ION"],
+      fleetAdjacent: ["NAF", "WES", "TYS", "ION"],
       render: { center: [210, 555] }
     },
     SER: {
@@ -1131,6 +1193,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["TRI", "SER", "GRE", "ADR", "ION"],
+      fleetAdjacent: ["TRI", "GRE", "ADR", "ION"],
       render: { center: [333, 460] }
     },
     GRE: {
@@ -1138,6 +1201,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["SER", "ALB", "BUL", "AEG", "ION"],
+      fleetAdjacent: ["ALB", "BUL", "AEG", "ION"],
       render: { center: [352, 490] }
     },
     BUL: {
@@ -1156,6 +1220,7 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       adjacent: ["BUD", "GAL", "UKR", "SEV", "BUL", "SER", "BLA"],
+      fleetAdjacent: ["SEV", "BUL", "BLA"],
       render: { center: [410, 415] }
     },
     // ──────────────────────────── SEA ZONES ────────────────────────────

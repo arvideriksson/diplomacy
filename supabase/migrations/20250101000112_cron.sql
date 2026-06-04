@@ -15,8 +15,11 @@ create index if not exists games_due_idx
   on public.games (deadline)
   where phase in ('movement', 'retreat', 'build');
 
--- Edge Function URL + service key, kept out of the migration (no plaintext in VCS).
--- Insert one row out-of-band (SQL editor) or use Supabase Vault and read from there.
+-- Edge Function URL + the shared secret the function gates on (ADJUDICATOR_SECRET),
+-- kept out of the migration (no plaintext in VCS). Insert one row out-of-band (SQL
+-- editor) or use Supabase Vault. NOTE: `service_key` holds the dedicated adjudicator
+-- shared secret, NOT a Supabase API key — it must equal the function's
+-- ADJUDICATOR_SECRET env var (see functions/adjudicate/index.ts).
 create schema if not exists private;
 create table if not exists private.engine_config (
   id           boolean primary key default true check (id),
@@ -55,14 +58,16 @@ declare
   cfg private.engine_config;
   g   record;
 begin
-  select * into cfg from private.engine_config where id;
-  if cfg is null then return; end if;
-
-  -- reap stale locks from crashed resolutions so they retry
+  -- Reap stale locks from crashed/never-completed resolutions FIRST, before the config
+  -- early-return — otherwise an unconfigured engine (e.g. local dev) leaves a stuck
+  -- `resolving_at` that permanently locks order submission instead of self-healing.
   update public.games
      set resolving_at = null
    where resolving_at is not null
      and resolving_at < now() - interval '5 minutes';
+
+  select * into cfg from private.engine_config where id;
+  if cfg is null then return; end if;
 
   for g in
     select id
