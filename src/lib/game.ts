@@ -271,9 +271,17 @@ export async function setReady(gameId: string, ready: boolean) {
 }
 
 /**
- * The caller's own orders for the current unresolved round (RLS lets a player read
- * their own orders before reveal). Used to repopulate the order panel on load.
+ * Autosave the caller's UNSUBMITTED draft into their single orders row without readying.
+ * Drafts and submissions share one row per (game, round, nation); readiness lives in
+ * games.ready. This writes only the content, so it never broadcasts (orders isn't in
+ * the realtime publication) and the adjudicator treats it as a hold until submitted.
+ * Called debounced while the nation is not yet ready, so a reload never loses work.
  */
+export async function saveDraftOrders(gameId: string, orders: AnyOrder[]) {
+  const { error } = await supabase.rpc('save_draft_orders', { p_game_id: gameId, p_orders: orders })
+  if (error) throw error
+}
+
 /**
  * The full resolved-order log for a game (all nations, all past rounds). Resolved
  * orders are public, so RLS permits reading them — this is the immutable history.
@@ -288,11 +296,24 @@ export async function fetchResolvedLog(gameId: string): Promise<ResolvedOrderRow
   return (data ?? []) as ResolvedOrderRow[]
 }
 
-export async function fetchMyOrders(gameId: string): Promise<AnyOrder[]> {
+/**
+ * The caller's order row for a round — draft or submitted, it's the same single row
+ * (RLS scopes it to their own nation while unresolved). Used to repopulate the panel on
+ * load; whether it's "submitted" is read separately from games.ready.
+ */
+export async function fetchMyOrders(
+  gameId: string,
+  year: number,
+  season: string,
+  phase: string,
+): Promise<AnyOrder[]> {
   const { data, error } = await supabase
     .from('orders')
     .select('orders')
     .eq('game_id', gameId)
+    .eq('year', year)
+    .eq('season', season)
+    .eq('phase', phase)
     .eq('resolved', false)
     .maybeSingle()
   if (error) throw error

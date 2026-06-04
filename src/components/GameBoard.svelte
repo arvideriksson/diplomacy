@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Unit } from '../lib/game'
-  import { submitOrders, fetchMyOrders } from '../lib/game'
+  import { submitOrders, fetchMyOrders, saveDraftOrders } from '../lib/game'
+  import { onDestroy } from 'svelte'
+  import { errorMessage } from '../lib/errors'
   import type { MapDefinition } from '../lib/mapDefinition'
   import DiplomacyMap from './DiplomacyMap.svelte'
   import { toDsvgId, toGameId } from '../lib/map/idMap'
@@ -19,6 +21,7 @@
   import type { OrderState } from '../lib/map/mapRenderer'
   import { unitTokenSvg } from '../lib/map/unitStyles'
   import { unitStyle } from '../lib/unitStyle'
+  import SupplyCenterCard from './SupplyCenterCard.svelte'
 
   export let mapDef: MapDefinition
   export let gameId: string = ''
@@ -58,14 +61,55 @@
   export let readOnly: boolean = false
   /** The resolved orders to display in read-only history mode. */
   export let historyOrders: AnyOrder[] = []
+  /** Leave the game and return to the menu (the global header is hidden in-game). */
+  export let onExit: (() => void) | null = null
+  /** Name shown at the top of the sidebar (game or sandbox name). */
+  export let title: string = ''
+  /** Width of the left rail. Wider in-game so chat can show a two-pane view. */
+  export let leftWidth: string = '320px'
 
   let orders: AnyOrder[] = []
+  let spotlightNation = '' // nation whose SCs are spotlit (hovering the SC card)
   let draft: Draft | null = null // movement wizard
   let currentStep: Step | null = null
   let retreatSel: string | null = null // dislodged unit's province being routed (retreat)
   let buildSel: { province: string; nation: string } | null = null // center awaiting unit type (build)
   let saving = false
   let saveError = ''
+  // Live autosave of the unsubmitted draft (Phase 1, !ready); silent, no status UI.
+  let draftTimer: ReturnType<typeof setTimeout> | null = null
+  // Optimistic ready state: submit flips the UI immediately instead of waiting
+  // for `ready` to round-trip back through the parent's realtime subscription. Cleared
+  // once the prop catches up (or on round change).
+  let readyOverride: boolean | null = null
+  $: effectiveReady = readyOverride ?? ready
+  $: if (readyOverride !== null && ready === readyOverride) readyOverride = null
+  // Edits made after submitting (Phase 2) are ephemeral until Resubmit — flag them.
+  let dirtySinceSubmit = false
+  // True only after the user clicks Resubmit *in this view* (drives Submitted vs
+  // Resubmitted). Reset on every load — on entry we can't tell submit from resubmit,
+  // so an already-submitted game always reads as the calm "Submitted".
+  let hasResubmitted = false
+
+  // Submit-button state machine:
+  //   not submitted        → green  "Submit"
+  //   submitted, no edits   → green  "Submitted"   (pressed, inert)
+  //   submitted, edited     → blue   "Resubmit"
+  //   resubmitted, no edits → blue   "Resubmitted" (pressed, inert)
+  $: submitPressed = effectiveReady && !dirtySinceSubmit && !saving
+  $: submitTone = !effectiveReady || (!dirtySinceSubmit && !hasResubmitted) ? 'submit' : 'resubmit'
+  $: submitLabel = saving
+    ? effectiveReady
+      ? 'Resubmitting…'
+      : 'Submitting…'
+    : !effectiveReady
+      ? 'Submit'
+      : dirtySinceSubmit
+        ? 'Resubmit'
+        : hasResubmitted
+          ? 'Resubmitted'
+          : 'Submitted'
+  const DRAFT_DEBOUNCE_MS = 750
 
   // Build type-picker popup: anchored at the clicked point within the map area.
   let mapArea: HTMLDivElement | undefined
@@ -100,48 +144,83 @@
       currentStep = null
       retreatSel = null
       buildSel = null
+      dirtySinceSubmit = false
+      readyOverride = null
+      hasResubmitted = false
+      if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
       if (onResolve) orders = initialOrders ?? [] // sandbox: preset
       else if (gameId && nation && ORDER_PHASES.includes(phase)) loadOrders() // live: reload saved
       else orders = []
     }
   }
 
-  // Notify the parent of a user edit (sandbox stores it / forks the timeline).
-  const notifyOrders = () => onOrdersChange?.(orders)
+  // Notify the parent of a user edit (sandbox stores it / forks the timeline) and,
+  // in live play, persist the change: autosave the draft while unsubmitted, or just
+  // flag unsaved edits once submitted (Phase 2 edits don't persist until Resubmit).
+  const notifyOrders = () => {
+    onOrdersChange?.(orders)
+    if (onResolve) return // sandbox: no server persistence
+    if (effectiveReady) dirtySinceSubmit = true
+    else scheduleDraftSave()
+  }
 
+  // One row per round holds the orders whether drafted or submitted (readiness is the
+  // `ready` prop, from games.ready) — so load it directly; no draft/submitted branching.
   async function loadOrders() {
+    hasResubmitted = false
     try {
-      orders = await fetchMyOrders(gameId)
+      orders = await fetchMyOrders(gameId, year, season, phase)
     } catch {
       orders = []
     }
   }
 
-  async function save(markReady: boolean) {
+  // Debounced autosave of the unsubmitted draft. No-op in sandbox, once ready, or
+  // outside an order phase — those never write a draft.
+  function scheduleDraftSave() {
+    if (onResolve || effectiveReady || !gameId || !nation || !ORDER_PHASES.includes(phase)) return
+    if (draftTimer) clearTimeout(draftTimer)
+    draftTimer = setTimeout(saveDraftNow, DRAFT_DEBOUNCE_MS)
+  }
+
+  async function saveDraftNow() {
+    draftTimer = null
+    if (effectiveReady) return
+    try {
+      await saveDraftOrders(gameId, orders)
+    } catch {
+      // silent: a dropped autosave just retries on the next edit
+    }
+  }
+
+  onDestroy(() => {
+    if (draftTimer) clearTimeout(draftTimer)
+  })
+
+  // Submit (or resubmit): the orders row becomes the only persisted truth and the
+  // draft is dropped server-side. Cancels any pending autosave and clears dirty.
+  async function submit() {
     if (!gameId || !nation) return
     saving = true
     saveError = ''
+    if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
+    const wasReady = effectiveReady // a commit while already submitted is a *re*submit
     try {
-      await submitOrders(gameId, orders, markReady)
+      await submitOrders(gameId, orders, true)
+      dirtySinceSubmit = false
+      readyOverride = true
+      hasResubmitted = wasReady
     } catch (e) {
-      saveError = e instanceof Error ? e.message : String(e)
+      saveError = errorMessage(e)
     } finally {
       saving = false
     }
   }
 
-  async function toggleReady() {
-    if (!gameId) return
-    saving = true
-    saveError = ''
-    try {
-      // Submit current orders and flip ready so edits and readiness stay consistent.
-      await submitOrders(gameId, orders, !ready)
-    } catch (e) {
-      saveError = e instanceof Error ? e.message : String(e)
-    } finally {
-      saving = false
-    }
+  // Revert ephemeral post-submit edits back to the submitted set.
+  async function discardChanges() {
+    await loadOrders()
+    dirtySinceSubmit = false
   }
 
   const controllable = (n: string): boolean =>
@@ -490,6 +569,25 @@
 <svelte:window on:keydown={onKeydown} />
 
 <div class="game">
+  {#if title || onExit || $$slots.left}
+    <aside class="left-rail" style="width: {leftWidth}">
+      {#if title || onExit}
+        <div class="side-title">
+          {#if onExit}
+            <button class="leave" on:click={onExit} title="Leave game">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Leave
+            </button>
+          {/if}
+          {#if title}<span class="game-name">{title}</span>{/if}
+        </div>
+      {/if}
+      <div class="left-body"><slot name="left" /></div>
+    </aside>
+  {/if}
+
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="map-area" bind:this={mapArea} on:pointerdown={recordPointer} on:click={onMapAreaClick}>
     <DiplomacyMap
@@ -503,8 +601,18 @@
       buildSlots={mapBuildSlots}
       removeSlots={mapRemoveSlots}
       {unorderedSlots}
+      {spotlightNation}
       onProvinceClick={canAct ? handleProvinceClick : null}
     />
+
+    {#if phase !== 'lobby' && Object.keys(supplyCenters).length}
+      <SupplyCenterCard
+        powers={mapDef.powers}
+        {supplyCenters}
+        {nation}
+        onHover={(n) => (spotlightNation = n ?? '')}
+      />
+    {/if}
 
     {#if buildSel && buildSpotChoice}
       {@const color = powerColor(buildSel.nation)}
@@ -546,6 +654,7 @@
   </div>
 
   <aside class="sidebar">
+
     <div class="side-head">
       {#if onPhaseBack}
         <!-- Sandbox: step back/forward through the phase chain. -->
@@ -555,7 +664,6 @@
       {:else}
         <span class="phase-label">{season} {year}</span>
       {/if}
-      <span class="phase-pill">{phase}</span>
     </div>
 
     <!-- Component-wide phase banner: large, color-coded by phase. -->
@@ -650,23 +758,24 @@
             {#if onResolve}
               <button class="primary submit" on:click={() => onResolve?.(orders)}>Submit</button>
             {:else}
+              <!-- Submit→Submitted (green) then Resubmit→Resubmitted (blue); pressed = committed, inert. -->
               <button
                 class="primary"
-                class:submit={!ready}
-                class:resubmit={ready}
-                on:click={() => save(true)}
-                disabled={saving}
+                class:submit={submitTone === 'submit'}
+                class:resubmit={submitTone === 'resubmit'}
+                class:pressed={submitPressed}
+                on:click={submit}
+                disabled={saving || submitPressed}
               >
-                {saving ? 'Submitting…' : ready ? 'Resubmit' : 'Submit'}
+                {submitLabel}
               </button>
-              <div class="actions-secondary">
-                <button class="link" on:click={() => save(false)} disabled={saving}>Save without ready</button>
-                {#if ready}
-                  <button class="link" on:click={toggleReady} disabled={saving}>Withdraw</button>
-                {/if}
-              </div>
-              {#if saveError}<span class="status error">{saveError}</span>{/if}
+              {#if effectiveReady && dirtySinceSubmit}
+                <div class="actions-secondary">
+                  <button class="link" on:click={discardChanges} disabled={saving}>Discard changes</button>
+                </div>
+              {/if}
             {/if}
+            {#if saveError}<span class="status error">{saveError}</span>{/if}
           </div>
         </div>
       {:else}
@@ -693,6 +802,23 @@
     min-width: 0;
     position: relative;
   }
+  /* Left rail: game/sandbox title + Leave on top, then chat (game) or unit
+     styles (sandbox) below. Mirror of the right order sidebar. */
+  .left-rail {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border, #e5e7eb);
+    background: var(--bg-card, #fff);
+    overflow: hidden;
+  }
+  .left-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
   /* Build type-picker popup — a rounded card tray anchored at the clicked centre. */
   .build-popup {
@@ -702,7 +828,7 @@
     gap: 8px;
     padding: 8px;
     border-radius: 14px;
-    background: color-mix(in srgb, var(--bg-card, #fff) 92%, transparent);
+    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
     backdrop-filter: blur(12px) saturate(1.4);
     -webkit-backdrop-filter: blur(12px) saturate(1.4);
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
@@ -729,9 +855,10 @@
     gap: 4px;
     width: 72px;
     padding: 10px 8px;
-    border: 1px solid var(--border-strong, #cbd5e1);
+    border: 1px solid color-mix(in srgb, var(--border-strong, #cbd5e1) 70%, transparent);
     border-radius: 10px;
-    background: var(--bg-input, #fff);
+    /* Translucent so the tray's frosted blur reads through, matching the SC card. */
+    background: color-mix(in srgb, var(--bg-input, #fff) 35%, transparent);
     color: var(--text, #1a1a1a);
     cursor: pointer;
     transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease;
@@ -739,7 +866,7 @@
   .build-card:hover {
     transform: translateY(-2px);
     border-color: var(--accent, #6366f1);
-    background: color-mix(in srgb, var(--accent, #6366f1) 10%, var(--bg-input, #fff));
+    background: color-mix(in srgb, var(--accent, #6366f1) 18%, transparent);
   }
   .bc-token {
     width: 40px;
@@ -765,6 +892,51 @@
     padding: 12px 14px;
     border-bottom: 1px solid var(--border, #eee);
   }
+  .side-title {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px 14px;
+    min-height: 52px;
+    border-bottom: 1px solid var(--border, #eee);
+  }
+  .side-title .game-name {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.2px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: calc(100% - 180px);
+  }
+  .side-title .leave {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--border-strong, #cbd5e1);
+    background: var(--bg-input, #fff);
+    color: var(--text-secondary, #555);
+    border-radius: 6px;
+    padding: 0 10px 0 6px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font);
+    flex: none;
+  }
+  .side-title .leave:hover {
+    border-color: var(--accent, #3b82f6);
+    color: var(--accent, #3b82f6);
+  }
   .side-head .nav {
     border: 1px solid var(--border-strong, #cbd5e1);
     background: var(--bg-input, #fff);
@@ -782,20 +954,11 @@
     cursor: default;
   }
   .side-head .phase-label {
+    flex: 1;
+    text-align: center;
     font-weight: 700;
+    font-size: 15px;
     letter-spacing: -0.2px;
-  }
-  .side-head .phase-pill {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: var(--accent-subtle, #e0edff);
-    color: var(--accent, #3b82f6);
-    flex: none;
-    margin-left: auto;
   }
   .phase-banner {
     display: flex;
@@ -928,6 +1091,24 @@
   .actions .primary:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  /* Committed state (Submitted / Resubmitted): inverted — colored outline + text on
+     the dark panel fill, rather than the solid color. Reads as "done", inert. */
+  .actions .primary.pressed,
+  .actions .primary.pressed:disabled {
+    opacity: 1;
+    cursor: default;
+    box-sizing: border-box;
+    background: transparent;
+    border: 2px solid currentColor;
+    box-shadow: none;
+    filter: none;
+  }
+  .actions .primary.submit.pressed {
+    color: var(--green, #059669);
+  }
+  .actions .primary.resubmit.pressed {
+    color: var(--accent, #2563eb);
   }
   .actions-secondary {
     display: flex;

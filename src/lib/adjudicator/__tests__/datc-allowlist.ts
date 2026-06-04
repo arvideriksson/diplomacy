@@ -7,12 +7,6 @@
 // is a concrete follow-up, not a silent gap.
 
 export const SKIP: Record<string, string> = {
-  // ── Map-data gap: single-coast coastal provinces lack explicit fleet adjacency,
-  //    so fleet moves/supports along land-only borders are over-permitted (ROM–VEN).
-  //    Fix = add sea adjacency to all coastal provinces in src/lib/maps/standard.ts.
-  t6a09_fleets_must_follow_coast_if_not_on_sea: 'map lacks single-coast fleet adjacency',
-  t6a10_support_on_unreachable_destination_not_possible: 'map lacks single-coast fleet adjacency',
-
   // ── Convoy paradox (Szykman): the guessing-unwind bookkeeping leaves a paradox
   //    cycle's non-convoy members with a stale resolution after the backup rule.
   //    The non-paradox convoy and circular-movement cases (6.C, rest of 6.F/6.G)

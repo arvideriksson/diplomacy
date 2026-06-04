@@ -83,9 +83,10 @@
   </div>
 {:else}
   <div class="sandbox-stage">
-  <UnitStylePicker />
   <GameBoard
     mapDef={map}
+    onExit={onBack}
+    title={sb.name}
     gameId=""
     units={board.units}
     ownership={board.supplyCenters}
@@ -106,6 +107,10 @@
     contested={board.contested}
     supplyCenters={board.supplyCenters}
   >
+    <div class="left-content" slot="left">
+      <UnitStylePicker />
+    </div>
+
     <svelte:fragment slot="toolbar">
       <button class="tool" on:click={handleReset}>Reset</button>
       <button class="tool" on:click={handleExport}>Copy JSON</button>
@@ -152,6 +157,10 @@
     max-width: 600px;
     margin: 80px auto;
     text-align: center;
+  }
+  .left-content {
+    padding: 12px;
+    overflow-y: auto;
   }
   .tool {
     padding: 4px 9px;

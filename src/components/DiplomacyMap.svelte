@@ -7,6 +7,7 @@
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
   import { unitStyle } from '../lib/unitStyle'
+  import { errorMessage } from '../lib/errors'
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
@@ -23,6 +24,8 @@
   export let removeSlots: string[] = []
   /** Own units still missing an order (amber highlight) — a forget-me-not cue. */
   export let unorderedSlots: string[] = []
+  /** Spotlight one nation: its supply centers flood-fill in colour, the rest dims. */
+  export let spotlightNation: string = ''
   /** When set, the parent owns selection — receives the clicked dSVG id. */
   export let onProvinceClick: ((dsvgId: string) => void) | null = null
   /** Fill the parent container (immersive in-game view) instead of sizing by aspect ratio. */
@@ -64,7 +67,7 @@
       namedCoastPaths = renderer.namedCoastPaths
       hitPaths = [...provincePaths.entries(), ...namedCoastPaths.entries()]
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e)
+      loadError = errorMessage(e)
     }
   })
 
@@ -99,7 +102,7 @@
       ? split(
           stripWrapper(
             renderer.render(
-              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders, unitStyle: $unitStyle })
+              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, spotlightNation, orders, unitStyle: $unitStyle })
             )
           )
         )

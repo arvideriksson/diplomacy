@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 
 /**
  * Secret group chat ("press"). Mirrors the free-tier economy levers in the schema
- * (see supabase/014_chat.sql): a channel IS its sorted member set, live delivery is
+ * (see the chat migration in supabase/migrations/): a channel IS its sorted member set, live delivery is
  * online-only full-payload Broadcast over a PRIVATE topic, and offline catch-up is a
  * delta (since-cursor) read from the table — never a full re-download.
  */
@@ -13,6 +13,8 @@ export interface ChatChannel {
   game_id: string
   members: string[]
   is_public: boolean
+  /** Null = unnamed (auto-reused by member set); set = a distinct named group. */
+  name: string | null
   created_at: string
 }
 
@@ -22,6 +24,18 @@ export interface ChatMessage {
   sender: string // nation
   body: string
   created_at: string
+}
+
+/** A private, per-nation draft: a conversation started but not yet sent into. The real
+ *  channel is created only when the draft is sent (see send path); until then it lives
+ *  here so it survives reload. members includes the owner (server-canonical set). */
+export interface ChatDraft {
+  id: number
+  game_id: string
+  members: string[]
+  name: string | null
+  body: string
+  updated_at: string
 }
 
 /** Channels the caller is a member of (RLS filters to membership). Public first. */
@@ -36,7 +50,49 @@ export async function listChannels(gameId: string): Promise<ChatChannel[]> {
   return (data ?? []) as ChatChannel[]
 }
 
-/** Open or reuse the channel for exactly {caller} ∪ members. Membership is fixed. */
+/** The caller's drafts for a game (RLS filters to own nation), oldest→newest. */
+export async function listDrafts(gameId: string): Promise<ChatDraft[]> {
+  const { data, error } = await supabase
+    .from('chat_drafts')
+    .select('*')
+    .eq('game_id', gameId)
+    .order('updated_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as ChatDraft[]
+}
+
+/** Create or update the caller's draft for a recipient set (+ optional name). `members`
+ *  is the OTHER members — the RPC adds the caller, mirroring the channel RPCs. */
+export async function upsertDraft(
+  gameId: string,
+  members: string[],
+  name: string | null,
+  body: string,
+): Promise<ChatDraft> {
+  const { data, error } = await supabase.rpc('upsert_chat_draft', {
+    p_game_id: gameId,
+    p_members: members,
+    p_name: name,
+    p_body: body,
+  })
+  if (error) throw error
+  return data as ChatDraft
+}
+
+/** Rename one of the caller's drafts (by id; recipient set unchanged). */
+export async function renameDraft(draftId: number, name: string): Promise<ChatDraft> {
+  const { data, error } = await supabase.rpc('rename_chat_draft', { p_draft_id: draftId, p_name: name })
+  if (error) throw error
+  return data as ChatDraft
+}
+
+/** Delete one of the caller's drafts (on send, or explicit discard). Idempotent. */
+export async function deleteDraft(draftId: number): Promise<void> {
+  const { error } = await supabase.rpc('delete_chat_draft', { p_draft_id: draftId })
+  if (error) throw error
+}
+
+/** Open or reuse the UNNAMED channel for exactly {caller} ∪ members (the auto-reuse path). */
 export async function getOrCreateChannel(gameId: string, members: string[]): Promise<ChatChannel> {
   const { data, error } = await supabase.rpc('get_or_create_channel', {
     p_game_id: gameId,
@@ -44,6 +100,23 @@ export async function getOrCreateChannel(gameId: string, members: string[]): Pro
   })
   if (error) throw error
   return data as ChatChannel
+}
+
+/** Create a NAMED group for {caller} ∪ members. Always a fresh channel (names can repeat members). */
+export async function createNamedChannel(gameId: string, members: string[], name: string): Promise<ChatChannel> {
+  const { data, error } = await supabase.rpc('create_named_channel', {
+    p_game_id: gameId,
+    p_members: members,
+    p_name: name,
+  })
+  if (error) throw error
+  return data as ChatChannel
+}
+
+/** Rename a channel. Any member may do this; the public channel cannot be renamed. */
+export async function renameChannel(channelId: number, name: string): Promise<void> {
+  const { error } = await supabase.rpc('rename_channel', { p_channel_id: channelId, p_name: name })
+  if (error) throw error
 }
 
 /** Delta history: messages in a channel, optionally only those after `sinceIso`. */
@@ -100,7 +173,10 @@ async function ensureRealtimeAuth(): Promise<void> {
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token ?? null
   if (token && token !== authedToken) {
-    supabase.realtime.setAuth(token)
+    // Must complete before we subscribe to a private topic — the join carries this
+    // token for the Realtime Authorization (RLS) check. Firing it un-awaited races
+    // the subscribe and can join a private channel with no/stale auth.
+    await supabase.realtime.setAuth(token)
     authedToken = token
   }
 }

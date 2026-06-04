@@ -72,23 +72,13 @@
 
 <style>
   .picker {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 20;
-    width: 248px;
-    background: color-mix(in srgb, var(--bg-card, #fff) 92%, transparent);
-    backdrop-filter: blur(10px) saturate(1.4);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    border: 1px solid var(--border-strong, #cbd5e1);
+    width: 100%;
+    background: var(--bg-input, #fff);
+    border: 1px solid var(--border, #e5e7eb);
     border-radius: 10px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
     color: var(--text, #1a1a1a);
     font-size: 12px;
     overflow: hidden;
-  }
-  .picker.collapsed {
-    width: auto;
   }
   .head {
     display: flex;

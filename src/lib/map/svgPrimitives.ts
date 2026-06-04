@@ -117,6 +117,9 @@ export type ArrowOptions = {
   arrowWidth: number
   arrowLength: number
   offset: number
+  /** Trim at the tail, overriding `offset` for the start only. Use 0 to begin at the
+   *  unit's center (e.g. move arrows drawn behind the unit, so shape doesn't matter). */
+  startOffset?: number
   fill: string
   stroke: string
   strokeWidth: number
@@ -129,11 +132,12 @@ export const arrow = (o: ArrowOptions): string => {
   if (o.controlPoint) {
     const { x: cx, y: cy } = o.controlPoint
 
+    const startOffset = o.startOffset ?? o.offset
     const startDx = cx - o.x1
     const startDy = cy - o.y1
     const startLen = Math.sqrt(startDx * startDx + startDy * startDy)
-    const startX = o.x1 + (startDx / startLen) * o.offset
-    const startY = o.y1 + (startDy / startLen) * o.offset
+    const startX = o.x1 + (startDx / startLen) * startOffset
+    const startY = o.y1 + (startDy / startLen) * startOffset
 
     const endDx = o.x2 - cx
     const endDy = o.y2 - cy
@@ -176,9 +180,10 @@ export const arrow = (o: ArrowOptions): string => {
   const angle = Math.atan2(o.y2 - o.y1, o.x2 - o.x1)
   const offsetX = o.offset * Math.cos(angle)
   const offsetY = o.offset * Math.sin(angle)
+  const startOffset = o.startOffset ?? o.offset
 
-  const startX = o.x1 + offsetX
-  const startY = o.y1 + offsetY
+  const startX = o.x1 + startOffset * Math.cos(angle)
+  const startY = o.y1 + startOffset * Math.sin(angle)
   const endX = o.x2 - offsetX - o.arrowLength * Math.cos(angle)
   const endY = o.y2 - offsetY - o.arrowLength * Math.sin(angle)
 
@@ -431,6 +436,8 @@ export type MoveViaConvoyArrowOptions = {
   arrowWidth: number
   arrowLength: number
   offset: number
+  /** Tail trim, overriding `offset` for the start only (0 = begin at the unit center). */
+  startOffset?: number
   fill: string
   stroke: string
   strokeWidth: number
@@ -442,10 +449,11 @@ export const moveViaConvoyArrow = (o: MoveViaConvoyArrowOptions): string => {
   if (points.length < 2) {
     return ''
   }
+  const startOffset = o.startOffset ?? o.offset
   const startDirection = unitVector(points[1].x - points[0].x, points[1].y - points[0].y)
   const startPoint = {
-    x: points[0].x + startDirection.x * o.offset,
-    y: points[0].y + startDirection.y * o.offset,
+    x: points[0].x + startDirection.x * startOffset,
+    y: points[0].y + startDirection.y * startOffset,
   }
   const last = points[points.length - 1]
   const beforeLast = points[points.length - 2]

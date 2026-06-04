@@ -28,6 +28,21 @@ export async function signInWithGoogle() {
   if (error) throw error
 }
 
+/**
+ * Dev-only: sign in as a throwaway anonymous user. Each call mints a distinct
+ * `auth.uid()` with the normal `authenticated` role, so every RPC/RLS path behaves
+ * exactly as it would for a real Google user — only `is_anonymous` differs. Used to
+ * stand up multi-player games locally without N real accounts. Guard every call site
+ * behind `import.meta.env.DEV` so it never reaches production.
+ */
+export async function signInAnonymously(displayName?: string) {
+  const name = displayName ?? `Tester ${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+  const { error } = await supabase.auth.signInAnonymously({
+    options: { data: { full_name: name, name } },
+  })
+  if (error) throw error
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut()
   if (error) throw error

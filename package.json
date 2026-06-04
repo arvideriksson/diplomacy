@@ -10,6 +10,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:7p": "node --experimental-strip-types scripts/seven-player-game.mjs",
     "build:edge": "esbuild src/lib/adjudicator/edge-entry.ts --bundle --format=esm --platform=neutral --outfile=supabase/functions/adjudicate/_engine.mjs"
   },
   "devDependencies": {

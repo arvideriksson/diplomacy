@@ -13,6 +13,7 @@ export interface GameRow {
   snapshot: unknown | null
   resolving_at: string | null
   settings: { turn_timer?: string } | null
+  ready: Record<string, boolean> | null
 }
 
 export interface OrderRow {

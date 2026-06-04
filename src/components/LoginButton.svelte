@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { signInWithGoogle } from '../lib/auth'
+  import { signInWithGoogle, signInAnonymously } from '../lib/auth'
+
+  const dev = import.meta.env.DEV
 
   let loading = false
   let error = ''
@@ -9,6 +11,17 @@
     error = ''
     try {
       await signInWithGoogle()
+    } catch (e: any) {
+      error = e.message
+      loading = false
+    }
+  }
+
+  async function handleAnon() {
+    loading = true
+    error = ''
+    try {
+      await signInAnonymously()
     } catch (e: any) {
       error = e.message
       loading = false
@@ -25,6 +38,12 @@
   </svg>
   {loading ? 'Redirecting...' : 'Continue with Google'}
 </button>
+
+{#if dev}
+  <button class="anon-btn" on:click={handleAnon} disabled={loading}>
+    🧪 Dev: sign in anonymously
+  </button>
+{/if}
 
 {#if error}
   <p class="error">{error}</p>
@@ -58,6 +77,31 @@
   }
 
   .login-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .anon-btn {
+    display: block;
+    margin-top: 12px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted, var(--text));
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    font-family: var(--font);
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .anon-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .anon-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
