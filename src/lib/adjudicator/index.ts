@@ -3,6 +3,7 @@
 // Edge Function (Deno). Never import browser/Node-coupled modules here.
 
 export { adjudicate } from './resolve'
+export { idleNations } from './idle'
 export { foldGame } from './fold'
 export type { ResolvedRound } from './fold'
 export type {

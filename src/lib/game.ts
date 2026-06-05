@@ -1,24 +1,40 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
 import { getMap } from './maps'
+import { initialBoard } from './adjudicator'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
 import type { ResolvedOrderRow } from './history'
 
 export type { Unit }
 
+/** Per-phase auto-resolve durations, in minutes. */
+export interface PhaseTimers {
+  movement: number
+  retreat: number
+  build: number
+}
+
+export type OrderPhase = keyof PhaseTimers
+
 export interface GameSettings {
-  turn_timer: '12h' | '24h' | '48h' | '72h' | '1w'
   variant: 'standard' | 'gunboat'
   allow_spectators: boolean
   random_nations: boolean
+  /** Resolve as soon as every power has submitted, rather than only at the deadline. */
+  early_resolution: boolean
+  /** How long each phase lasts before the cron backstop auto-resolves it (minutes). */
+  phase_timers: PhaseTimers
+  /** Legacy single-timer enum; read only as a fallback when phase_timers is absent. */
+  turn_timer?: '12h' | '24h' | '48h' | '72h' | '1w'
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
-  turn_timer: '24h',
   variant: 'standard',
   allow_spectators: true,
   random_nations: false,
+  early_resolution: true,
+  phase_timers: { movement: 1440, retreat: 720, build: 720 }, // 24h / 12h / 12h
 }
 
 export interface GameState {
@@ -30,10 +46,8 @@ export interface GameState {
   /** Key into the map registry (see src/lib/maps/index.ts). */
   map_id: string
   players: Record<string, PlayerInfo>
-  units: Unit[]
   settings: GameSettings
   is_private: boolean
-  invite_code: string | null
   created_by: string
   created_at: string
   updated_at: string
@@ -109,7 +123,6 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
       season: 'Spring',
       map_id: mapId,
       players: { [userId]: playerInfo },
-      units: [],
       settings: DEFAULT_SETTINGS,
       is_private: isPrivate,
       created_by: userId,
@@ -121,7 +134,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   return data as GameState
 }
 
-export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'units' | 'deadline'>>) {
+export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'snapshot' | 'deadline'>>) {
   const { data, error } = await supabase
     .from('games')
     .update(updates)
@@ -134,29 +147,62 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
   return data as GameState
 }
 
-/** The initial unit placement for a map variant, as game-state units. */
-export function startingUnits(mapId: string): Unit[] {
-  return getMap(mapId).startingUnits.map((u) => ({
-    type: u.type,
-    nation: u.power,
-    territory: u.territory,
-    coast: u.coast,
-  }))
+/**
+ * Update game settings through the guarded RPC (creator-only; mid-game edits are
+ * private-games-only and limited to mutable keys). Merges into existing settings
+ * server-side. Use this instead of a raw games update so the rules are enforced.
+ */
+export async function updateGameSettings(gameId: string, settings: Partial<GameSettings>) {
+  const { error } = await supabase.rpc('update_game_settings', {
+    p_game_id: gameId,
+    p_settings: settings,
+  })
+  if (error) throw error
+  return fetchGame(gameId)
 }
 
-/** How long each phase lasts before the cron backstop auto-resolves it. */
-const TURN_TIMER_MS: Record<string, number> = {
-  '12h': 12 * 3600_000,
-  '24h': 24 * 3600_000,
-  '48h': 48 * 3600_000,
-  '72h': 72 * 3600_000,
-  '1w': 7 * 24 * 3600_000,
+/**
+ * Override the current phase deadline (creator-only, private games only). Pass an
+ * ISO string to set it, or null to clear (no backstop until the next resolution).
+ */
+export async function setDeadline(gameId: string, deadline: string | null) {
+  const { error } = await supabase.rpc('set_deadline', {
+    p_game_id: gameId,
+    p_deadline: deadline,
+  })
+  if (error) throw error
+  return fetchGame(gameId)
 }
 
-/** ISO deadline one turn-timer from now (the cron's backstop trigger). */
-export function nextDeadline(turnTimer: string): string {
-  const ms = TURN_TIMER_MS[turnTimer] ?? TURN_TIMER_MS['24h']
-  return new Date(Date.now() + ms).toISOString()
+/** Legacy turn_timer enum → minutes, for games created before per-phase timers. */
+const LEGACY_TIMER_MIN: Record<string, number> = {
+  '12h': 720,
+  '24h': 1440,
+  '48h': 2880,
+  '72h': 4320,
+  '1w': 10080,
+}
+
+/**
+ * Duration of a phase in minutes. Prefers the structured per-phase timers; falls
+ * back to the legacy single turn_timer (movement) or a 24h default for old rows.
+ */
+export function phaseTimerMinutes(
+  settings: Partial<GameSettings> | null | undefined,
+  phase: OrderPhase,
+): number {
+  const perPhase = settings?.phase_timers?.[phase]
+  if (typeof perPhase === 'number' && perPhase > 0) return perPhase
+  const legacy = settings?.turn_timer && LEGACY_TIMER_MIN[settings.turn_timer]
+  return legacy ?? LEGACY_TIMER_MIN['24h']
+}
+
+/** ISO deadline one phase-timer from now (the cron's backstop trigger). */
+export function nextDeadline(
+  settings: Partial<GameSettings> | null | undefined,
+  phase: OrderPhase,
+): string {
+  return new Date(Date.now() + phaseTimerMinutes(settings, phase) * 60_000).toISOString()
 }
 
 /** Fisher–Yates shuffle (app-side; not the deterministic engine). */
@@ -206,9 +252,10 @@ export async function claimNation(gameId: string, nation: string | null) {
 
 /**
  * Move a game from lobby to active play: assign nations to the players, stamp the
- * opening Spring 1901 movement phase, seed the board with the map's starting units,
- * and set the first deadline so the cron backstop resolves the turn even if not
- * everyone readies. Powers with no human player simply hold (civil disorder).
+ * opening Spring 1901 movement phase, seed the authoritative board snapshot with the
+ * map's opening position, and set the first deadline so the cron backstop resolves the
+ * turn even if not everyone readies. Powers with no human player simply hold (civil
+ * disorder).
  */
 export async function startGame(game: GameState) {
   const mapId = game.map_id ?? 'standard'
@@ -221,16 +268,10 @@ export async function startGame(game: GameState) {
     phase: 'movement',
     year: 1901,
     season: 'Spring',
-    units: startingUnits(mapId),
-    deadline: nextDeadline(game.settings?.turn_timer ?? '24h'),
+    snapshot: initialBoard(map),
+    deadline: nextDeadline(game.settings, 'movement'),
     players: assignNations(game.players, powerIds, game.settings?.random_nations ?? false),
   })
-}
-
-export async function joinGameByCode(code: string): Promise<string> {
-  const { data, error } = await supabase.rpc('join_game_by_code', { code })
-  if (error) throw error
-  return data as string
 }
 
 export async function joinGame(gameId: string) {
@@ -252,21 +293,24 @@ export async function kickPlayer(gameId: string, playerId: string) {
 /**
  * Submit (upsert) the caller's own-nation orders for the current unresolved round
  * via the RLS-guarded RPC, optionally marking the nation ready. Editing orders
- * un-readies the nation unless `ready` is true. The server derives the nation and
- * round, so the client cannot write another nation's or a resolved round's orders.
+ * un-readies the nation unless `ready` is true. The server derives the nation; the
+ * caller stamps the round it was editing so a submit that races a resolution is
+ * rejected rather than landing in the next round's row.
  */
-export async function submitOrders(gameId: string, orders: AnyOrder[], ready: boolean = false) {
+export async function submitOrders(
+  gameId: string,
+  orders: AnyOrder[],
+  ready: boolean = false,
+  round?: { year: number; season: string; phase: string },
+) {
   const { error } = await supabase.rpc('submit_orders', {
     p_game_id: gameId,
     p_orders: orders,
     p_ready: ready,
+    p_year: round?.year ?? null,
+    p_season: round?.season ?? null,
+    p_phase: round?.phase ?? null,
   })
-  if (error) throw error
-}
-
-/** Toggle the nation's ready flag without resubmitting orders. */
-export async function setReady(gameId: string, ready: boolean) {
-  const { error } = await supabase.rpc('set_ready', { p_game_id: gameId, p_ready: ready })
   if (error) throw error
 }
 
@@ -275,10 +319,22 @@ export async function setReady(gameId: string, ready: boolean) {
  * Drafts and submissions share one row per (game, round, nation); readiness lives in
  * games.ready. This writes only the content, so it never broadcasts (orders isn't in
  * the realtime publication) and the adjudicator treats it as a hold until submitted.
- * Called debounced while the nation is not yet ready, so a reload never loses work.
+ * Called debounced while the nation is not yet ready, so a reload never loses work. The
+ * caller stamps the round it was editing; an autosave that races a resolution (and would
+ * otherwise land in the next round's row) is dropped server-side.
  */
-export async function saveDraftOrders(gameId: string, orders: AnyOrder[]) {
-  const { error } = await supabase.rpc('save_draft_orders', { p_game_id: gameId, p_orders: orders })
+export async function saveDraftOrders(
+  gameId: string,
+  orders: AnyOrder[],
+  round: { year: number; season: string; phase: string },
+) {
+  const { error } = await supabase.rpc('save_draft_orders', {
+    p_game_id: gameId,
+    p_orders: orders,
+    p_year: round.year,
+    p_season: round.season,
+    p_phase: round.phase,
+  })
   if (error) throw error
 }
 

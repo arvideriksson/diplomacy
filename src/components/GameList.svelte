@@ -1,17 +1,12 @@
 <script lang="ts">
-  import { fade, slide } from 'svelte/transition'
+  import { fade } from 'svelte/transition'
   import { flip } from 'svelte/animate'
-  import { games, gamesLoaded, fetchGames, createGame, joinGameByCode } from '../lib/game'
+  import { games, createGame, gamesLoaded } from '../lib/game'
   import { user } from '../lib/auth'
   import type { GameState } from '../lib/game'
 
   let newGameName = ''
   let creating = false
-
-  let joinCode = ''
-  let joining = false
-  let joinError = ''
-  let copied = ''
 
   async function handleCreate() {
     if (!newGameName.trim() || !$user) return
@@ -23,27 +18,6 @@
     } finally {
       creating = false
     }
-  }
-
-  async function handleJoin() {
-    if (!joinCode.trim()) return
-    joining = true
-    joinError = ''
-    try {
-      await joinGameByCode(joinCode.trim())
-      joinCode = ''
-      await fetchGames()
-    } catch (e: any) {
-      joinError = e.message ?? 'Invalid invite code'
-    } finally {
-      joining = false
-    }
-  }
-
-  function copyInviteCode(code: string) {
-    navigator.clipboard.writeText(code)
-    copied = code
-    setTimeout(() => (copied = ''), 1500)
   }
 
   export let onSelectGame: (game: GameState) => void = () => {}
@@ -63,25 +37,7 @@
           {creating ? 'Creating...' : 'Create'}
         </button>
       </div>
-    </div>
-
-    <div class="action-card">
-      <div class="action-label">Join with invite code</div>
-      <div class="action-form">
-        <input
-          bind:value={joinCode}
-          placeholder="ABC123"
-          maxlength="6"
-          on:keydown={(e) => e.key === 'Enter' && handleJoin()}
-          class="code-input"
-        />
-        <button class="btn btn-secondary" on:click={handleJoin} disabled={joining || !joinCode.trim()}>
-          {joining ? 'Joining...' : 'Join'}
-        </button>
-      </div>
-      {#if joinError}
-        <p class="error" transition:slide={{ duration: 150 }}>{joinError}</p>
-      {/if}
+      <p class="action-hint">Got an invite link from a friend? Just open it to join.</p>
     </div>
   </div>
 
@@ -130,20 +86,9 @@
             </span>
           </div>
         </div>
-        {#if game.invite_code}
-          <button
-            class="invite-chip"
-            class:copied={copied === game.invite_code}
-            on:click|stopPropagation={() => copyInviteCode(game.invite_code ?? '')}
-            title="Copy invite code"
-          >
-            {copied === game.invite_code ? 'Copied!' : game.invite_code}
-          </button>
-        {:else}
-          <svg class="card-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        {/if}
+        <svg class="card-arrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18l6-6-6-6" />
+        </svg>
       </div>
     {/each}
 
@@ -155,7 +100,7 @@
           <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         </svg>
         <p>No games yet</p>
-        <p class="sub">Create a game or join one with an invite code.</p>
+        <p class="sub">Create a game, or open an invite link from a friend.</p>
       </div>
     {/if}
   </div>
@@ -167,16 +112,7 @@
   }
 
   .actions-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
     margin-bottom: 32px;
-  }
-
-  @media (max-width: 600px) {
-    .actions-row {
-      grid-template-columns: 1fr;
-    }
   }
 
   .action-card {
@@ -200,6 +136,12 @@
     gap: 8px;
   }
 
+  .action-hint {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin: 12px 0 0;
+  }
+
   input {
     flex: 1;
     padding: 9px 13px;
@@ -220,14 +162,6 @@
   input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-subtle);
-  }
-
-  .code-input {
-    font-family: var(--mono);
-    font-size: 15px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    text-align: center;
   }
 
   .btn {
@@ -259,23 +193,6 @@
   .btn-primary:hover:not(:disabled) {
     background: var(--accent-hover);
     box-shadow: var(--shadow-sm);
-  }
-
-  .btn-secondary {
-    background: var(--bg-elevated);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--bg-hover);
-    border-color: var(--border-strong);
-  }
-
-  .error {
-    color: var(--red);
-    font-size: 13px;
-    margin: 8px 0 0;
   }
 
   .games {
@@ -394,32 +311,6 @@
 
   .game-card:hover .card-arrow {
     transform: translateX(2px);
-  }
-
-  .invite-chip {
-    font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: 1.5px;
-    padding: 4px 10px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s;
-    flex-shrink: 0;
-    font-weight: 500;
-  }
-
-  .invite-chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .invite-chip.copied {
-    border-color: var(--green);
-    color: var(--green);
-    background: var(--green-subtle);
   }
 
   .empty-state {
