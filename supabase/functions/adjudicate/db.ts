@@ -9,10 +9,9 @@ export interface GameRow {
   year: number
   season: 'Spring' | 'Fall'
   phase: string
-  units: unknown[]
   snapshot: unknown | null
   resolving_at: string | null
-  settings: { turn_timer?: string } | null
+  settings: { turn_timer?: string; phase_timers?: Record<string, number> } | null
   ready: Record<string, boolean> | null
 }
 

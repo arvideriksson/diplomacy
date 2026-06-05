@@ -22,7 +22,9 @@ export async function signInWithGoogle() {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin,
+      // Return to the exact URL the user started from so deep links
+      // (e.g. /join/<code>) resume after the OAuth round-trip.
+      redirectTo: window.location.href,
     },
   })
   if (error) throw error

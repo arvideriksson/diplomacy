@@ -17,9 +17,15 @@
   import type { AnyOrder, OrderResult } from '../lib/adjudicator'
   import type { Unit } from '../lib/game'
   import { formatAnyOrder } from '../lib/orders/notation'
+  import { onDestroy } from 'svelte'
+  import { immersive } from '../lib/layout'
 
   export let sandboxId: string
   export let onBack: () => void = () => {}
+
+  // Sandboxes claim the full viewport (no header), like the active board.
+  immersive.set(true)
+  onDestroy(() => immersive.set(false))
 
   $: sb = $sandboxes.find((s) => s.id === sandboxId) as Sandbox | undefined
   $: map = sb ? getMap(sb.mapId) : standardMap

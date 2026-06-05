@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import GameBoard from './GameBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
-  import { fetchResolvedLog } from '../lib/game'
-  import type { GameState, Unit } from '../lib/game'
+  import GameAdminPanel from './GameAdminPanel.svelte'
+  import { user } from '../lib/auth'
+  import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
+  import type { GameState } from '../lib/game'
   import { replayFrames, type HistoryFrame } from '../lib/history'
   import { getMap } from '../lib/maps'
-  import { boardFromUnits } from '../lib/adjudicator'
-  import type { BoardState, Phase } from '../lib/adjudicator'
+  import { initialBoard } from '../lib/adjudicator'
+  import type { BoardState } from '../lib/adjudicator'
 
   export let game: GameState
   export let nation: string = ''
@@ -16,14 +18,22 @@
 
   $: map = getMap(game.map_id)
 
+  // The creator manages a running game from an in-board panel.
+  let showAdmin = false
+  $: isCreator = !!($user && game.created_by === $user.id)
+  $: isActive = ['movement', 'retreat', 'build'].includes(game.phase)
+  // Public games lock their options once started, so there's nothing to manage.
+  $: canManage = isCreator && isActive && game.is_private
+
   let frames: HistoryFrame[] = []
   let cursor = 0
   let loaded = false
 
-  // Authoritative current board: the snapshot if present, else the seeded opening.
+  // Authoritative current board: the snapshot if present. A null snapshot only occurs
+  // before the first resolution, which is exactly the map's opening position.
   function liveBoard(): BoardState {
     if (game.snapshot) return game.snapshot as BoardState
-    return boardFromUnits(map, game.units as Unit[], game.year, game.season, game.phase as Phase)
+    return initialBoard(map)
   }
 
   async function load() {
@@ -40,6 +50,43 @@
     loaded = true
   }
   onMount(load)
+
+  // Live updates: when the adjudicator resolves a round it writes the games row, which
+  // Realtime pushes here. Reassigning `game` cascades to the round-change reload below
+  // (new board) and recomputes the `ready` prop — so the board advances without a reload.
+  //
+  // The subscription is scoped to tab VISIBILITY: a hidden tab gets its WebSocket frozen
+  // by the browser anyway, so holding it open is pure waste — it just burns a concurrent
+  // connection and receives full-row broadcasts no one is looking at. So we drop the
+  // socket when hidden and re-open it on focus, after a refetch to catch up on whatever
+  // resolved while we were away. Net effect: ~one connection per window (not per tab),
+  // and broadcasts only reach tabs actually being viewed.
+  let channel: ReturnType<typeof subscribeToGame> | null = null
+  function subscribe() {
+    if (!channel) channel = subscribeToGame(game.id, (updated) => (game = updated))
+  }
+  function unsubscribe() {
+    channel?.unsubscribe()
+    channel = null
+  }
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      subscribe() // go live first, then refetch — so an update landing mid-catch-up isn't lost
+      fetchGame(game.id)
+        .then((g) => (game = g))
+        .catch(() => {})
+    } else {
+      unsubscribe()
+    }
+  }
+  onMount(() => {
+    if (document.visibilityState === 'visible') subscribe()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  })
+  onDestroy(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    unsubscribe()
+  })
 
   // Reload history when the game advances to a new round (new resolved phase).
   let lastRound = ''
@@ -75,6 +122,7 @@
     contested={frame.board.contested}
     supplyCenters={frame.board.supplyCenters}
     readOnly={!isFrontier}
+    deadline={isFrontier ? game.deadline ?? null : null}
     historyOrders={frame.orders}
     onPhaseBack={() => canBack && (cursor -= 1)}
     onPhaseForward={() => canForward && (cursor += 1)}
@@ -82,6 +130,17 @@
     canPhaseForward={canForward}
     seedKey={String(cursor)}
   >
+    <svelte:fragment slot="map-action">
+      {#if canManage}
+        <button class="cog-btn" on:click={() => (showAdmin = true)} title="Manage game" aria-label="Manage game">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+      {/if}
+    </svelte:fragment>
+
     <svelte:fragment slot="left">
       {#if nation && game.phase !== 'lobby'}
         <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} />
@@ -89,4 +148,43 @@
     </svelte:fragment>
   </GameBoard>
 {/if}
+
+{#if showAdmin}
+  <GameAdminPanel
+    {game}
+    onClose={() => (showAdmin = false)}
+    onGameUpdate={(g) => (game = g)}
+  />
+{/if}
+
+<style>
+  /* Frosted floating button, mirrored to the supply-center card. */
+  .cog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+    border-radius: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .cog-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .cog-btn svg {
+    transition: transform 0.3s ease;
+  }
+  .cog-btn:hover svg {
+    transform: rotate(45deg);
+  }
+</style>
 

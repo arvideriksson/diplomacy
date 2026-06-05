@@ -67,6 +67,8 @@
   export let title: string = ''
   /** Width of the left rail. Wider in-game so chat can show a two-pane view. */
   export let leftWidth: string = '320px'
+  /** ISO time the current phase auto-resolves. Null in lobby/history/sandbox. */
+  export let deadline: string | null = null
 
   let orders: AnyOrder[] = []
   let spotlightNation = '' // nation whose SCs are spotlit (hovering the SC card)
@@ -96,12 +98,14 @@
   //   submitted, no edits   → green  "Submitted"   (pressed, inert)
   //   submitted, edited     → blue   "Resubmit"
   //   resubmitted, no edits → blue   "Resubmitted" (pressed, inert)
-  $: submitPressed = effectiveReady && !dirtySinceSubmit && !saving
+  $: submitPressed = saving || (effectiveReady && !dirtySinceSubmit)
   $: submitTone = !effectiveReady || (!dirtySinceSubmit && !hasResubmitted) ? 'submit' : 'resubmit'
+  // No transient "Submitting…": clicking jumps straight to the committed label.
+  // While the save is in flight, optimistically show the target committed state.
   $: submitLabel = saving
     ? effectiveReady
-      ? 'Resubmitting…'
-      : 'Submitting…'
+      ? 'Resubmitted'
+      : 'Submitted'
     : !effectiveReady
       ? 'Submit'
       : dirtySinceSubmit
@@ -129,6 +133,40 @@
   }
   $: phaseMeta = PHASE_META[phase] ?? { label: phase, tone: 'accent' }
 
+  // ── deadline countdown ─────────────────────────────────────────────────────
+  // Live "time left" plus the exact local resolution time. Ticks every second so
+  // the countdown stays honest; cleared on destroy.
+  let now = Date.now()
+  const clock = setInterval(() => (now = Date.now()), 1000)
+  onDestroy(() => clearInterval(clock))
+
+  $: deadlineMs = deadline ? new Date(deadline).getTime() : null
+  $: msLeft = deadlineMs == null ? null : deadlineMs - now
+  $: deadlineUrgent = msLeft != null && msLeft <= 60 * 60 * 1000 // ≤ 1h
+  $: deadlineAbs = deadlineMs == null ? '' : deadlineFmt.format(deadlineMs)
+
+  function formatCountdown(ms: number): string {
+    if (ms <= 0) return 'Resolving…'
+    const s = Math.floor(ms / 1000)
+    const d = Math.floor(s / 86400)
+    const h = Math.floor((s % 86400) / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = s % 60
+    if (d > 0) return `${d}d ${h}h left`
+    if (h > 0) return `${h}h ${m}m left`
+    if (m > 0) return `${m}m ${sec}s left`
+    return `${sec}s left`
+  }
+
+  const deadlineFmt = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+
   const MOVE_TYPES = ['Hold', 'Move', 'Support', 'Convoy']
 
   // Reset order entry whenever the ROUND changes — identified by (year, season,
@@ -147,6 +185,7 @@
       dirtySinceSubmit = false
       readyOverride = null
       hasResubmitted = false
+      saveError = '' // clear any "catching up…" notice once the new round arrives
       if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
       if (onResolve) orders = initialOrders ?? [] // sandbox: preset
       else if (gameId && nation && ORDER_PHASES.includes(phase)) loadOrders() // live: reload saved
@@ -187,7 +226,7 @@
     draftTimer = null
     if (effectiveReady) return
     try {
-      await saveDraftOrders(gameId, orders)
+      await saveDraftOrders(gameId, orders, { year, season, phase })
     } catch {
       // silent: a dropped autosave just retries on the next edit
     }
@@ -206,12 +245,16 @@
     if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
     const wasReady = effectiveReady // a commit while already submitted is a *re*submit
     try {
-      await submitOrders(gameId, orders, true)
+      await submitOrders(gameId, orders, true, { year, season, phase })
       dirtySinceSubmit = false
       readyOverride = true
       hasResubmitted = wasReady
     } catch (e) {
-      saveError = errorMessage(e)
+      const msg = errorMessage(e)
+      // The round resolved between load and submit (instant early resolution + the brief
+      // realtime-propagation lag). The incoming snapshot will advance us in a moment, so
+      // show a soft "catching up" notice rather than a hard error; it clears on round change.
+      saveError = msg.includes('Round has advanced') ? 'That round just resolved — catching up…' : msg
     } finally {
       saving = false
     }
@@ -418,6 +461,24 @@
     ? buildSituations.flatMap((s) => s.spots).find((sp) => sp.province === buildSel!.province)
     : null
 
+  // A nation with nothing to do this phase is auto-readied server-side (see idleNations);
+  // the panel shows a calm "Waiting…" rather than a Submit button. Mirrors the engine's
+  // idle rule: no units (movement), no dislodgements (retreat), or a build phase with
+  // nothing to build/disband. Live play only — sandbox/god-mode always lets you act.
+  $: myBuild = nation ? buildSituations.find((s) => s.nation === nation) : undefined
+  $: amIdle =
+    !onResolve &&
+    !controlAll &&
+    Boolean(nation) &&
+    ORDER_PHASES.includes(phase) &&
+    (phase === 'movement'
+      ? ownUnits.length === 0
+      : phase === 'retreat'
+        ? myDislodged.length === 0
+        : phase === 'build'
+          ? !myBuild || myBuild.delta === 0 || (myBuild.delta > 0 && myBuild.spots.length === 0)
+          : false)
+
   function handleBuildClick(dsvgId: string) {
     const gid = toGameId(dsvgId)
     // clicking an already-placed build/remove undoes it
@@ -605,6 +666,10 @@
       onProvinceClick={canAct ? handleProvinceClick : null}
     />
 
+    {#if $$slots['map-action']}
+      <div class="map-action"><slot name="map-action" /></div>
+    {/if}
+
     {#if phase !== 'lobby' && Object.keys(supplyCenters).length}
       <SupplyCenterCard
         powers={mapDef.powers}
@@ -673,6 +738,13 @@
     >
       {phaseMeta.label} Phase
     </div>
+
+    {#if msLeft != null}
+      <div class="deadline" class:urgent={deadlineUrgent}>
+        <span class="countdown">{formatCountdown(msLeft)}</span>
+        <span class="deadline-abs">{deadlineAbs}</span>
+      </div>
+    {/if}
 
     {#if $$slots.toolbar}
       <div class="side-toolbar"><slot name="toolbar" /></div>
@@ -757,6 +829,9 @@
           <div class="actions">
             {#if onResolve}
               <button class="primary submit" on:click={() => onResolve?.(orders)}>Submit</button>
+            {:else if amIdle}
+              <!-- Nothing to do this phase: auto-readied server-side, just waiting on others. -->
+              <button class="primary waiting pressed" disabled>Waiting…</button>
             {:else}
               <!-- Submit→Submitted (green) then Resubmit→Resubmitted (blue); pressed = committed, inert. -->
               <button
@@ -892,6 +967,13 @@
     padding: 12px 14px;
     border-bottom: 1px solid var(--border, #eee);
   }
+  /* Overlay action mirrored to the supply-center card, hugging the sidebar's edge. */
+  .map-action {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 15;
+  }
   .side-title {
     position: relative;
     display: flex;
@@ -974,6 +1056,28 @@
     background: var(--tone-subtle, var(--accent-subtle));
     border-bottom: 1px solid var(--border, #eee);
     box-shadow: inset 3px 0 0 var(--tone, var(--accent));
+  }
+  .deadline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border, #eee);
+  }
+  .deadline .countdown {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    color: var(--text, #1a1a1a);
+    font-variant-numeric: tabular-nums;
+  }
+  .deadline .deadline-abs {
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+  }
+  .deadline.urgent .countdown {
+    color: var(--red, #dc2626);
   }
   .side-toolbar {
     display: flex;
@@ -1074,7 +1178,10 @@
   .actions .primary {
     width: 100%;
     padding: 12px 16px;
-    border: none;
+    /* Transparent 2px border so the committed "pressed" state (which adds a 2px
+       outline) has identical dimensions — Submitted == Submit, Resubmitted == Resubmit. */
+    border: 2px solid transparent;
+    box-sizing: border-box;
     border-radius: 8px;
     color: #fff;
     cursor: pointer;
@@ -1109,6 +1216,10 @@
   }
   .actions .primary.resubmit.pressed {
     color: var(--accent, #2563eb);
+  }
+  /* Nothing to do this phase: amber, inverted, inert — waiting on the other powers. */
+  .actions .primary.waiting.pressed {
+    color: var(--amber, #d97706);
   }
   .actions-secondary {
     display: flex;

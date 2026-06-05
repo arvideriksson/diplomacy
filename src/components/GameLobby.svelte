@@ -6,9 +6,10 @@
     fetchGame, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
     claimNation, DEFAULT_SETTINGS,
   } from '../lib/game'
-  import type { GameState, GameSettings, PlayerInfo } from '../lib/game'
+  import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
   import { getMap } from '../lib/maps'
   import { errorMessage } from '../lib/errors'
+  import PhaseTimerSettings from './PhaseTimerSettings.svelte'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -31,7 +32,8 @@
   $: canStart = isAdmin && playerCount >= 2 && game?.phase === 'lobby'
 
   $: settingsName = game?.name ?? ''
-  $: settingsTurnTimer = game?.settings?.turn_timer ?? DEFAULT_SETTINGS.turn_timer
+  $: settingsPhaseTimers = game?.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
+  $: settingsEarlyResolution = game?.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
   $: settingsVariant = game?.settings?.variant ?? DEFAULT_SETTINGS.variant
   $: settingsSpectators = game?.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   $: settingsRandomNations = game?.settings?.random_nations ?? DEFAULT_SETTINGS.random_nations
@@ -73,7 +75,12 @@
         game = await fetchGame(gameId)
       }
       channel = subscribeToGame(gameId, (updated) => {
+        // When the host starts the game, non-host players learn via this push. Bubble it
+        // up through onStart (same path the host uses) so GameRoute swaps the lobby for
+        // the board — otherwise they'd sit in the lobby until a manual reload.
+        const justStarted = game?.phase === 'lobby' && updated.phase !== 'lobby'
         game = updated
+        if (justStarted) onStart(updated)
       })
     } finally {
       loading = false
@@ -91,10 +98,12 @@
     saving = true
     try {
       const settings: GameSettings = {
-        turn_timer: settingsTurnTimer,
+        ...game.settings,
         variant: settingsVariant,
         allow_spectators: settingsSpectators,
         random_nations: settingsRandomNations,
+        early_resolution: settingsEarlyResolution,
+        phase_timers: settingsPhaseTimers,
       }
       game = await updateGame(gameId, { name: settingsName, settings })
     } finally {
@@ -141,20 +150,19 @@
     game = { ...game, players: remaining }
   }
 
-  function copyInviteCode() {
-    if (!game?.invite_code) return
-    navigator.clipboard.writeText(game.invite_code)
+  // The game's UUID is the invite token — anyone with this link can join the lobby.
+  $: inviteLink = `${window.location.origin}/join/${gameId}`
+
+  function copyInviteLink() {
+    navigator.clipboard.writeText(inviteLink)
     copied = true
     setTimeout(() => (copied = false), 2000)
   }
 
-  const TURN_TIMER_OPTIONS = [
-    { value: '12h', label: '12 hours' },
-    { value: '24h', label: '24 hours' },
-    { value: '48h', label: '2 days' },
-    { value: '72h', label: '3 days' },
-    { value: '1w', label: '1 week' },
-  ] as const
+  function onTimersChange(t: PhaseTimers) {
+    settingsPhaseTimers = t
+    saveSettings()
+  }
 
   const VARIANT_OPTIONS = [
     { value: 'standard', label: 'Standard', desc: 'Full diplomacy with negotiations' },
@@ -201,18 +209,26 @@
           </div>
 
           <div class="setting-group">
-            <span class="setting-label">Turn Timer</span>
-            <div class="option-pills">
-              {#each TURN_TIMER_OPTIONS as opt}
-                <button
-                  class="pill"
-                  class:active={settingsTurnTimer === opt.value}
-                  disabled={!isAdmin}
-                  on:click={() => { settingsTurnTimer = opt.value; saveSettings() }}
-                >
-                  {opt.label}
-                </button>
-              {/each}
+            <span class="setting-label">Phase Timers</span>
+            <p class="setting-desc">How long each phase runs before it auto-resolves.</p>
+            <PhaseTimerSettings
+              timers={settingsPhaseTimers}
+              disabled={!isAdmin}
+              onChange={onTimersChange}
+            />
+          </div>
+
+          <div class="setting-group">
+            <div class="toggle-row">
+              <div>
+                <span class="setting-label">Early Resolution</span>
+                <p class="setting-desc">Resolve as soon as every power has submitted</p>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" bind:checked={settingsEarlyResolution} disabled={!isAdmin}
+                  on:change={saveSettings} />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
             </div>
           </div>
 
@@ -309,7 +325,7 @@
 
       <div class="lobby-sidebar">
         <!-- Invite -->
-        {#if game.invite_code}
+        {#if game.phase === 'lobby'}
           <section class="card invite-card">
             <div class="card-head">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
@@ -318,9 +334,9 @@
               </svg>
               <h2>Invite Players</h2>
             </div>
-            <p class="invite-hint">Share this code with friends to join the game.</p>
-            <button class="invite-code-display" on:click={copyInviteCode} class:copied>
-              <span class="code-text">{game.invite_code}</span>
+            <p class="invite-hint">Share this link with friends — anyone who opens it joins the game.</p>
+            <button class="invite-link-display" on:click={copyInviteLink} class:copied>
+              <span class="link-text">{inviteLink}</span>
               {#if copied}
                 <span class="copy-label" transition:fade={{ duration: 120 }}>
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -674,46 +690,6 @@
     margin: 0;
   }
 
-  .option-pills {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-  }
-
-  .pill {
-    padding: 6px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.12s;
-    font-family: var(--font);
-  }
-
-  .pill:hover:not(:disabled) {
-    border-color: var(--border-strong);
-  }
-
-  .pill.active {
-    background: var(--accent-subtle);
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 600;
-  }
-
-  .pill:disabled {
-    cursor: default;
-    opacity: 0.65;
-  }
-
-  .pill.active:disabled {
-    opacity: 1;
-  }
-
   .variant-options {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -828,10 +804,11 @@
     margin: 0 0 14px;
   }
 
-  .invite-code-display {
+  .invite-link-display {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     width: 100%;
     padding: 12px 16px;
     background: var(--bg-card);
@@ -842,25 +819,31 @@
     transition: border-color 0.15s, box-shadow 0.15s;
   }
 
-  .invite-code-display:hover {
+  .invite-link-display:hover {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-subtle);
   }
 
-  .invite-code-display.copied {
+  .invite-link-display.copied {
     border-color: var(--green);
     box-shadow: 0 0 0 3px var(--green-subtle);
   }
 
-  .code-text {
+  .link-text {
+    flex: 1;
+    min-width: 0;
     font-family: var(--mono);
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: 4px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .copy-label {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 4px;

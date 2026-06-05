@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
-  import { initAuth, isAuthenticated, isSiteAdmin, user } from './lib/auth'
+  import { Router, Route, navigate } from 'svelte-routing'
+  import { initAuth, isAuthenticated, isSiteAdmin } from './lib/auth'
   import { fetchGames, gamesLoaded } from './lib/game'
   import type { GameState } from './lib/game'
+  import { immersive, crumb } from './lib/layout'
   import LoginButton from './components/LoginButton.svelte'
   import UserMenu from './components/UserMenu.svelte'
   import GameList from './components/GameList.svelte'
-  import GameLobby from './components/GameLobby.svelte'
   import DiplomacyMap from './components/DiplomacyMap.svelte'
-  import GameView from './components/GameView.svelte'
+  import GameRoute from './components/GameRoute.svelte'
+  import JoinRoute from './components/JoinRoute.svelte'
   import AdminPanel from './components/AdminPanel.svelte'
   import SandboxView from './components/SandboxView.svelte'
   import type { Unit } from './lib/game'
@@ -17,27 +19,15 @@
   import { sandboxes, createSandbox } from './lib/sandbox'
 
   let ready = false
-  let view: 'list' | 'game-lobby' | 'game' | 'sandbox' = 'list'
-  let selectedGame: GameState | null = null
-  let selectedSandboxId = ''
 
   function openSandbox(id: string) {
-    selectedSandboxId = id
-    view = 'sandbox'
+    navigate(`/sandbox/${id}`)
   }
 
   function newSandbox() {
     const name = prompt('Sandbox name?', 'Test game') ?? 'Test game'
     openSandbox(createSandbox(name).id)
   }
-
-  // Name shown as the top-header breadcrumb crumb (game, lobby, or sandbox).
-  $: headerName =
-    view === 'sandbox'
-      ? ($sandboxes.find((s) => s.id === selectedSandboxId)?.name ?? '')
-      : (view === 'game' || view === 'game-lobby') && selectedGame
-        ? selectedGame.name
-        : ''
 
   const demoUnits: Unit[] = standardMap.startingUnits.map((u) => ({
     type: u.type,
@@ -59,21 +49,11 @@
   })
 
   function handleSelectGame(game: GameState) {
-    selectedGame = game
-    view = game.phase === 'lobby' ? 'game-lobby' : 'game'
+    navigate(`/game/${game.id}`)
   }
-
-  function handleGameStarted(game: GameState) {
-    selectedGame = game
-    view = 'game'
-  }
-
-  // The viewer's assigned nation in the selected game (empty if spectating/unassigned).
-  $: viewerNation = selectedGame && $user ? selectedGame.players[$user.id]?.nation ?? '' : ''
 
   function handleBackToList() {
-    view = 'list'
-    selectedGame = null
+    navigate('/')
     fetchGames().catch(() => {})
   }
 
@@ -87,7 +67,8 @@
     <div class="spinner"></div>
   </div>
 {:else}
-  {#if view !== 'game' && view !== 'sandbox'}
+<Router>
+  {#if !$immersive}
   <header>
     <div class="header-inner">
       <div class="header-left">
@@ -98,9 +79,9 @@
           </svg>
           Diplomacy
         </button>
-        {#if headerName}
+        {#if $crumb}
           <span class="crumb-sep" aria-hidden="true">›</span>
-          <span class="crumb">{headerName}</span>
+          <span class="crumb">{$crumb}</span>
         {/if}
       </div>
       <nav>
@@ -112,7 +93,7 @@
   </header>
   {/if}
 
-  <main class:immersive={view === 'game' || view === 'sandbox'}>
+  <main class:immersive={$immersive}>
     {#if !$isAuthenticated}
       <div class="auth-page" in:fade={{ duration: 200 }}>
         <div class="auth-card">
@@ -127,51 +108,50 @@
           </div>
         </div>
       </div>
-    {:else if view === 'list'}
-      <div class="list-view">
-        {#if $isSiteAdmin}
-          <AdminPanel />
-        {/if}
-        <GameList onSelectGame={handleSelectGame} />
-
-        {#if $gamesLoaded}
-        <section class="sandbox-section" transition:fade={{ duration: 200 }}>
-          <div class="sandbox-head">
-            <h3>Sandboxes</h3>
-            <button class="new-sandbox" on:click={newSandbox}>+ New sandbox</button>
-          </div>
-          {#if $sandboxes.length === 0}
-            <p class="hint">Create a sandbox to try the rules — you control every power and resolve turns instantly.</p>
-          {:else}
-            <ul class="sandbox-list">
-              {#each $sandboxes as s (s.id)}
-                <li>
-                  <button class="sandbox-item" on:click={() => openSandbox(s.id)}>
-                    <span class="s-name">{s.name}</span>
-                    <span class="hint">{s.frames[s.cursor].board.season} {s.frames[s.cursor].board.year} · {s.frames[s.cursor].board.phase}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
+    {:else}
+      <Route path="/game/:id" let:params>
+        <GameRoute id={params.id} />
+      </Route>
+      <Route path="/join/:id" let:params>
+        <JoinRoute id={params.id} />
+      </Route>
+      <Route path="/sandbox/:id" let:params>
+        <SandboxView sandboxId={params.id} onBack={handleBackToList} />
+      </Route>
+      <Route path="/">
+        <div class="list-view">
+          {#if $isSiteAdmin}
+            <AdminPanel />
           {/if}
-        </section>
-        {/if}
-      </div>
-    {:else if view === 'sandbox'}
-      <SandboxView sandboxId={selectedSandboxId} onBack={handleBackToList} />
-    {:else if view === 'game-lobby' && selectedGame}
-      <div>
-        <GameLobby
-          gameId={selectedGame.id}
-          initialGame={selectedGame}
-          onBack={handleBackToList}
-          onStart={handleGameStarted}
-        />
-      </div>
-    {:else if view === 'game' && selectedGame}
-      <GameView game={selectedGame} nation={viewerNation} onExit={handleBackToList} />
+          <GameList onSelectGame={handleSelectGame} />
+
+          {#if $gamesLoaded}
+          <section class="sandbox-section" transition:fade={{ duration: 200 }}>
+            <div class="sandbox-head">
+              <h3>Sandboxes</h3>
+              <button class="new-sandbox" on:click={newSandbox}>+ New sandbox</button>
+            </div>
+            {#if $sandboxes.length === 0}
+              <p class="hint">Create a sandbox to try the rules — you control every power and resolve turns instantly.</p>
+            {:else}
+              <ul class="sandbox-list">
+                {#each $sandboxes as s (s.id)}
+                  <li>
+                    <button class="sandbox-item" on:click={() => openSandbox(s.id)}>
+                      <span class="s-name">{s.name}</span>
+                      <span class="hint">{s.frames[s.cursor].board.season} {s.frames[s.cursor].board.year} · {s.frames[s.cursor].board.phase}</span>
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </section>
+          {/if}
+        </div>
+      </Route>
     {/if}
   </main>
+</Router>
 {/if}
 
 <style>
