@@ -666,6 +666,37 @@ function finalize(map, next, results) {
   return { newBoardState: next, results, victory };
 }
 
+// src/lib/adjudicator/idle.ts
+function idleNations(map, board) {
+  const present = /* @__PURE__ */ new Set([
+    ...board.units.map((u) => u.nation),
+    ...Object.values(board.supplyCenters)
+  ]);
+  const idle = [];
+  if (board.phase === "retreat") {
+    const needsRetreat = new Set(board.dislodged.map((d) => d.unit.nation));
+    for (const n of present) if (!needsRetreat.has(n)) idle.push(n);
+    return idle;
+  }
+  if (board.phase === "build") {
+    const sc = scCountByNation(board.supplyCenters);
+    const un = unitCountByNation(board.units);
+    const occupied = new Set(board.units.map((u) => u.territory));
+    for (const n of present) {
+      const delta = (sc[n] ?? 0) - (un[n] ?? 0);
+      if (delta < 0) continue;
+      if (delta > 0 && homeCenters(map, n).some((c) => board.supplyCenters[c] === n && !occupied.has(c))) {
+        continue;
+      }
+      idle.push(n);
+    }
+    return idle;
+  }
+  const withUnits = new Set(board.units.map((u) => u.nation));
+  for (const n of present) if (!withUnits.has(n)) idle.push(n);
+  return idle;
+}
+
 // src/lib/adjudicator/index.ts
 function seedOwnership(map, units) {
   const owners = {};
@@ -721,8 +752,8 @@ var standardMap = {
     // L=0.80 so its amber reads as gold, not brown (brown = a dark, low-chroma amber).
     { id: "england", name: "England", color: "#4b85fe" },
     // L.64 C.190 h263 (royal blue)
-    { id: "france", name: "France", color: "#00a8ca" },
-    // L.66 C.150 h214 (teal — hue-shifted off England's blue)
+    { id: "france", name: "France", color: "#00bdd5" },
+    // L.73 C.130 h210 (bright cyan — lighter + hue-shifted off England's blue)
     { id: "germany", name: "Germany", color: "#8c929f" },
     // L.66 C.020 (neutral)
     { id: "italy", name: "Italy", color: "#4aa961" },
@@ -905,8 +936,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       homePower: "italy",
-      adjacent: ["PIE", "TYR", "TRI", "TUS", "APU", "ADR"],
-      // Not PIE/TUS: those border Venice by land only (Venice is Adriatic-side).
+      adjacent: ["PIE", "TYR", "TRI", "TUS", "APU", "ADR", "ROM"],
+      // Not PIE/TUS/ROM: those border Venice by land only (Venice is Adriatic-side).
       fleetAdjacent: ["TRI", "APU", "ADR"],
       render: { center: [245, 407] }
     },
@@ -1072,7 +1103,8 @@ var standardMap = {
       type: "coast",
       supplyCenter: true,
       homePower: "turkey",
-      adjacent: ["CON", "BLA", "ARM"],
+      adjacent: ["CON", "BLA", "ARM", "SMY"],
+      // Not SMY: Ankara (Black Sea side) reaches Smyrna by land only.
       fleetAdjacent: ["CON", "BLA", "ARM"],
       render: { center: [510, 455] }
     },
@@ -1397,5 +1429,6 @@ export {
   adjudicate,
   boardFromUnits,
   getMap,
+  idleNations,
   initialBoard
 };

@@ -40,7 +40,7 @@ A web application for playing the board game **Diplomacy** online.
 
 Turns execute on a timer (every X hours/days, per `settings.turn_timer`) inside Supabase — Postgres plus **one authoritative adjudicator Edge Function**, no custom server. Postgres holds the order log and schedules; the Edge Function is the only thing that resolves a round and advances the board.
 
-- **Scheduler — `pg_cron` (pure SQL, never adjudicates).** A single Postgres cron job ticks frequently (every 1–5 min) and, for each active game whose deadline has passed (or whose powers are all ready), invokes the adjudicator Edge Function via `pg_net`. One job for all games, not one per game. Use `for update skip locked` so concurrent ticks are safe, and a partial index (`(deadline) where phase = 'active'`) to keep the tick a no-op when nothing is due.
+- **Scheduler — `pg_cron` (pure SQL, never adjudicates).** A single Postgres cron job ticks frequently (every 1–5 min) and, for each active game whose deadline has passed (or whose powers are all ready), invokes the adjudicator Edge Function via `pg_net`. One job for all games, not one per game. Use `for update skip locked` so concurrent ticks are safe, and a partial index (`(deadline) where phase in ('movement','retreat','build')`) to keep the tick a no-op when nothing is due.
 - **Adjudicator — Edge Function (Deno + TS), the single source of truth for resolution.** Runs with the service role. For a due round it: reads that round's orders, resolves them (supports, cuts, convoys, retreats, builds), marks the round `resolved`, advances the phase pointer, sets the next deadline, and **writes the board snapshot**. It is the *only* writer of resolved state. The resolution logic itself is the pure engine in `src/lib/adjudicator/`, parameterized by a `MapDefinition` so it supports any variant. Test it with a TS port of the DATC suite; use `zond/godip` as a behavioral oracle for edge cases.
 - **Trust — RLS + secrecy.** Players may write only their *own* orders for the current, unresolved round. Other nations' current-round orders are **unreadable until `resolved` is set** — the `resolved` flag is the simultaneous-reveal gate, and Realtime must not stream unresolved foreign orders. The Edge Function (service role) bypasses RLS and is the sole mutator of the board.
 - **Push — Realtime.** Clients subscribe to game changes (see `subscribeToGame`) and receive the new snapshot + revealed orders on each resolution.
@@ -55,16 +55,23 @@ The append-only order log is the **source of truth**; the snapshot is the **auth
 
 ### Resolution fires from two triggers (whichever comes first)
 
-1. **Early — all powers ready.** Players submit/finalize orders and toggle a per-nation `ready` flag (the submit RPC enforces own-nation, current-round only). When **all active powers are `ready`**, the next cron tick sees the game due and invokes the adjudicator.
+1. **Early — all powers ready.** Players submit/finalize orders, which sets a per-nation `ready` flag (the submit RPC enforces own-nation, current-round only). The submit that completes the set fires the adjudicator **immediately** from the RPC (`maybe_resolve_now`) rather than waiting for the next cron tick — gated on the per-game `settings.early_resolution` toggle (default on). With early resolution off, a game resolves only at its deadline even when every power is ready.
 2. **Backstop — `pg_cron` deadline.** When the deadline passes with powers still unready, resolve with whatever orders exist (missing orders = the unit holds).
 
 ### Phase progression — the Edge Function skips no-op phases
 
 Because the Edge Function adjudicated the round, it *knows* what comes next: it opens a **retreat** phase only if a unit was dislodged, and a **build** phase only if supply-center counts force adjustments. No-op phases are skipped outright (no wasted timer window). Each opened phase gets its own deadline.
 
-### Orders are editable until resolution
+### Orders: one row per round, draft vs. submitted decided by `ready`
 
-Submitted orders for the **current, unresolved** round are mutable: a player can change them and toggle `ready` on/off freely up to the moment of resolution. Editing un-readies the nation. Resolved rounds are immutable (they form the replay log). Enforce both in RLS / the submit RPC: writes allowed only for the current round's own nation, rejected once `resolved` is set.
+A nation has a **single** `orders` row per `(game, year, season, phase)` holding its order set whether drafted or submitted — what makes it count is `games.ready[nation]`, not a separate table. There are exactly two client write paths to that row:
+
+- **Drafting (not ready).** While the nation is not ready, the client autosaves edits via `save_draft_orders` — silent (the `orders` table is not in the realtime publication, so a draft is never broadcast) and never touching `ready`.
+- **Submitting / resubmitting.** `submit_orders` overwrites the row and sets `ready = true`, which *is* broadcast (others see who has readied). The adjudicator honors a nation's orders only if it's ready; an unsubmitted draft is treated as a hold.
+
+Once a nation is ready, `save_draft_orders` refuses to write (server-side guard), so an autosave can never clobber a submitted set. Post-submit edits live only in the client and persist solely on an explicit resubmit (which stays ready) — there is currently **no un-ready path**, so readiness clears only at resolution. Both RPCs stamp the round being edited and silently drop / reject a write that races a resolution, so a stale write can't land in the next round's row.
+
+Resolved rounds are immutable (they form the replay log). The adjudicator's `apply_resolution` is the only other writer: it blanks the orders of nations that weren't ready (so the log matches what was adjudicated) and flips `resolved = true`. Enforce all of this in RLS / the RPCs: client writes are allowed only for the current round's own nation, and rejected once `resolved` is set.
 
 ### Free-tier shape (Supabase)
 
