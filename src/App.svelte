@@ -3,7 +3,7 @@
   import { fade } from 'svelte/transition'
   import { Router, Route, navigate } from 'svelte-routing'
   import { initAuth, isAuthenticated, isSiteAdmin } from './lib/auth'
-  import { fetchGames, gamesLoaded } from './lib/game'
+  import { fetchGames } from './lib/game'
   import type { GameState } from './lib/game'
   import { immersive, crumb } from './lib/layout'
   import LoginButton from './components/LoginButton.svelte'
@@ -15,8 +15,8 @@
   import AdminPanel from './components/AdminPanel.svelte'
   import SandboxView from './components/SandboxView.svelte'
   import type { Unit } from './lib/game'
-  import { standardMap } from './lib/maps/standard'
-  import { sandboxes, createSandbox } from './lib/sandbox'
+  import { classicalMap } from './lib/maps/classical'
+  import { createSandbox } from './lib/sandbox'
 
   let ready = false
 
@@ -24,12 +24,11 @@
     navigate(`/sandbox/${id}`)
   }
 
-  function newSandbox() {
-    const name = prompt('Sandbox name?', 'Test game') ?? 'Test game'
-    openSandbox(createSandbox(name).id)
+  function newSandbox(name: string, mapId: string) {
+    openSandbox(createSandbox(name, mapId).id)
   }
 
-  const demoUnits: Unit[] = standardMap.startingUnits.map((u) => ({
+  const demoUnits: Unit[] = classicalMap.startingUnits.map((u) => ({
     type: u.type,
     nation: u.power,
     territory: u.territory,
@@ -38,7 +37,7 @@
 
   // Starting political map: home supply centers tinted by their owning power.
   const homeOwnership: Record<string, string> = Object.fromEntries(
-    Object.entries(standardMap.territories)
+    Object.entries(classicalMap.territories)
       .filter(([, t]) => t.supplyCenter && t.homePower)
       .map(([id, t]) => [id, t.homePower as string])
   )
@@ -101,7 +100,7 @@
             <h1>Diplomacy</h1>
             <p>The classic game of strategy, negotiation, and betrayal.</p>
           </div>
-          <DiplomacyMap mapDef={standardMap} units={demoUnits} ownership={homeOwnership} interactive={false} />
+          <DiplomacyMap mapDef={classicalMap} units={demoUnits} ownership={homeOwnership} interactive={false} />
           <div class="login-container">
             <LoginButton />
             <p class="login-hint">Sign in to create or join games</p>
@@ -123,30 +122,11 @@
           {#if $isSiteAdmin}
             <AdminPanel />
           {/if}
-          <GameList onSelectGame={handleSelectGame} />
-
-          {#if $gamesLoaded}
-          <section class="sandbox-section" transition:fade={{ duration: 200 }}>
-            <div class="sandbox-head">
-              <h3>Sandboxes</h3>
-              <button class="new-sandbox" on:click={newSandbox}>+ New sandbox</button>
-            </div>
-            {#if $sandboxes.length === 0}
-              <p class="hint">Create a sandbox to try the rules — you control every power and resolve turns instantly.</p>
-            {:else}
-              <ul class="sandbox-list">
-                {#each $sandboxes as s (s.id)}
-                  <li>
-                    <button class="sandbox-item" on:click={() => openSandbox(s.id)}>
-                      <span class="s-name">{s.name}</span>
-                      <span class="hint">{s.frames[s.cursor].board.season} {s.frames[s.cursor].board.year} · {s.frames[s.cursor].board.phase}</span>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </section>
-          {/if}
+          <GameList
+            onSelectGame={handleSelectGame}
+            onOpenSandbox={openSandbox}
+            onCreateSandbox={newSandbox}
+          />
         </div>
       </Route>
     {/if}
@@ -155,66 +135,6 @@
 {/if}
 
 <style>
-  .sandbox-section {
-    max-width: 900px;
-    margin: 24px auto 0;
-    padding: 16px;
-    border: 1px dashed var(--border-strong, #cbd5e1);
-    border-radius: 10px;
-  }
-  .sandbox-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-  .sandbox-head h3 {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .hint {
-    font-size: 12px;
-    color: var(--text-secondary, #777);
-    font-weight: 400;
-  }
-  .new-sandbox {
-    padding: 6px 12px;
-    border: 1px solid var(--accent, #3b82f6);
-    border-radius: 6px;
-    background: var(--accent, #3b82f6);
-    color: #fff;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .sandbox-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .sandbox-item {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 8px;
-    background: var(--bg-card, #fff);
-    color: var(--text, #1a1a1a);
-    cursor: pointer;
-    text-align: left;
-  }
-  .sandbox-item:hover {
-    border-color: var(--accent, #3b82f6);
-  }
-  .s-name {
-    font-weight: 600;
-  }
   .loading {
     display: flex;
     align-items: center;

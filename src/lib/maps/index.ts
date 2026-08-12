@@ -1,8 +1,10 @@
 import type { MapDefinition } from '../mapDefinition'
-import { standardMap } from './standard'
+import { classicalMap } from './classical'
+import { map1900 } from './1900'
 
 export const maps: Record<string, MapDefinition> = {
-  standard: standardMap,
+  classical: classicalMap,
+  '1900': map1900,
 }
 
 export function getMap(id: string): MapDefinition {
@@ -11,4 +13,4 @@ export function getMap(id: string): MapDefinition {
   return map
 }
 
-export { standardMap }
+export { classicalMap }

@@ -67,6 +67,7 @@ var adjacentProvinces = (map, province) => {
 var directReach = (map, unit) => reachable(map, unit);
 var canMoveDirect = (map, unit, dest) => reachable(map, unit).includes(dest);
 var landingCoasts = (map, target, from) => reachableCoasts(map, target, from);
+var isSea = (map, province) => map.territories[province]?.type === "sea";
 var convoyPathExists = (map, from, to, convoyFleets) => {
   if (from === to) return false;
   const seasAdjTo = (p) => adjacentProvinces(map, p).includes(to);
@@ -113,18 +114,21 @@ function resolveMovement(map, board, orders) {
     (s) => s.kind === "support" && !s.void && s.aux === m.src && s.dst === m.dst
   );
   const matchingConvoys = (m) => mo.filter((c) => c.kind === "convoy" && !c.void && c.aux === m.src && c.dst === m.dst);
-  const hasPath = (m) => {
-    if (m.unit.type === "fleet") return true;
-    if (canMoveDirect(map, m.unit, m.dst)) return true;
+  const convoyRouteExists = (m) => {
     const fleets = new Set(matchingConvoys(m).filter((c) => resolve(c.idx)).map((c) => c.src));
     return convoyPathExists(map, m.src, m.dst, fleets);
   };
+  const hasPath = (m) => {
+    if (m.unit.type === "fleet") return true;
+    if (m.viaConvoy) return convoyRouteExists(m);
+    if (canMoveDirect(map, m.unit, m.dst)) return true;
+    return convoyRouteExists(m);
+  };
   const isConvoyedMove = (m) => {
     if (m.unit.type !== "army" || m.void) return false;
-    const convoys = matchingConvoys(m);
-    if (convoys.length === 0) return false;
-    const fleets = new Set(convoys.filter((c) => resolve(c.idx)).map((c) => c.src));
-    return convoyPathExists(map, m.src, m.dst, fleets);
+    if (m.viaConvoy) return convoyRouteExists(m);
+    if (matchingConvoys(m).length === 0) return false;
+    return convoyRouteExists(m);
   };
   const headToHeadOpponent = (m) => {
     if (m.kind !== "move" || m.void) return void 0;
@@ -235,35 +239,33 @@ function resolveMovement(map, board, orders) {
       state[idx] = "resolved";
       return first;
     }
-    backupRule(deps.slice(oldDeps));
-    for (let i = oldDeps; i < deps.length; i++)
-      if (state[deps[i]] !== "resolved") state[deps[i]] = "unresolved";
+    const cycle = deps.slice(oldDeps);
+    const pinned = backupRule(cycle);
+    for (const i of cycle) if (!pinned.has(i)) state[i] = "unresolved";
     deps.length = oldDeps;
     return resolve(idx);
   }
   function backupRule(cycle) {
+    const pinned = /* @__PURE__ */ new Set();
+    const pin = (idx, value) => {
+      resolution[idx] = value;
+      state[idx] = "resolved";
+      pinned.add(idx);
+    };
     const orders2 = sortIds(cycle.map(String)).map((s) => mo[Number(s)]);
     const convoysInCycle = orders2.filter((o) => o.kind === "convoy");
     if (convoysInCycle.length) {
       for (const c of convoysInCycle) {
-        resolution[c.idx] = false;
-        state[c.idx] = "resolved";
+        pin(c.idx, false);
         const carried = mo.find(
           (m) => m.kind === "move" && !m.void && m.src === c.aux && m.dst === c.dst
         );
-        if (carried) {
-          resolution[carried.idx] = false;
-          state[carried.idx] = "resolved";
-        }
+        if (carried) pin(carried.idx, false);
       }
     } else {
-      for (const o of orders2) {
-        if (o.kind === "move") {
-          resolution[o.idx] = true;
-          state[o.idx] = "resolved";
-        }
-      }
+      for (const o of orders2) if (o.kind === "move") pin(o.idx, true);
     }
+    return pinned;
   }
   for (let i = 0; i < N; i++) resolve(i);
   const results = [];
@@ -354,22 +356,22 @@ function normalize(map, unit, o, units, convoyIntents) {
   }
   if (!o || o.type === "Hold") return base("hold");
   if (o.type === "Move") {
-    const m = base("move", { dst: o.target, dstCoast: o.targetCoast });
+    const m = base("move", { dst: o.target, dstCoast: o.targetCoast, viaConvoy: o.viaConvoy });
     if (!o.target) return voidify(m, "move without destination");
     if (o.sourceCoast && o.sourceCoast !== unit.coast) {
       return voidify(m, "order specifies the wrong source coast");
     }
-    if (unit.type === "army" && o.targetCoast) {
-      return voidify(m, "army cannot be ordered to a coast");
-    }
-    if (unit.type === "army" && !canMoveDirect(map, unit, o.target)) {
-      const destT = map.territories[o.target];
-      const srcT = map.territories[unit.territory];
-      const coastalPair = destT?.type === "coast" && srcT?.type === "coast";
-      if (!coastalPair || !convoyIntents.has(`${unit.territory}->${o.target}`)) {
-        return voidify(m, "illegal move (non-adjacent, no convoy ordered)");
+    if (unit.type === "army") {
+      if (o.targetCoast) return voidify(m, "army cannot be ordered to a coast");
+      if (canMoveDirect(map, unit, o.target) && !o.viaConvoy) return m;
+      if (o.viaConvoy) return m;
+      const seaFleets = new Set(
+        units.filter((u) => u.type === "fleet" && isSea(map, u.territory)).map((u) => u.territory)
+      );
+      if (convoyIntents.has(`${unit.territory}->${o.target}`) || convoyPathExists(map, unit.territory, o.target, seaFleets)) {
+        return m;
       }
-      return m;
+      return voidify(m, "illegal move (no possible convoy)");
     }
     if (!validMoveLegality(map, unit, o.target, o.targetCoast)) {
       return voidify(m, "illegal move (non-adjacent / coast)");
@@ -740,10 +742,10 @@ function initialBoard(map) {
   };
 }
 
-// src/lib/maps/standard.ts
-var standardMap = {
-  id: "standard",
-  name: "Standard",
+// src/lib/maps/classical.ts
+var classicalMap = {
+  id: "classical",
+  name: "Classical",
   description: "Classic Diplomacy \u2014 Europe 1901, 7 great powers, 34 supply centers",
   playerCount: 7,
   powers: [
@@ -1416,9 +1418,770 @@ var standardMap = {
   ]
 };
 
+// src/lib/maps/1900.ts
+var map1900 = {
+  id: "1900",
+  name: "1900",
+  description: "Baron M. Powell's 1900 \u2014 historically tuned Europe, 7 powers, 39 supply centers",
+  playerCount: 7,
+  powers: [
+    { id: "austria", name: "Austria-Hungary", color: "#f0574e" },
+    { id: "england", name: "Britain", color: "#4b85fe" },
+    { id: "france", name: "France", color: "#00bdd5" },
+    { id: "germany", name: "Germany", color: "#8c929f" },
+    { id: "italy", name: "Italy", color: "#4aa961" },
+    { id: "russia", name: "Russia", color: "#9975fa" },
+    { id: "turkey", name: "Turkey", color: "#f5af20" }
+  ],
+  territories: {
+    ADR: {
+      name: "Adriatic Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["APU", "BOS", "ION", "MAC", "TRI", "VEN"],
+      render: { center: [455, 495] }
+    },
+    AEG: {
+      name: "Aegean Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["CON", "EAS", "GRE", "ION", "KON", "MAC"],
+      render: { center: [545, 532] }
+    },
+    ALG: {
+      name: "Algeria",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["MOR", "SOU", "TUN", "TYS", "WES"],
+      fleetAdjacent: ["MOR", "TUN", "TYS", "WES"],
+      render: { center: [270, 585] }
+    },
+    ALS: {
+      name: "Alsace",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["BEL", "BUR", "COL", "MUN", "SWI"],
+      render: { center: [350, 375] }
+    },
+    ANK: {
+      name: "Ankara",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "turkey",
+      adjacent: ["ARM", "BLA", "CON", "KON"],
+      fleetAdjacent: ["ARM", "BLA", "CON"],
+      render: { center: [645, 480] }
+    },
+    APU: {
+      name: "Apulia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ADR", "ION", "NAP", "ROM", "VEN"],
+      fleetAdjacent: ["ADR", "ION", "NAP", "VEN"],
+      render: { center: [408, 485] }
+    },
+    ARA: {
+      name: "Arabia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["DAM", "HEJ", "PAL"],
+      render: { center: [740, 610] }
+    },
+    ARM: {
+      name: "Armenia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ANK", "BLA", "DAM", "KON", "SEV"],
+      fleetAdjacent: ["ANK", "BLA", "SEV"],
+      render: { center: [700, 490] }
+    },
+    BAL: {
+      name: "Baltic Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BER", "DEN", "GBO", "KIE", "LVO", "PRU", "SWE"],
+      render: { center: [435, 283] }
+    },
+    BAR: {
+      name: "Barents Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["NWS", "NWY", "STP"],
+      render: { center: [580, 20] }
+    },
+    BEL: {
+      name: "Belgium",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["ALS", "BUR", "COL", "ENG", "NET", "NTH", "PIC"],
+      fleetAdjacent: ["ENG", "NET", "NTH", "PIC"],
+      render: { center: [328, 346] }
+    },
+    BER: {
+      name: "Berlin",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "germany",
+      adjacent: ["BAL", "KIE", "MUN", "PRU", "SIL"],
+      fleetAdjacent: ["BAL", "KIE", "PRU"],
+      render: { center: [428, 315] }
+    },
+    BLA: {
+      name: "Black Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["ANK", "ARM", "BUL", "CON", "RUM", "SEV"],
+      render: { center: [615, 458] }
+    },
+    BOH: {
+      name: "Bohemia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["BUD", "GAL", "MUN", "SIL", "TYR", "VIE"],
+      render: { center: [450, 370] }
+    },
+    BOS: {
+      name: "Bosnia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ADR", "MAC", "SER", "TRI"],
+      fleetAdjacent: ["ADR", "MAC", "TRI"],
+      render: { center: [460, 468] }
+    },
+    BRE: {
+      name: "Brest",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "france",
+      adjacent: ["ENG", "GAS", "MID", "PAR", "PIC"],
+      fleetAdjacent: ["ENG", "GAS", "MID", "PIC"],
+      render: { center: [265, 390] }
+    },
+    BUD: {
+      name: "Budapest",
+      type: "land",
+      supplyCenter: true,
+      homePower: "austria",
+      adjacent: ["BOH", "GAL", "RUM", "SER", "TRI", "VIE"],
+      render: { center: [495, 390] }
+    },
+    BUL: {
+      name: "Bulgaria",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BLA", "CON", "MAC", "RUM", "SER"],
+      fleetAdjacent: ["BLA", "CON", "RUM"],
+      render: { center: [550, 475] }
+    },
+    BUR: {
+      name: "Burgundy",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["ALS", "BEL", "GAS", "MAR", "PAR", "PIC", "SWI"],
+      render: { center: [325, 398] }
+    },
+    CLY: {
+      name: "Clyde",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["EDI", "IRE", "LVP", "NAT", "NWS"],
+      fleetAdjacent: ["EDI", "IRE", "LVP", "NAT", "NWS"],
+      render: { center: [267, 220] }
+    },
+    COL: {
+      name: "Cologne",
+      type: "land",
+      supplyCenter: true,
+      homePower: "germany",
+      adjacent: ["ALS", "BEL", "KIE", "MUN", "NET"],
+      render: { center: [360, 335] }
+    },
+    CON: {
+      name: "Constantinople",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "turkey",
+      adjacent: ["AEG", "ANK", "BLA", "BUL", "KON", "MAC"],
+      fleetAdjacent: ["AEG", "ANK", "BLA", "BUL", "KON", "MAC"],
+      render: { center: [575, 520] }
+    },
+    CYR: {
+      name: "Cyrenaica",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["EAS", "EGY", "ION", "TRP"],
+      fleetAdjacent: ["EAS", "EGY", "ION", "TRP"],
+      render: { center: [535, 670] }
+    },
+    DAM: {
+      name: "Damascus",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "turkey",
+      adjacent: ["ARA", "ARM", "EAS", "KON", "PAL"],
+      fleetAdjacent: ["EAS", "KON", "PAL"],
+      render: { center: [730, 545] }
+    },
+    DEN: {
+      name: "Denmark",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"],
+      fleetAdjacent: ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"],
+      render: { center: [383, 275] }
+    },
+    EAS: {
+      name: "Eastern Mediterranean",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["AEG", "CYR", "DAM", "EGY", "ION", "KON", "PAL"],
+      render: { center: [585, 610] }
+    },
+    EDI: {
+      name: "Edinburgh",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "england",
+      adjacent: ["CLY", "LVP", "NTH", "NWS", "YOR"],
+      fleetAdjacent: ["CLY", "NTH", "NWS", "YOR"],
+      render: { center: [275, 237] }
+    },
+    EGY: {
+      name: "Egypt",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["CYR", "EAS", "HEJ", "MID", "PAL"],
+      fleetAdjacent: ["CYR", "EAS", "HEJ", "MID", "PAL"],
+      render: { center: [625, 670] }
+    },
+    ENG: {
+      name: "English Channel",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BEL", "BRE", "IRI", "LON", "MID", "NTH", "PIC", "WAL"],
+      render: { center: [280, 345] }
+    },
+    FIN: {
+      name: "Finland",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["GBO", "NWY", "STP", "SWE"],
+      fleetAdjacent: ["GBO", "STP", "SWE"],
+      render: { center: [515, 155] }
+    },
+    GAL: {
+      name: "Galicia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["BOH", "BUD", "RUM", "SIL", "UKR", "WAR"],
+      render: { center: [530, 375] }
+    },
+    GAS: {
+      name: "Gascony",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["BRE", "BUR", "MAR", "MID", "PAR", "SPA"],
+      fleetAdjacent: ["BRE", "MID", "SPA"],
+      render: { center: [255, 440] }
+    },
+    GBO: {
+      name: "Gulf of Bothnia",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BAL", "FIN", "LVO", "STP", "SWE"],
+      render: { center: [470, 225] }
+    },
+    GIB: {
+      name: "Gibraltar",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["MID", "MOR", "SPA", "WES"],
+      fleetAdjacent: ["MID", "MOR", "SPA", "WES"],
+      render: { center: [165, 545] }
+    },
+    GLY: {
+      name: "Gulf of Lyon",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["MAR", "PIE", "ROM", "SPA", "TYS", "WES"],
+      render: { center: [310, 470] }
+    },
+    GRE: {
+      name: "Greece",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["AEG", "ION", "MAC"],
+      fleetAdjacent: ["AEG", "ION", "MAC"],
+      render: { center: [510, 550] }
+    },
+    HEJ: {
+      name: "Hejaz",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ARA", "EGY", "MID", "PAL"],
+      fleetAdjacent: ["EGY", "MID"],
+      render: { center: [718, 675] }
+    },
+    HEL: {
+      name: "Helgoland Bight",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["DEN", "KIE", "NET", "NTH"],
+      render: { center: [360, 285] }
+    },
+    ICE: {
+      name: "Iceland",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ICE", "NAT", "NWS"],
+      fleetAdjacent: ["NAT", "NWS"],
+      render: { center: [225, 60] }
+    },
+    ION: {
+      name: "Ionian Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["ADR", "AEG", "APU", "CYR", "EAS", "GRE", "MAC", "NAP", "TRP", "TUN", "TYS"],
+      render: { center: [470, 590] }
+    },
+    IRE: {
+      name: "Ireland",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["CLY", "IRI", "MID", "NAT"],
+      fleetAdjacent: ["CLY", "IRI", "MID", "NAT"],
+      render: { center: [225, 262] }
+    },
+    IRI: {
+      name: "Irish Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["ENG", "IRE", "LVP", "MID", "NAT", "WAL"],
+      render: { center: [215, 310] }
+    },
+    KIE: {
+      name: "Kiel",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "germany",
+      adjacent: ["BAL", "BER", "COL", "DEN", "HEL", "MUN", "NET"],
+      fleetAdjacent: ["BAL", "BER", "DEN", "HEL", "NET"],
+      render: { center: [360, 315] }
+    },
+    KON: {
+      name: "Konya",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["AEG", "ANK", "ARM", "CON", "DAM", "EAS"],
+      fleetAdjacent: ["AEG", "CON", "DAM", "EAS"],
+      render: { center: [653, 530] }
+    },
+    LON: {
+      name: "London",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "england",
+      adjacent: ["ENG", "NTH", "WAL", "YOR"],
+      fleetAdjacent: ["ENG", "NTH", "WAL", "YOR"],
+      render: { center: [260, 325] }
+    },
+    LVO: {
+      name: "Livonia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["BAL", "GBO", "MOS", "PRU", "STP", "WAR"],
+      fleetAdjacent: ["BAL", "GBO", "PRU", "STP"],
+      render: { center: [520, 240] }
+    },
+    LVP: {
+      name: "Liverpool",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "england",
+      adjacent: ["CLY", "EDI", "IRI", "NAT", "WAL", "YOR"],
+      fleetAdjacent: ["CLY", "IRI", "NAT", "WAL"],
+      render: { center: [268, 269] }
+    },
+    MAC: {
+      name: "Macedonia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ADR", "AEG", "BOS", "BUL", "CON", "GRE", "ION", "SER"],
+      coasts: {
+        wc: { name: "West Coast", fleetAdjacency: ["ADR", "BOS", "GRE", "ION"], render: { center: [495, 490] } },
+        ec: { name: "East Coast", fleetAdjacency: ["AEG", "CON", "GRE"], render: { center: [495, 490] } }
+      },
+      render: { center: [495, 490] }
+    },
+    MAR: {
+      name: "Marseilles",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "france",
+      adjacent: ["BUR", "GAS", "GLY", "PIE", "SPA", "SWI"],
+      fleetAdjacent: ["GLY", "PIE", "SPA"],
+      render: { center: [287, 455] }
+    },
+    MID: {
+      name: "Mid-Atlantic Ocean",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BRE", "EGY", "ENG", "GAS", "GIB", "HEJ", "IRE", "IRI", "MOR", "NAT", "POR", "SPA"],
+      render: { center: [100, 395] }
+    },
+    MIL: {
+      name: "Milan",
+      type: "land",
+      supplyCenter: true,
+      homePower: "italy",
+      adjacent: ["PIE", "ROM", "SWI", "TYR", "VEN"],
+      render: { center: [365, 430] }
+    },
+    MOR: {
+      name: "Morocco",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["ALG", "GIB", "MID", "SOU", "WES"],
+      fleetAdjacent: ["ALG", "GIB", "MID", "WES"],
+      render: { center: [145, 625] }
+    },
+    MOS: {
+      name: "Moscow",
+      type: "land",
+      supplyCenter: true,
+      homePower: "russia",
+      adjacent: ["LVO", "SEV", "SIB", "STP", "UKR", "WAR"],
+      render: { center: [622, 255] }
+    },
+    MUN: {
+      name: "Munich",
+      type: "land",
+      supplyCenter: true,
+      homePower: "germany",
+      adjacent: ["ALS", "BER", "BOH", "COL", "KIE", "SIL", "SWI", "TYR"],
+      render: { center: [375, 355] }
+    },
+    NAP: {
+      name: "Naples",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "italy",
+      adjacent: ["APU", "ION", "ROM", "TYS"],
+      fleetAdjacent: ["APU", "ION", "ROM", "TYS"],
+      render: { center: [438, 526] }
+    },
+    NAT: {
+      name: "North Atlantic Ocean",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["CLY", "ICE", "IRE", "IRI", "LVP", "MID", "NWS"],
+      render: { center: [135, 140] }
+    },
+    NET: {
+      name: "Netherlands",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BEL", "COL", "HEL", "KIE", "NTH"],
+      fleetAdjacent: ["BEL", "HEL", "KIE", "NTH"],
+      render: { center: [335, 320] }
+    },
+    NTH: {
+      name: "North Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BEL", "DEN", "EDI", "ENG", "HEL", "LON", "NET", "NWS", "NWY", "SKA", "YOR"],
+      render: { center: [320, 275] }
+    },
+    NWS: {
+      name: "Norwegian Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["BAR", "CLY", "EDI", "ICE", "NAT", "NTH", "NWY"],
+      render: { center: [345, 110] }
+    },
+    NWY: {
+      name: "Norway",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BAR", "FIN", "NTH", "NWS", "SKA", "STP", "SWE"],
+      fleetAdjacent: ["BAR", "NTH", "NWS", "SKA", "STP", "SWE"],
+      render: { center: [370, 190] }
+    },
+    PAL: {
+      name: "Palestine",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ARA", "DAM", "EAS", "EGY", "HEJ"],
+      fleetAdjacent: ["DAM", "EAS", "EGY"],
+      render: { center: [710, 620] }
+    },
+    PAR: {
+      name: "Paris",
+      type: "land",
+      supplyCenter: true,
+      homePower: "france",
+      adjacent: ["BRE", "BUR", "GAS", "PIC"],
+      render: { center: [295, 387] }
+    },
+    PIC: {
+      name: "Picardy",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["BEL", "BRE", "BUR", "ENG", "PAR"],
+      fleetAdjacent: ["BEL", "BRE", "ENG"],
+      render: { center: [283, 365] }
+    },
+    PIE: {
+      name: "Piedmont",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["GLY", "MAR", "MIL", "ROM", "SWI"],
+      fleetAdjacent: ["GLY", "MAR", "ROM"],
+      render: { center: [343, 434] }
+    },
+    POR: {
+      name: "Portugal",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["MID", "SPA"],
+      fleetAdjacent: ["MID", "SPA"],
+      render: { center: [150, 478] }
+    },
+    PRU: {
+      name: "Prussia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["BAL", "BER", "LVO", "SIL", "WAR"],
+      fleetAdjacent: ["BAL", "BER", "LVO"],
+      render: { center: [457, 310] }
+    },
+    ROM: {
+      name: "Rome",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "italy",
+      adjacent: ["APU", "GLY", "MIL", "NAP", "PIE", "TYS", "VEN"],
+      fleetAdjacent: ["GLY", "NAP", "PIE", "TYS"],
+      render: { center: [380, 470] }
+    },
+    RUM: {
+      name: "Rumania",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BLA", "BUD", "BUL", "GAL", "SER", "SEV", "UKR"],
+      fleetAdjacent: ["BLA", "BUL", "SEV"],
+      render: { center: [565, 422] }
+    },
+    SER: {
+      name: "Serbia",
+      type: "land",
+      supplyCenter: true,
+      adjacent: ["BOS", "BUD", "BUL", "MAC", "RUM", "TRI"],
+      render: { center: [490, 465] }
+    },
+    SEV: {
+      name: "Sevastopol",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "russia",
+      adjacent: ["ARM", "BLA", "MOS", "RUM", "SIB", "UKR"],
+      fleetAdjacent: ["ARM", "BLA", "RUM"],
+      render: { center: [630, 400] }
+    },
+    SIB: {
+      name: "Siberia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["MOS", "SEV", "STP"],
+      render: { center: [730, 235] }
+    },
+    SIL: {
+      name: "Silesia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["BER", "BOH", "GAL", "MUN", "PRU", "WAR"],
+      render: { center: [445, 340] }
+    },
+    SKA: {
+      name: "Skagerrak",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["DEN", "NTH", "NWY", "SWE"],
+      render: { center: [370, 238] }
+    },
+    SOU: {
+      name: "Southern Algeria",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["ALG", "MOR", "TRP", "TUN"],
+      render: { center: [250, 660] }
+    },
+    SPA: {
+      name: "Spain",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["GAS", "GIB", "GLY", "MAR", "MID", "POR", "WES"],
+      coasts: {
+        nc: { name: "North Coast", fleetAdjacency: ["GAS", "MID", "POR"], render: { center: [215, 465] } },
+        wc: { name: "West Coast", fleetAdjacency: ["GIB", "MID", "POR"], render: { center: [215, 465] } },
+        ec: { name: "East Coast", fleetAdjacency: ["GIB", "GLY", "MAR", "WES"], render: { center: [215, 465] } }
+      },
+      render: { center: [215, 465] }
+    },
+    STP: {
+      name: "St. Petersburg",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "russia",
+      adjacent: ["BAR", "FIN", "GBO", "LVO", "MOS", "NWY", "SIB"],
+      coasts: {
+        nc: { name: "North Coast", fleetAdjacency: ["BAR", "NWY"], render: { center: [615, 155] } },
+        sc: { name: "South Coast", fleetAdjacency: ["FIN", "GBO", "LVO"], render: { center: [615, 155] } }
+      },
+      render: { center: [615, 155] }
+    },
+    SWE: {
+      name: "Sweden",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["BAL", "DEN", "FIN", "GBO", "NWY", "SKA"],
+      fleetAdjacent: ["BAL", "DEN", "FIN", "GBO", "NWY", "SKA"],
+      render: { center: [425, 190] }
+    },
+    SWI: {
+      name: "Switzerland",
+      type: "land",
+      supplyCenter: true,
+      adjacent: ["ALS", "BUR", "MAR", "MIL", "MUN", "PIE", "TYR"],
+      render: { center: [340, 416] }
+    },
+    TRI: {
+      name: "Trieste",
+      type: "coast",
+      supplyCenter: true,
+      homePower: "austria",
+      adjacent: ["ADR", "BOS", "BUD", "SER", "TYR", "VEN", "VIE"],
+      fleetAdjacent: ["ADR", "BOS", "VEN"],
+      render: { center: [430, 437] }
+    },
+    TRP: {
+      name: "Tripolitania",
+      type: "coast",
+      supplyCenter: true,
+      adjacent: ["CYR", "ION", "SOU", "TUN"],
+      fleetAdjacent: ["CYR", "ION", "TUN"],
+      render: { center: [415, 670] }
+    },
+    TUN: {
+      name: "Tunisia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ALG", "ION", "SOU", "TRP", "TYS"],
+      fleetAdjacent: ["ALG", "ION", "TRP", "TYS"],
+      render: { center: [355, 600] }
+    },
+    TYR: {
+      name: "Tyrolia",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["BOH", "MIL", "MUN", "SWI", "TRI", "VEN", "VIE"],
+      render: { center: [385, 413] }
+    },
+    TYS: {
+      name: "Tyrrhenian Sea",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["ALG", "GLY", "ION", "NAP", "ROM", "TUN", "WES"],
+      render: { center: [385, 515] }
+    },
+    UKR: {
+      name: "Ukraine",
+      type: "land",
+      supplyCenter: false,
+      adjacent: ["GAL", "MOS", "RUM", "SEV", "WAR"],
+      render: { center: [560, 370] }
+    },
+    VEN: {
+      name: "Venetia",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ADR", "APU", "MIL", "ROM", "TRI", "TYR"],
+      fleetAdjacent: ["ADR", "APU", "TRI"],
+      render: { center: [388, 435] }
+    },
+    VIE: {
+      name: "Vienna",
+      type: "land",
+      supplyCenter: true,
+      homePower: "austria",
+      adjacent: ["BOH", "BUD", "TRI", "TYR"],
+      render: { center: [432, 408] }
+    },
+    WAL: {
+      name: "Wales",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["ENG", "IRI", "LON", "LVP", "YOR"],
+      fleetAdjacent: ["ENG", "IRI", "LON", "LVP"],
+      render: { center: [250, 295] }
+    },
+    WAR: {
+      name: "Warsaw",
+      type: "land",
+      supplyCenter: true,
+      homePower: "russia",
+      adjacent: ["GAL", "LVO", "MOS", "PRU", "SIL", "UKR"],
+      render: { center: [472, 325] }
+    },
+    WES: {
+      name: "Western Mediterranean",
+      type: "sea",
+      supplyCenter: false,
+      adjacent: ["ALG", "GIB", "GLY", "MOR", "SPA", "TYS"],
+      render: { center: [300, 525] }
+    },
+    YOR: {
+      name: "Yorkshire",
+      type: "coast",
+      supplyCenter: false,
+      adjacent: ["EDI", "LON", "LVP", "NTH", "WAL"],
+      fleetAdjacent: ["EDI", "LON", "NTH"],
+      render: { center: [280, 280] }
+    }
+  },
+  startingUnits: [
+    { type: "army", power: "france", territory: "ALG" },
+    { type: "fleet", power: "turkey", territory: "ANK" },
+    { type: "army", power: "germany", territory: "BER" },
+    { type: "fleet", power: "france", territory: "BRE" },
+    { type: "army", power: "austria", territory: "BUD" },
+    { type: "army", power: "germany", territory: "COL" },
+    { type: "army", power: "turkey", territory: "CON" },
+    { type: "army", power: "turkey", territory: "DAM" },
+    { type: "fleet", power: "england", territory: "EDI" },
+    { type: "fleet", power: "england", territory: "EGY" },
+    { type: "fleet", power: "england", territory: "GIB" },
+    { type: "fleet", power: "germany", territory: "KIE" },
+    { type: "fleet", power: "england", territory: "LON" },
+    { type: "army", power: "france", territory: "MAR" },
+    { type: "army", power: "italy", territory: "MIL" },
+    { type: "army", power: "russia", territory: "MOS" },
+    { type: "army", power: "germany", territory: "MUN" },
+    { type: "fleet", power: "italy", territory: "NAP" },
+    { type: "army", power: "france", territory: "PAR" },
+    { type: "army", power: "italy", territory: "ROM" },
+    { type: "fleet", power: "russia", territory: "SEV" },
+    { type: "fleet", power: "russia", territory: "STP", coast: "sc" },
+    { type: "army", power: "austria", territory: "TRI" },
+    { type: "army", power: "austria", territory: "VIE" },
+    { type: "army", power: "russia", territory: "WAR" }
+  ]
+};
+
 // src/lib/maps/index.ts
 var maps = {
-  standard: standardMap
+  classical: classicalMap,
+  "1900": map1900
 };
 function getMap(id) {
   const map = maps[id];
