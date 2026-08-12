@@ -1,8 +1,8 @@
 import type { MapDefinition } from '../mapDefinition'
 
-export const standardMap: MapDefinition = {
-  id: 'standard',
-  name: 'Standard',
+export const classicalMap: MapDefinition = {
+  id: 'classical',
+  name: 'Classical',
   description: 'Classic Diplomacy — Europe 1901, 7 great powers, 34 supply centers',
   playerCount: 7,
   powers: [

@@ -11,6 +11,9 @@
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
+  /** Dislodged units awaiting retreat — drawn offset with a retreat flag at the province
+   *  they were pushed out of (now occupied by the dislodging unit). Retreat phase only. */
+  export let dislodged: Unit[] = []
   export let ownership: Record<string, string> = {}
   export let selectedTerritory: string | null = null
   export let orders: OrderState[] | undefined = undefined
@@ -58,7 +61,7 @@
 
   onMount(async () => {
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}maps/classical.dsvg`)
+      const res = await fetch(`${import.meta.env.BASE_URL}maps/${mapDef.id}.dsvg`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const svg = await res.text()
       renderer = new DiplicityMap(svg)
@@ -97,16 +100,53 @@
     return { below: inner.slice(0, at), above: inner.slice(at) }
   }
 
+  // ── spotlight veil fade ─────────────────────────────────────────────
+  // `spotlightNation` is the live hover target. The darkening eases in and out instead of
+  // snapping (which flashbanged the board when scanning the SC card). Two derived pieces
+  // make that possible: `veilNation` — whose holding the mask punches out; it lingers
+  // through the fade-out so the mask stays correct while opacity animates to 0 — and
+  // `veilOn`, the opacity target the CSS transition rides. The pulsing white unit outlines
+  // ride this same fading layer (see spotlightOverlayLayer), so they fade in/out with the
+  // veil rather than snapping on/off.
+  let veilNation = ''
+  let veilOn = false
+  let veilClearTimer: ReturnType<typeof setTimeout> | null = null
+  const VEIL_FADE_MS = 1000
+
+  $: {
+    if (spotlightNation) {
+      if (veilClearTimer) { clearTimeout(veilClearTimer); veilClearTimer = null }
+      veilNation = spotlightNation
+      veilOn = true
+    } else if (veilOn) {
+      veilOn = false
+      if (veilClearTimer) clearTimeout(veilClearTimer)
+      veilClearTimer = setTimeout(() => { veilClearTimer = null; veilNation = '' }, VEIL_FADE_MS)
+    }
+  }
+
   $: rendered =
     renderer && viewBox.width
       ? split(
           stripWrapper(
             renderer.render(
-              toRenderState({ mapDef, units, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, spotlightNation, orders, unitStyle: $unitStyle })
+              toRenderState({ mapDef, units, dislodged, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders, unitStyle: $unitStyle })
             )
           )
         )
       : { below: '', above: '' }
+
+  // The veil rides its own persistent layer (mask + dark rect at SPOTLIGHT_SHADOW_OPACITY);
+  // the wrapper <g> multiplies that by 0→1 with a CSS transition for the gradual fade.
+  // `orders` is required here, not just decorative: the redrawn units resolve their addons
+  // (disband "−" vs. retreat flag) from the order set, so omitting it would lift a bright
+  // retreat flag over the veil on a unit that's actually being disbanded.
+  $: spotlightMarkup =
+    renderer && veilNation
+      ? renderer.renderSpotlight(
+          toRenderState({ mapDef, units, dislodged, ownership, spotlightNation: veilNation, orders, unitStyle: $unitStyle })
+        )
+      : ''
 
   $: hoveredPath =
     hoveredProvince ? provincePaths.get(hoveredProvince) ?? namedCoastPaths.get(hoveredProvince) : undefined
@@ -246,6 +286,10 @@
         {#if rendered.above}
           <g>{@html rendered.above}</g>
         {/if}
+        <!-- Persistent so the wrapper sits at opacity 0 before the first hover; the fade-in
+             transition needs that prior state to animate from (a freshly-mounted node would
+             snap straight to full). eslint-disable-next-line svelte/no-at-html-tags -->
+        <g class="spotlight-veil" class:on={veilOn}>{@html spotlightMarkup}</g>
         <g>
           {#each hitPaths as [id, d] (id)}
             {@const enabled = renderableSet.has(id)}
@@ -297,6 +341,15 @@
   }
   .map-svg.grabbing {
     cursor: grabbing;
+  }
+  /* The veil starts transparent and eases to full on hover — no snap-to-dark flashbang
+     when scanning the SC card. Fade-out runs as `veilNation` lingers post-hover. */
+  .spotlight-veil {
+    opacity: 0;
+    transition: opacity 1s ease;
+  }
+  .spotlight-veil.on {
+    opacity: 1;
   }
   .map-msg {
     display: flex;

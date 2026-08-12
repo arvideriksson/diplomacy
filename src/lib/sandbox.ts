@@ -81,7 +81,7 @@ export function getSandbox(id: string): Sandbox | undefined {
 /** The frame currently being viewed. */
 export const currentFrame = (s: Sandbox): Frame => s.frames[s.cursor]
 
-export function createSandbox(name: string, mapId = 'standard'): Sandbox {
+export function createSandbox(name: string, mapId = 'classical'): Sandbox {
   const s: Sandbox = {
     id: crypto.randomUUID(),
     name: name.trim() || 'Sandbox',

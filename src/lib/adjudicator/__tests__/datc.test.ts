@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest'
 import datc from './datc.json'
-import { standardMap } from '../../maps/standard'
+import { classicalMap } from '../../maps/classical'
 import { adjudicate, initialBoard } from '../index'
 import type { BoardState } from '../types'
 import type { Unit } from '../../types'
@@ -42,7 +42,7 @@ for (const c of cases) {
   c.starting_state?.forEach(scan)
   if (c.preceding_main_phase) Object.keys(c.preceding_main_phase.orders).forEach(scan)
 }
-assertCodesCoverMap(standardMap, [...allTokens])
+assertCodesCoverMap(classicalMap, [...allTokens])
 
 const section = (url: string): string => url.match(/#(6\.[A-J])/)?.[1] ?? 'other'
 
@@ -69,16 +69,16 @@ function inferUnits(orderStrings: string[]): Unit[] {
 
 function seedSupplyCenters(units: Unit[]): Record<string, string> {
   const owners: Record<string, string> = {}
-  for (const [id, t] of Object.entries(standardMap.territories)) {
+  for (const [id, t] of Object.entries(classicalMap.territories)) {
     if (t.supplyCenter && t.homePower) owners[id] = t.homePower
   }
-  return recomputeSupplyCenters(standardMap, units, owners)
+  return recomputeSupplyCenters(classicalMap, units, owners)
 }
 
 function mainBoard(c: { starting_state?: string[]; orders: Record<string, unknown> }, season: BoardState['season']): BoardState {
   const units = c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders))
   return {
-    mapId: 'standard',
+    mapId: 'classical',
     year: 1901,
     season,
     phase: 'movement',
@@ -96,13 +96,13 @@ function boardForCase(c: Case): BoardState {
     const season = c.phase === 'Build' ? 'Fall' : 'Spring'
     const pre = mainBoard(c.preceding_main_phase, season)
     const orders = Object.keys(c.preceding_main_phase.orders).map((s) => parseOrder('Main', s))
-    return adjudicate(standardMap, pre, orders).newBoardState
+    return adjudicate(classicalMap, pre, orders).newBoardState
   }
   if (phase === 'movement') return mainBoard(c, 'Spring')
   // build / retreat with no preceding context
   const units = c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders))
   return {
-    mapId: 'standard',
+    mapId: 'classical',
     year: 1901,
     season: 'Fall',
     phase,
@@ -133,7 +133,7 @@ for (const [sec, group] of [...bySection.entries()].sort()) {
       runner(`${c.name}${skipReason ? ` — SKIP: ${skipReason}` : ''}`, () => {
         const board = boardForCase(c)
         const orders = Object.keys(c.orders).map((s) => parseOrder(c.phase, s))
-        const { results } = adjudicate(standardMap, board, orders)
+        const { results } = adjudicate(classicalMap, board, orders)
 
         for (const [orderStr, expected] of Object.entries(c.orders)) {
           if (expected === null) continue

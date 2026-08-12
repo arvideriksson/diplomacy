@@ -15,6 +15,12 @@ export interface Order {
   targetCoast?: string
   /** The province of the unit being supported or convoyed. */
   aux?: string
+  /**
+   * Move ordered explicitly "via convoy". The move then uses *only* the convoy
+   * route: if no convoy path survives it fails outright, never falling back to an
+   * adjacent land move. (Move orders only.)
+   */
+  viaConvoy?: boolean
 }
 
 /** A retreat-phase order for a dislodged unit. */

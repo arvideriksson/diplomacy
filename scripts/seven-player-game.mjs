@@ -32,10 +32,10 @@ if (!URL_ || !KEY) throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_AN
 
 // Starting board comes straight from the map definition (type-only imports, so it
 // loads under Node's --experimental-strip-types).
-// Import standard.ts directly (it has only type imports, so nothing to resolve at
+// Import classical.ts directly (it has only type imports, so nothing to resolve at
 // runtime) — going through index.ts would pull in an extensionless re-export Node
 // ESM can't resolve.
-const { standardMap: map } = await import('../src/lib/maps/standard.ts')
+const { classicalMap: map } = await import('../src/lib/maps/classical.ts')
 const POWERS = map.powers.map((p) => p.id) // ['england', 'france', ...] — 7 of them
 
 const log = (...a) => console.log(...a)
@@ -72,12 +72,12 @@ async function main() {
       phase: 'lobby',
       year: 1901,
       season: 'Spring',
-      map_id: 'standard',
+      map_id: 'classical',
       players: {
         [host.id]: { role: 'host', display_name: host.label, joined_at: new Date().toISOString() },
       },
       units: [],
-      settings: { turn_timer: '24h', variant: 'standard', allow_spectators: true, random_nations: false },
+      settings: { turn_timer: '24h', gunboat: false, allow_spectators: true, random_nations: false },
       is_private: false,
       created_by: host.id,
     })

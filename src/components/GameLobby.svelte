@@ -7,7 +7,7 @@
     claimNation, DEFAULT_SETTINGS,
   } from '../lib/game'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
-  import { getMap } from '../lib/maps'
+  import { getMap, maps } from '../lib/maps'
   import { errorMessage } from '../lib/errors'
   import PhaseTimerSettings from './PhaseTimerSettings.svelte'
 
@@ -34,12 +34,16 @@
   $: settingsName = game?.name ?? ''
   $: settingsPhaseTimers = game?.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
   $: settingsEarlyResolution = game?.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
-  $: settingsVariant = game?.settings?.variant ?? DEFAULT_SETTINGS.variant
+  $: settingsMapId = game?.map_id ?? 'classical'
+  $: settingsGunboat = game?.settings?.gunboat ?? DEFAULT_SETTINGS.gunboat
   $: settingsSpectators = game?.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   $: settingsRandomNations = game?.settings?.random_nations ?? DEFAULT_SETTINGS.random_nations
 
+  // The map can only be chosen before the game starts; it's fixed once units are on the board.
+  $: canChooseMap = isAdmin && game?.phase === 'lobby'
+
   // ── Power picker (shown when nations aren't random) ──────────────────────────
-  $: map = getMap(game?.map_id ?? 'standard')
+  $: map = getMap(game?.map_id ?? 'classical')
   $: powers = map.powers
   $: myNation = game && $user ? game.players[$user.id]?.nation : undefined
   // power id -> the player holding it
@@ -99,13 +103,16 @@
     try {
       const settings: GameSettings = {
         ...game.settings,
-        variant: settingsVariant,
+        gunboat: settingsGunboat,
         allow_spectators: settingsSpectators,
         random_nations: settingsRandomNations,
         early_resolution: settingsEarlyResolution,
         phase_timers: settingsPhaseTimers,
       }
-      game = await updateGame(gameId, { name: settingsName, settings })
+      // The map is a top-level column, not a setting; only mutable in the lobby.
+      const updates: Parameters<typeof updateGame>[1] = { name: settingsName, settings }
+      if (game.phase === 'lobby') updates.map_id = settingsMapId
+      game = await updateGame(gameId, updates)
     } finally {
       saving = false
     }
@@ -164,10 +171,13 @@
     saveSettings()
   }
 
-  const VARIANT_OPTIONS = [
-    { value: 'standard', label: 'Standard', desc: 'Full diplomacy with negotiations' },
-    { value: 'gunboat', label: 'Gunboat', desc: 'No communication between players' },
-  ] as const
+  // Variant = which board to play. Derived from the map registry, so adding a map
+  // here makes it selectable automatically.
+  const MAP_OPTIONS = Object.values(maps).map((m) => ({
+    value: m.id,
+    label: m.name,
+    desc: m.description,
+  }))
 </script>
 
 {#if loading}
@@ -233,19 +243,34 @@
           </div>
 
           <div class="setting-group">
-            <span class="setting-label">Game Variant</span>
+            <span class="setting-label">Variant</span>
+            <p class="setting-desc">Which board everyone plays on.</p>
             <div class="variant-options">
-              {#each VARIANT_OPTIONS as opt}
+              {#each MAP_OPTIONS as opt}
                 <button
                   class="variant-card"
-                  class:active={settingsVariant === opt.value}
-                  disabled={!isAdmin}
-                  on:click={() => { settingsVariant = opt.value; saveSettings() }}
+                  class:active={settingsMapId === opt.value}
+                  disabled={!canChooseMap}
+                  on:click={() => { settingsMapId = opt.value; saveSettings() }}
                 >
                   <span class="variant-name">{opt.label}</span>
                   <span class="variant-desc">{opt.desc}</span>
                 </button>
               {/each}
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="toggle-row">
+              <div>
+                <span class="setting-label">Gunboat</span>
+                <p class="setting-desc">No press — players cannot negotiate or chat</p>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" bind:checked={settingsGunboat} disabled={!isAdmin}
+                  on:change={saveSettings} />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
             </div>
           </div>
 

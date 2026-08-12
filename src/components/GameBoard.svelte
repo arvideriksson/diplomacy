@@ -88,6 +88,10 @@
   $: if (readyOverride !== null && ready === readyOverride) readyOverride = null
   // Edits made after submitting (Phase 2) are ephemeral until Resubmit — flag them.
   let dirtySinceSubmit = false
+  // Snapshot of the orders actually locked in on the server (the submitted set). Drives
+  // the read-only "locked in" box; survives Phase 2 edits so it shows the committed
+  // truth, not the live draft. Empty until this nation has readied.
+  let submittedOrders: AnyOrder[] = []
   // True only after the user clicks Resubmit *in this view* (drives Submitted vs
   // Resubmitted). Reset on every load — on entry we can't tell submit from resubmit,
   // so an already-submitted game always reads as the calm "Submitted".
@@ -185,6 +189,7 @@
       dirtySinceSubmit = false
       readyOverride = null
       hasResubmitted = false
+      submittedOrders = [] // loadOrders() repopulates it for an already-ready nation
       saveError = '' // clear any "catching up…" notice once the new round arrives
       if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
       if (onResolve) orders = initialOrders ?? [] // sandbox: preset
@@ -212,6 +217,9 @@
     } catch {
       orders = []
     }
+    // If the nation is already ready, the loaded set IS the locked-in set; otherwise
+    // it's an unsubmitted draft and nothing is locked in yet.
+    submittedOrders = effectiveReady ? [...orders] : []
   }
 
   // Debounced autosave of the unsubmitted draft. No-op in sandbox, once ready, or
@@ -244,11 +252,15 @@
     saveError = ''
     if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
     const wasReady = effectiveReady // a commit while already submitted is a *re*submit
+    const committed = withImplicitHolds(orders) // un-ordered units become explicit Holds
     try {
-      await submitOrders(gameId, orders, true, { year, season, phase })
+      await submitOrders(gameId, committed, true, { year, season, phase })
+      orders = committed // reflect the filled-in holds in the live, editable list too
+      notifyOrders()
       dirtySinceSubmit = false
       readyOverride = true
       hasResubmitted = wasReady
+      submittedOrders = [...committed] // the just-committed set is now locked in
     } catch (e) {
       const msg = errorMessage(e)
       // The round resolved between load and submit (instant early resolution + the brief
@@ -379,12 +391,27 @@
   }
 
   const orderSource = (o: AnyOrder): string => (o as { source: string }).source
+
+  // The adjudicator holds any movement unit without an order. Make that explicit on
+  // submit so the locked-in set the player sees is the set that actually resolves —
+  // un-ordered units appear as Holds rather than silently vanishing.
+  function withImplicitHolds(set: AnyOrder[]): AnyOrder[] {
+    if (phase !== 'movement') return set
+    const ordered = new Set(set.map(orderSource))
+    const holds: Order[] = ownUnits
+      .filter((u) => !ordered.has(u.territory))
+      .map((u) => ({ type: 'Hold', nation: u.nation, source: u.territory, sourceCoast: u.coast }))
+    return [...set, ...holds]
+  }
   const setOrder = (source: string, order: AnyOrder) => {
     orders = [...orders.filter((o) => orderSource(o) !== source), order]
     notifyOrders()
   }
 
   // ── retreat phase ─────────────────────────────────────────────────────────
+  // Every dislodged unit is drawn on the map (all nations'), so a retreating unit stays
+  // visible beside the occupier that pushed it out — not just the viewer's own.
+  $: dislodgedUnits = dislodged.map((d) => d.unit)
   $: myDislodged = dislodged.filter((d) => controllable(d.unit.nation))
   const dislodgedAt = (p: string) => myDislodged.find((d) => d.unit.territory === p)
 
@@ -551,11 +578,19 @@
     ? ownUnits.map((u) => toDsvgId(u.territory))
     : [...moveHighlighted, toDsvgId(draft.source)]
 
-  // Retreat: idle highlights the dislodged units; once one is picked, its targets.
+  // Retreat: idle highlights the dislodged units still awaiting an order; once one is
+  // picked, its targets. A dislodged unit that's already been routed/disbanded drops its
+  // highlight (its order overlay carries the cue) — matching movement, where ordered units
+  // lose the prompt but stay clickable so you can still change them.
+  $: unorderedDislodged = myDislodged.filter(
+    (d) => !orders.some((o) => orderSource(o) === d.unit.territory)
+  )
   $: retreatHi = retreatSel
     ? retreatChoices(retreatSel).map((c) => toDsvgId(c.province, c.coast))
+    : unorderedDislodged.map((d) => toDsvgId(d.unit.territory))
+  $: retreatSelectable = retreatSel
+    ? [...retreatHi, toDsvgId(retreatSel)]
     : myDislodged.map((d) => toDsvgId(d.unit.territory))
-  $: retreatSelectable = retreatSel ? [...retreatHi, toDsvgId(retreatSel)] : retreatHi
 
   // Build: available slots are drawn as dashed "+" rings (buildSlots/removeSlots),
   // not stripe highlights. Placed builds/removes show as ghost units / markers, and
@@ -590,10 +625,10 @@
     for (const o of src) {
       if (o.type === 'Retreat') {
         const r = o as RetreatOrder
-        out.push({ type: 'Move', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), target: toDsvgId(r.target ?? '', r.targetCoast) })
+        out.push({ type: 'Move', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), target: toDsvgId(r.target ?? '', r.targetCoast), dislodged: true })
       } else if (o.type === 'Disband') {
         const r = o as RetreatOrder
-        out.push({ type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast) })
+        out.push({ type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), dislodged: true })
       } else if (o.type === 'Build') {
         const b = o as BuildOrder
         out.push({ type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' })
@@ -655,6 +690,7 @@
       fill
       {mapDef}
       {units}
+      dislodged={dislodgedUnits}
       {ownership}
       orders={renderOrders}
       {highlighted}
@@ -828,7 +864,7 @@
 
           <div class="actions">
             {#if onResolve}
-              <button class="primary submit" on:click={() => onResolve?.(orders)}>Submit</button>
+              <button class="primary submit" on:click={() => onResolve?.(withImplicitHolds(orders))}>Submit</button>
             {:else if amIdle}
               <!-- Nothing to do this phase: auto-readied server-side, just waiting on others. -->
               <button class="primary waiting pressed" disabled>Waiting…</button>
@@ -852,6 +888,22 @@
             {/if}
             {#if saveError}<span class="status error">{saveError}</span>{/if}
           </div>
+
+          {#if !onResolve && effectiveReady && submittedOrders.length}
+            <!-- Read-only mirror of the set actually locked in on the server. Survives
+                 Phase 2 edits so it stays the committed truth, not the live draft. -->
+            <div class="locked-box">
+              <div class="locked-head">
+                <span class="locked-dot"></span>
+                Locked in
+              </div>
+              <ul class="locked-list">
+                {#each submittedOrders as o (orderSource(o))}
+                  <li>{formatAnyOrder(mapDef, units, dislodged, o)}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
         </div>
       {:else}
         <div class="panel">
@@ -1241,6 +1293,43 @@
   .actions-secondary .link:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  /* Locked-in orders: a calm, slightly recessed card under Submit confirming what's
+     committed on the server. Green accent ties it to the "Submitted" state. */
+  .locked-box {
+    margin-top: 12px;
+    border: 1px solid var(--green, #059669);
+    border-radius: 8px;
+    background: var(--green-subtle, rgba(5, 150, 105, 0.08));
+    padding: 10px 12px;
+  }
+  .locked-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--green, #059669);
+    margin-bottom: 8px;
+  }
+  .locked-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green, #059669);
+  }
+  .locked-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text, #1a1a1a);
   }
   .status {
     font-size: 12px;

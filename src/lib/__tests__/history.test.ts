@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { standardMap } from '../maps/standard'
+import { classicalMap } from '../maps/classical'
 import { initialBoard } from '../adjudicator'
 import { replayFrames, type ResolvedOrderRow } from '../history'
 
@@ -10,11 +10,11 @@ describe('replayFrames', () => {
       { year: 1901, season: 'Spring', phase: 'movement', nation: 'germany',
         orders: [{ type: 'Move', nation: 'germany', source: 'MUN', target: 'TYR' }] },
     ]
-    const frames = replayFrames(standardMap, log)
+    const frames = replayFrames(classicalMap, log)
     // one resolved round -> [frameForThatRound, frontier]
     expect(frames.length).toBe(2)
     // first frame = opening board, with its orders attached
-    expect(frames[0].board.units).toEqual(initialBoard(standardMap).units)
+    expect(frames[0].board.units).toEqual(initialBoard(classicalMap).units)
     expect(frames[0].orders.length).toBe(1)
     // frontier board reflects the move and advanced phase
     expect(frames[1].board.units.find((u) => u.territory === 'TYR')?.nation).toBe('germany')
@@ -27,7 +27,7 @@ describe('replayFrames', () => {
       { year: 1901, season: 'Fall', phase: 'movement', nation: 'germany', orders: [] },
       { year: 1901, season: 'Spring', phase: 'movement', nation: 'germany', orders: [] },
     ]
-    const frames = replayFrames(standardMap, log)
+    const frames = replayFrames(classicalMap, log)
     expect(frames[0].board.season).toBe('Spring')
     expect(frames[1].board.season).toBe('Fall')
   })

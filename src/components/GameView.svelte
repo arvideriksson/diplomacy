@@ -142,7 +142,7 @@
     </svelte:fragment>
 
     <svelte:fragment slot="left">
-      {#if nation && game.phase !== 'lobby'}
+      {#if nation && game.phase !== 'lobby' && !game.settings?.gunboat}
         <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} />
       {/if}
     </svelte:fragment>

@@ -1,7 +1,11 @@
-import { standardMap } from '../src/lib/maps/standard.ts'
+import { classicalMap } from '../src/lib/maps/classical.ts'
+import { map1900 } from '../src/lib/maps/1900.ts'
 
-const T = standardMap.territories
+const mapId = process.argv[2] ?? 'classical'
+const maps = { classical: classicalMap, '1900': map1900 }
+const T = (maps[mapId as keyof typeof maps] ?? classicalMap).territories
 const ids = Object.keys(T)
+console.log(`Checking map: ${mapId}`)
 
 // Effective fleet neighbors of a province: province-level fleetAdjacent, OR the
 // union of its coasts' fleetAdjacency (split-coast provinces define it per-coast).

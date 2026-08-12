@@ -18,7 +18,8 @@ export interface PhaseTimers {
 export type OrderPhase = keyof PhaseTimers
 
 export interface GameSettings {
-  variant: 'standard' | 'gunboat'
+  /** No press: players cannot send chat / negotiate. The map is chosen via `map_id`. */
+  gunboat: boolean
   allow_spectators: boolean
   random_nations: boolean
   /** Resolve as soon as every power has submitted, rather than only at the deadline. */
@@ -30,7 +31,7 @@ export interface GameSettings {
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
-  variant: 'standard',
+  gunboat: false,
   allow_spectators: true,
   random_nations: false,
   early_resolution: true,
@@ -103,7 +104,7 @@ export async function fetchGame(id: string) {
   return data as GameState
 }
 
-export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'standard') {
+export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'classical') {
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
 
@@ -134,7 +135,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   return data as GameState
 }
 
-export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'snapshot' | 'deadline'>>) {
+export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'snapshot' | 'deadline' | 'map_id'>>) {
   const { data, error } = await supabase
     .from('games')
     .update(updates)
@@ -258,7 +259,7 @@ export async function claimNation(gameId: string, nation: string | null) {
  * disorder).
  */
 export async function startGame(game: GameState) {
-  const mapId = game.map_id ?? 'standard'
+  const mapId = game.map_id ?? 'classical'
   const map = getMap(mapId)
   const powerIds = map.powers.map((p) => p.id)
   if (Object.keys(game.players).length > powerIds.length) {
