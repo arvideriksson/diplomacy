@@ -81,7 +81,9 @@ export function parseOrder(phase: CasePhase, entry: string): AnyOrder {
   }
   if (verb === '->') {
     const dest = parseLoc(rest[1])
-    return { type: 'Move', nation, source: src.province, sourceCoast: src.coast, target: dest.province, targetCoast: dest.coast } as Order
+    // optional "via Convoy" / "via convoy" suffix marks an explicitly-convoyed move
+    const viaConvoy = rest.slice(2).join(' ').toLowerCase() === 'via convoy'
+    return { type: 'Move', nation, source: src.province, sourceCoast: src.coast, target: dest.province, targetCoast: dest.coast, viaConvoy } as Order
   }
   if (verb === 'supports') {
     const auxLoc = parseLoc(rest[2])

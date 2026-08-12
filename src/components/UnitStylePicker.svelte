@@ -1,6 +1,6 @@
 <script lang="ts">
   import { unitStyle } from '../lib/unitStyle'
-  import { standardMap } from '../lib/maps/standard'
+  import { classicalMap } from '../lib/maps/classical'
   import {
     ARMY_DEFS,
     FLEET_DEFS,
@@ -14,7 +14,7 @@
 
   // A few representative powers (blue / red / yellow) for the preview swatches.
   const sampleColors = ['england', 'austria', 'turkey']
-    .map((id) => standardMap.powers.find((p) => p.id === id)?.color)
+    .map((id) => classicalMap.powers.find((p) => p.id === id)?.color)
     .filter((c): c is string => Boolean(c))
 
   const armyDef = (id: ArmyStyleId) => ARMY_DEFS.find((d) => d.id === id) ?? ARMY_DEFS[0]

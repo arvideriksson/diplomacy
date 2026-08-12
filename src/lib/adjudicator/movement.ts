@@ -8,7 +8,7 @@ import type { Unit } from '../types'
 import type { Order } from '../orders/types'
 import type { BoardState, DislodgedUnit, OrderResult, ResultCode } from './types'
 import { sortIds, sortUnits, unitAt } from './state'
-import { canMoveDirect, convoyPathExists, landingCoasts } from './graph'
+import { canMoveDirect, convoyPathExists, isSea, landingCoasts } from './graph'
 
 type Kind = 'hold' | 'move' | 'support' | 'convoy'
 
@@ -23,6 +23,8 @@ interface MOrder {
   dstCoast?: string
   /** Province of the unit being supported/convoyed. */
   aux?: string
+  /** Move ordered explicitly "via convoy": resolves via the convoy route only. */
+  viaConvoy?: boolean
   void: boolean
   reason: string
 }
@@ -54,8 +56,8 @@ export function resolveMovement(
   const submitted = new Map<string, Order>()
   for (const o of orders) submitted.set(o.source, o)
 
-  // convoy intents: which army moves have convoying fleets ordered (regardless of
-  // whether the path survives). Distinguishes an illegal move from a disrupted one.
+  // army moves for which a fleet was ordered to convoy (path survival aside). Marks
+  // a move as an attempted convoy even when no physical fleet sits on the route.
   const convoyIntents = new Set<string>()
   for (const o of orders) {
     if (o.type === 'Convoy' && o.aux && o.target) convoyIntents.add(`${o.aux}->${o.target}`)
@@ -87,20 +89,25 @@ export function resolveMovement(
   const matchingConvoys = (m: MOrder): MOrder[] =>
     mo.filter((c) => c.kind === 'convoy' && !c.void && c.aux === m.src && c.dst === m.dst)
 
-  const hasPath = (m: MOrder): boolean => {
-    if (m.unit.type === 'fleet') return true // legality checked in normalize
-    // army: direct adjacency or convoy
-    if (canMoveDirect(map, m.unit, m.dst!)) return true
+  const convoyRouteExists = (m: MOrder): boolean => {
     const fleets = new Set(matchingConvoys(m).filter((c) => resolve(c.idx)).map((c) => c.src))
     return convoyPathExists(map, m.src, m.dst!, fleets)
   }
 
+  const hasPath = (m: MOrder): boolean => {
+    if (m.unit.type === 'fleet') return true // legality checked in normalize
+    // an explicit "via convoy" move uses the convoy route only, never land
+    if (m.viaConvoy) return convoyRouteExists(m)
+    // army: direct adjacency or convoy
+    if (canMoveDirect(map, m.unit, m.dst!)) return true
+    return convoyRouteExists(m)
+  }
+
   const isConvoyedMove = (m: MOrder): boolean => {
     if (m.unit.type !== 'army' || m.void) return false
-    const convoys = matchingConvoys(m)
-    if (convoys.length === 0) return false
-    const fleets = new Set(convoys.filter((c) => resolve(c.idx)).map((c) => c.src))
-    return convoyPathExists(map, m.src, m.dst!, fleets)
+    if (m.viaConvoy) return convoyRouteExists(m)
+    if (matchingConvoys(m).length === 0) return false
+    return convoyRouteExists(m)
   }
 
   const headToHeadOpponent = (m: MOrder): MOrder | undefined => {
@@ -238,15 +245,27 @@ export function resolveMovement(
       state[idx] = 'resolved'
       return first
     }
-    // genuine cycle — apply the backup rule, then re-resolve
-    backupRule(deps.slice(oldDeps))
-    for (let i = oldDeps; i < deps.length; i++)
-      if (state[deps[i]] !== 'resolved') state[deps[i]] = 'unresolved'
+    // genuine cycle — apply the backup rule, then re-resolve.
+    const cycle = deps.slice(oldDeps)
+    const pinned = backupRule(cycle)
+    // Reset every cycle member the backup rule did NOT pin so it re-resolves
+    // against the pinned values. This is unconditional: a member may have been
+    // prematurely marked `resolved` during the second guess pass, and leaving it
+    // frozen at that stale value is exactly the convoy-paradox bug.
+    for (const i of cycle) if (!pinned.has(i)) state[i] = 'unresolved'
     deps.length = oldDeps
     return resolve(idx)
   }
 
-  function backupRule(cycle: number[]): void {
+  // Apply the backup rule to a genuine dependency cycle. Returns the set of order
+  // indices it pinned to a `resolved` value (which must not be reset by the caller).
+  function backupRule(cycle: number[]): Set<number> {
+    const pinned = new Set<number>()
+    const pin = (idx: number, value: boolean) => {
+      resolution[idx] = value
+      state[idx] = 'resolved'
+      pinned.add(idx)
+    }
     const orders = sortIds(cycle.map(String)).map((s) => mo[Number(s)])
     // A genuine convoy paradox has a convoy ORDER inside the dependency cycle.
     // Circular movement that merely includes a convoyed move does not.
@@ -256,25 +275,17 @@ export function resolveMovement(
       // convoy fails and its army stays put, so it neither cuts support nor
       // dislodges. The rest of the board then resolves normally.
       for (const c of convoysInCycle) {
-        resolution[c.idx] = false
-        state[c.idx] = 'resolved'
+        pin(c.idx, false)
         const carried = mo.find(
           (m) => m.kind === 'move' && !m.void && m.src === c.aux && m.dst === c.dst,
         )
-        if (carried) {
-          resolution[carried.idx] = false
-          state[carried.idx] = 'resolved'
-        }
+        if (carried) pin(carried.idx, false)
       }
     } else {
       // pure circular movement: every move in the cycle succeeds.
-      for (const o of orders) {
-        if (o.kind === 'move') {
-          resolution[o.idx] = true
-          state[o.idx] = 'resolved'
-        }
-      }
+      for (const o of orders) if (o.kind === 'move') pin(o.idx, true)
     }
+    return pinned
   }
 
   // ── resolve everything (canonical order) ───────────────────────────────────
@@ -394,23 +405,34 @@ function normalize(
   if (!o || o.type === 'Hold') return base('hold')
 
   if (o.type === 'Move') {
-    const m = base('move', { dst: o.target, dstCoast: o.targetCoast })
+    const m = base('move', { dst: o.target, dstCoast: o.targetCoast, viaConvoy: o.viaConvoy })
     if (!o.target) return voidify(m, 'move without destination')
     if (o.sourceCoast && o.sourceCoast !== unit.coast) {
       return voidify(m, 'order specifies the wrong source coast')
     }
-    if (unit.type === 'army' && o.targetCoast) {
-      return voidify(m, 'army cannot be ordered to a coast')
-    }
-    if (unit.type === 'army' && !canMoveDirect(map, unit, o.target)) {
-      // non-adjacent army move: legal only if it can be convoyed AND fleets were ordered
-      const destT = map.territories[o.target]
-      const srcT = map.territories[unit.territory]
-      const coastalPair = destT?.type === 'coast' && srcT?.type === 'coast'
-      if (!coastalPair || !convoyIntents.has(`${unit.territory}->${o.target}`)) {
-        return voidify(m, 'illegal move (non-adjacent, no convoy ordered)')
+    if (unit.type === 'army') {
+      if (o.targetCoast) return voidify(m, 'army cannot be ordered to a coast')
+      // An adjacent land move (not explicitly "via convoy") resolves directly.
+      if (canMoveDirect(map, unit, o.target) && !o.viaConvoy) return m
+      // An explicit "via convoy" is always a convoyed move (resolved via the convoy
+      // route only): a legal move that fails if no ordered convoy survives.
+      if (o.viaConvoy) return m
+      // Implicit case — a non-adjacent destination. It is an *attempted convoy* (a
+      // MOVE that fails if the convoy doesn't carry, and that cannot receive hold
+      // support, DATC 6.D.8) when either a fleet was ordered to convoy it, or a
+      // physical chain of fleets (in sea provinces, any power) connects source and
+      // destination. With neither, the order is illegal and treated as a hold, which
+      // can receive support (DATC 6.D.32, "a missing fleet").
+      const seaFleets = new Set(
+        units.filter((u) => u.type === 'fleet' && isSea(map, u.territory)).map((u) => u.territory),
+      )
+      if (
+        convoyIntents.has(`${unit.territory}->${o.target}`) ||
+        convoyPathExists(map, unit.territory, o.target, seaFleets)
+      ) {
+        return m
       }
-      return m // convoyable — path resolved during adjudication
+      return voidify(m, 'illegal move (no possible convoy)')
     }
     if (!validMoveLegality(map, unit, o.target, o.targetCoast)) {
       return voidify(m, 'illegal move (non-adjacent / coast)')

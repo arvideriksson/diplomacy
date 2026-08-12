@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { standardMap } from '../lib/maps/standard'
+  import { classicalMap } from '../lib/maps/classical'
   import { getMap } from '../lib/maps'
   import GameBoard from './GameBoard.svelte'
   import UnitStylePicker from './UnitStylePicker.svelte'
@@ -28,7 +28,7 @@
   onDestroy(() => immersive.set(false))
 
   $: sb = $sandboxes.find((s) => s.id === sandboxId) as Sandbox | undefined
-  $: map = sb ? getMap(sb.mapId) : standardMap
+  $: map = sb ? getMap(sb.mapId) : classicalMap
   $: frame = sb ? sb.frames[sb.cursor] : undefined
   $: board = frame?.board
   $: canBack = sb ? sb.cursor > 0 : false
