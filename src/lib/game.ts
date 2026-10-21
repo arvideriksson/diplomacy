@@ -105,6 +105,7 @@ export async function fetchGame(id: string) {
 }
 
 export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'classical') {
+  const map = getMap(mapId)
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
 
@@ -120,7 +121,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
     .insert({
       name,
       phase: 'lobby',
-      year: 1901,
+      year: map.startingYear ?? 1901,
       season: 'Spring',
       map_id: mapId,
       players: { [userId]: playerInfo },
@@ -253,7 +254,7 @@ export async function claimNation(gameId: string, nation: string | null) {
 
 /**
  * Move a game from lobby to active play: assign nations to the players, stamp the
- * opening Spring 1901 movement phase, seed the authoritative board snapshot with the
+ * opening Spring movement phase, seed the authoritative board snapshot with the
  * map's opening position, and set the first deadline so the cron backstop resolves the
  * turn even if not everyone readies. Powers with no human player simply hold (civil
  * disorder).
@@ -267,7 +268,7 @@ export async function startGame(game: GameState) {
   }
   return updateGame(game.id, {
     phase: 'movement',
-    year: 1901,
+    year: map.startingYear ?? 1901,
     season: 'Spring',
     snapshot: initialBoard(map),
     deadline: nextDeadline(game.settings, 'movement'),

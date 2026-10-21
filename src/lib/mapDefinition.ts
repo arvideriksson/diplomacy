@@ -3,6 +3,12 @@ export interface MapDefinition {
   name: string
   description: string
   playerCount: number
+  /** Opening movement year; defaults to 1901 for classical maps. */
+  startingYear?: number
+  /** Supply centers owned at setup, including occupied foreign centers. */
+  initialOwnership?: Record<string, string>
+  /** Supply centers needed to win; defaults to a majority of the map's centers. */
+  victoryCenters?: number
   /** Legacy inline-SVG fields — unused now that maps render from the layered dSVG. */
   viewBox?: string
   svgContent?: string

@@ -22,6 +22,7 @@ export type ParsedDsvg = {
   namedCoastPaths: Map<string, string>
   unitPositions: Map<string, Point>
   supplyCenters: Map<string, Point>
+  supplyCenterRadius?: number
 }
 
 const findLayer = (root: Element, id: string): Element | null => {
@@ -117,5 +118,6 @@ export const parseDsvg = (svg: string): ParsedDsvg => {
     namedCoastPaths: collectPaths(findLayer(root, 'named-coasts')),
     unitPositions: collectPoints(findLayer(root, 'unit-positions')),
     supplyCenters: collectPoints(findLayer(root, 'supply-centers')),
+    supplyCenterRadius: Math.max(3, Math.min(20, Number(root.getAttribute('data-supply-center-radius')) || 7)),
   }
 }
