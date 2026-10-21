@@ -96,7 +96,7 @@ function finalize(
   results: AdjudicationResult['results'],
 ): AdjudicationResult {
   const sc = scCountByNation(next.supplyCenters)
-  const threshold = Math.floor(supplyCenterProvinces(map).length / 2) + 1
+  const threshold = map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1
   let victory: AdjudicationResult['victory']
   for (const [nation, centers] of Object.entries(sc)) {
     if (centers >= threshold && (!victory || centers > victory.centers)) {

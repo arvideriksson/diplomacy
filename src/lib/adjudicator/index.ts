@@ -26,7 +26,7 @@ import { recomputeSupplyCenters, sortUnits } from './state'
 
 /** Seed SC ownership from home powers, then current occupancy. */
 function seedOwnership(map: MapDefinition, units: Unit[]): Record<string, string> {
-  const owners: Record<string, string> = {}
+  const owners: Record<string, string> = { ...map.initialOwnership }
   for (const [id, t] of Object.entries(map.territories)) {
     if (t.supplyCenter && t.homePower) owners[id] = t.homePower
   }
@@ -64,18 +64,13 @@ export function initialBoard(map: MapDefinition): BoardState {
     territory: u.territory,
     coast: u.coast,
   }))
-  // seed SC ownership from home powers, then from occupancy
-  const owners: Record<string, string> = {}
-  for (const [id, t] of Object.entries(map.territories)) {
-    if (t.supplyCenter && t.homePower) owners[id] = t.homePower
-  }
   return {
     mapId: map.id,
-    year: 1901,
+    year: map.startingYear ?? 1901,
     season: 'Spring',
     phase: 'movement',
     units: sortUnits(units),
-    supplyCenters: recomputeSupplyCenters(map, units, owners),
+    supplyCenters: seedOwnership(map, units),
     dislodged: [],
     contested: [],
   }

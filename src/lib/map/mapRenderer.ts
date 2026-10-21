@@ -374,14 +374,14 @@ const provinceFillsLayer = (
   return defs.join('') + parts.join('\n')
 }
 
-const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>): string => {
+const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>, radius = SUPPLY_CENTER_OUTER_RADIUS): string => {
   const parts: string[] = []
   for (const [, position] of supplyCenters) {
     const cx = formatCoord(position.x)
     const cy = formatCoord(position.y)
     parts.push(
-      `<g><circle cx="${cx}" cy="${cy}" r="${SUPPLY_CENTER_OUTER_RADIUS}" fill="white" stroke="black" stroke-width="2" opacity="0.8"/>` +
-        `<circle cx="${cx}" cy="${cy}" r="${SUPPLY_CENTER_INNER_RADIUS}" fill="white" stroke="black" stroke-width="2" opacity="0.8"/></g>`
+      `<g><circle cx="${cx}" cy="${cy}" r="${radius}" fill="white" stroke="black" stroke-width="2" opacity="0.8"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="${formatCoord(radius * SUPPLY_CENTER_INNER_RADIUS / SUPPLY_CENTER_OUTER_RADIUS)}" fill="white" stroke="black" stroke-width="2" opacity="0.8"/></g>`
     )
   }
   return parts.join('\n')
@@ -918,7 +918,7 @@ export class DiplicityMap {
     const fillAttr = rootFill !== null ? ` fill="${rootFill}"` : ''
     const regionPaths = new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths])
     const fills = provinceFillsLayer(regionPaths, state)
-    const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters)
+    const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius)
     const units = unitsLayer(this.parsed.unitPositions, state)
     const orders = ordersLayer(this.parsed.unitPositions, state)
 
