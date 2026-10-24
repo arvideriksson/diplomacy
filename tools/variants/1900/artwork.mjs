@@ -3,7 +3,7 @@
 // dashed sea borders, striped unplayable islands, bullseye supply centers.
 import { ringsPath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
-import { simplify, boundaryDistance } from './lib/geom.mjs'
+import { simplify, boundaryDistance, subtract, intersect, area } from './lib/geom.mjs'
 
 const SEA = '#d4d0ad', LAND = '#f4d7b5'
 const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, serif"
@@ -62,7 +62,12 @@ export const offBoardNote = ({ text, at: [x, y], angle = 0, arrow: [[x1, y1], [x
 }
 
 // Dashed double-headed arrow for an army crossing over water.
-const crossing = ([a, b]) => `<path d="M${r2(a[0])} ${r2(a[1])}L${r2(b[0])} ${r2(b[1])}" style="fill:none;stroke:#000000;stroke-width:1.6;stroke-dasharray:3 2;marker-start:url(#crossing-head);marker-end:url(#crossing-head)"/>`
+// The heads (4 × the 1.6 stroke) sit at the ends; the dashed shaft stops where they start.
+const CROSSING_HEAD = 6.4
+const crossing = ([a, b]) => {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]), u = [(b[0] - a[0]) / len * CROSSING_HEAD, (b[1] - a[1]) / len * CROSSING_HEAD]
+  return `<path d="M${r2(a[0] + u[0])} ${r2(a[1] + u[1])}L${r2(b[0] - u[0])} ${r2(b[1] - u[1])}" style="fill:none;stroke:#000000;stroke-width:1.6;stroke-dasharray:3 2;marker-start:url(#crossing-head);marker-end:url(#crossing-head)"/>`
+}
 
 // waterParts: parts of land provinces that are drawn as water (the Strait of Gibraltar).
 export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
@@ -89,11 +94,13 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     const a = kind(c.id), b = kind(c.other)
     const pts = unzig(simplify(c.points, 0.15))
     const line = a === 'land' || a === 'sea' ? pts : c.points
-    if (a === 'land' && b === 'sea' && waterParts.length) {
-      // Split land–sea chains into runs along drawn water (the strait: dashed) and real coast.
+    if (a === 'land' && (b === 'sea' || b === 'land') && waterParts.length) {
+      // Split chains into runs along drawn water (the strait) and the rest: a land–sea edge
+      // there is a dashed sea line instead of coast, a land–land edge is coast instead of border.
       const wet = (p) => waterParts.some((g) => boundaryDistance(g, p) < 0.3)
+      const [dry, damp] = b === 'sea' ? [coasts, seaLines] : [borders, coasts]
       let run = [pts[0]], state = wet(pts[0])
-      const flush = () => { if (run.length > 1) for (const r of offEdge(run)) (state ? seaLines : coasts).push(r) }
+      const flush = () => { if (run.length > 1) for (const r of offEdge(run)) (state ? damp : dry).push(r) }
       for (const p of pts.slice(1)) { const w = wet(p); run.push(p); if (w !== state) { flush(); run = [p]; state = w } }
       flush()
     }
@@ -135,6 +142,18 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ring.push(...(ring.length ? line.slice(1) : line))
   }
   const outlinePath = (id) => (outlines[id] ?? []).filter(Boolean).map((rings) => rings.map((r) => polyline(r) + 'Z').join('')).join('')
+  // Where drawn water lies inside a land province, the land's edge along it is coast too.
+  for (const g of waterParts) for (const [, geom] of land) {
+    if (area(intersect(geom, g)) < 1) continue
+    for (const ring of subtract(geom, g).filter((pl) => area([pl]) > 4).flat()) {
+      let run = []
+      for (const p of [...ring, ring[0]]) {
+        if (boundaryDistance(g, p) < 0.3) run.push(p)
+        else { if (run.length > 1) coasts.push(unzig(simplify(run, 0.15))); run = [] }
+      }
+      if (run.length > 1) coasts.push(unzig(simplify(run, 0.15)))
+    }
+  }
   const islandOutline = islands.map(geomPath).join('')
   const coastD = coasts.map(polyline).join('') + islandOutline
   // Water-lining: fine lines following the coast at increasing distance, fading outward.
@@ -150,6 +169,8 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     `<path d="${land.map(([id]) => outlinePath(id)).join('')}" style="fill:${LAND};stroke:${LAND};stroke-width:0.6"/>`,
     `<path d="${islandOutline}" style="fill:${LAND};fill-rule:evenodd"/>`,
     ...waterParts.map((g) => `<path d="${geomPath(g)}" style="fill:${SEA};fill-rule:evenodd"/>`),
+    // The water-lining continues into the drawn water.
+    waterParts.length ? `<g clip-path="url(#water-parts)">${waterLines}${coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;filter:url(#filter848)')}</g>` : '',
     ...canals.map((c) => `<path d="${polyline(c)}" style="fill:none;stroke:#000000;stroke-width:3.4;stroke-linejoin:round;stroke-linecap:round"/><path d="${polyline(c)}" style="fill:none;stroke:${SEA};stroke-width:2;stroke-linejoin:round;stroke-linecap:round"/>`),
   ].join('\n')
   const foreground = [
@@ -162,6 +183,7 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ...centers.map(bullseye),
   ].join('\n')
   defs = defs.replace('</defs>', `<path id="coast-line" d="${coastD}"/></defs>`)
-  defs = defs.replace('</defs>', '<marker id="crossing-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#000000"/></marker></defs>')
+  defs = defs.replace('</defs>', `<clipPath id="water-parts"><path d="${waterParts.map(geomPath).join('')}"/></clipPath></defs>`)
+  defs = defs.replace('</defs>', '<marker id="crossing-head" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#000000"/></marker></defs>')
   return { defs: style.font ? defs.replace('</defs>', `${fontFace()}</defs>`) : defs, background, foreground, names: labels.join('\n'), outlinePath }
 }

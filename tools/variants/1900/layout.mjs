@@ -27,7 +27,7 @@ export const LABELS = {
   dam: { text: 'Damascus', at: [1405, 1262], angle: 0, kind: 'sc' },
   sev: { text: 'Sevastopol', at: [1330, 820], angle: 0, kind: 'sc' },
   sib: { text: 'Siberia', at: [1428, 345], angle: 0, angles: [0], kind: 'land' },
-  gib: { text: 'Gibraltar', at: [194, 1188], angle: -4, fixed: true, size: 13, kind: 'land' },
+  gib: { text: 'Gibraltar', at: [206, 1235], angle: 9, fixed: true, kind: 'land' },
   ice: { text: 'Iceland', at: [280, 150], angle: -10, angles: [-10, -8, -12], kind: 'land' },
   ire: { text: 'Ireland', at: [276, 608], angle: -40, kind: 'land' },
   mor: { text: 'Morocco', at: [130, 1395], angle: 0, kind: 'sc' },
@@ -72,7 +72,7 @@ export const UNITS = {
   lvo: [945, 600], ice: [262, 180], ire: [262, 640], sib: [1470, 430],
   mor: [110, 1380], alg: [455, 1318], tun: [600, 1330], sou: [330, 1470], cyr: [960, 1490],
   egy: [1175, 1490], pal: [1352, 1460], dam: [1440, 1320], kon: [1240, 1240],
-  'spa/wc': [122, 1160], ven: [700, 960], gib: [234, 1198], 'spa/ec': [300, 1150], bur: [470, 930], tri: [800, 1030],
+  'spa/wc': [122, 1160], ven: [700, 960], gib: [158, 1205], 'spa/ec': [300, 1150], bur: [470, 930], tri: [800, 1030],
 }
 
 // The Red Sea is part of the Mid-Atlantic (the long route round Africa): instead of a
@@ -84,11 +84,11 @@ export const RED_SEA_NOTE = { text: 'To MID', from: 1310, span: [1560, 1618], te
 // Atlantic coast (fitted between x = `span`), `offset` units out to sea, points south-west.
 // The long route's arrows come back on board at the west edge and run this far in before
 // curving to the Mid-Atlantic unit.
-export const LONG_ROUTE = { inshore: 40 }
-export const MOROCCO_NOTE = { text: 'To Egy, Hej', span: [8, 136], textAt: -2, arrow: [28, 52], offset: 16, tilt: 6 }
+export const LONG_ROUTE = { offBoard: 80, fromBottom: 0.3 }
+export const MOROCCO_NOTE = { text: 'To Egypt, Hejaz', span: [8, 136], textAt: -12, arrow: [28, 52], offset: 16, tilt: 6 }
 
 // Army crossings over water, drawn as dashed double-headed arrows.
 export const CROSSING_ARROWS = [
-  [[306, 541], [332, 533]], // Ireland – Clyde
-  [[1328, 1545], [1356, 1545]], // Sinai (Egypt) – Hejaz
+  [[322, 582], [352, 574]], // Ireland – Clyde
+  [[147, 1242], [149, 1210]], // Morocco – Gibraltar
 ]

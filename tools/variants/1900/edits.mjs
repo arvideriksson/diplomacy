@@ -3,7 +3,7 @@
 // Coordinates are classical board units.
 import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle, curve, contains, area, boundaryDistance } from './lib/geom.mjs'
 import { sharedEdges } from './lib/edges.mjs'
-import { southernLand, southernProvinces, fitProjection } from './south.mjs'
+import { southernLand, southernProvinces } from './south.mjs'
 import { transform, box, region, affine } from './lib/natural.mjs'
 import { geoConicEquidistant } from 'd3-geo'
 
@@ -118,22 +118,18 @@ export function europe(classical) {
   // The Nenets okrug (centred north of 66°N) stays with St. Petersburg, so Siberia's
   // northern edge follows their real border instead of a drawn cut.
 
-  // Gibraltar: Spain's southern tip plus the narrow strait, separating the
-  // Mid-Atlantic from the Western Mediterranean.
-  // The land part follows the real Cádiz and Málaga provincial borders.
-  const project = fitProjection(classical)
-  // Classical Spain's coast lies a little south of the projected one, so the region is
-  // extended straight down to the coast; its northern (inland) border stays real.
-  const real = transform(region((c, n) => c === 'Spain' && (n === 'Cádiz' || n === 'Málaga')), project)
-  // It is also stretched northward (about the coast) so it can hold a unit and its label.
-  // Stretching it about its centre (rather than smearing it) keeps its real outline.
-  const tip = union(...Array.from({ length: 12 }, (_, k) => transform(real, ([x, y]) => [192 + (x - 192) * 1.5 - 8, 1222 - (1222 - y) * 1.9 + 4 * k + 4])))
-  const strait = poly([[143, 1216], [158, 1216], [158, 1233], [143, 1233]])
-  const gibLand = intersect(P.spa, tip), gibSea = subtract(intersect(strait, union(P.mid, P.wes)), P.spa, P.naf)
-  P.spa = subtract(P.spa, tip); P.mid = subtract(P.mid, strait); P.wes = subtract(P.wes, strait)
+  // Gibraltar: a small tip of Spain around the Rock and Tarifa, plus a broad strait reaching
+  // into the Atlantic and the Alboran Sea, separating the Mid-Atlantic from the Western
+  // Mediterranean.
+  let gibLand = intersect(P.spa, poly(wiggle([[118, 1176], [134, 1184], [150, 1189], [166, 1191], [178, 1196], [184, 1206], [186, 1226], [118, 1226]], { amplitude: 1.5, seed: 29 })))
+  // The strait itself is open water between the tip and Morocco.
+  const channel = poly([[144, 1219], [158, 1219], [158, 1229], [144, 1229]])
+  const strait = union(intersect(gibLand, channel), intersect(P.naf, channel))
+  P.naf = subtract(P.naf, channel)
+  gibLand = subtract(gibLand, strait)
+  const gibSea = union(strait, intersect(union(P.mid, P.wes), poly(curve([[128, 1176], [116, 1204], [116, 1228], [126, 1248], [150, 1292]]).concat(curve([[238, 1292], [256, 1264], [264, 1238], [258, 1212], [242, 1190]]), [[160, 1180]]))))
+  P.spa = subtract(P.spa, gibLand, strait); P.mid = subtract(P.mid, gibSea); P.wes = subtract(P.wes, gibSea)
   P.gib = union(gibLand, gibSea)
-  // Gibraltar reaches west to the Atlantic coast, so the strait is clearly its own.
-  move(P, intersect(P.spa, poly(wiggle([[118, 1214], [134, 1206], [150, 1196], [150, 1245], [110, 1245], [118, 1214]], { amplitude: 1.5, seed: 29 }))), 'gib', ['spa'])
 
   // Tunisia no longer touches the Western Mediterranean: the Tyrrhenian takes the
   // water south of Sardinia so the sea border meets the Algerian coast.
@@ -159,8 +155,8 @@ export function extendSouth(P, classical, height) {
   const covered = union(...[...Object.values(classical.provinces), ...classical.islands].map((g) => intersect(g, band)))
   const below = subtract(poly([[-40, 1352], [width + 40, 1352], [width + 40, height + 40], [-40, height + 40]]), covered)
   const extLand = intersect(land, below)
-  // The Gulf of Aqaba's arm north of the Egypt–Hejaz crossing belongs to no sea, so
-  // Palestine (which reaches its head) does not border the Red Sea (Mid).
+  // The Gulf of Aqaba's arm north of the Sinai crossing point belongs to no sea, so the
+  // Red Sea (Mid) does not reach its head.
   const aqaba = transform(box(34.3, 28.3, 35.2, 29.7), toBoard)
   const extWater = subtract(below, land, aqaba)
   const real = southernProvinces(toBoard)
