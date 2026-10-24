@@ -15,7 +15,6 @@ export const map1900: MapDefinition = {
     "COL": "germany",
     "CON": "turkey",
     "DAM": "turkey",
-    "DUM": "russia",
     "EDI": "britain",
     "EGY": "britain",
     "KIE": "germany",
@@ -149,8 +148,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          538,
-          870
+          531.1,
+          898.8
         ]
       }
     },
@@ -196,8 +195,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          765.6,
-          1115.9
+          794.8,
+          1142
         ]
       }
     },
@@ -212,8 +211,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1453,
-          1428
+          1452.6,
+          1452.8
         ]
       }
     },
@@ -297,8 +296,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          527.1,
-          778.9
+          534.2,
+          800.3
         ]
       }
     },
@@ -381,8 +380,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          849.2,
-          1055.2
+          856.4,
+          1039.6
         ]
       }
     },
@@ -469,8 +468,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          470,
-          930
+          482.2,
+          936.7
         ]
       }
     },
@@ -494,8 +493,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          354.7,
-          548.2
+          367,
+          572.6
         ]
       }
     },
@@ -513,8 +512,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          556,
-          812
+          565.4,
+          814.4
         ]
       }
     },
@@ -615,22 +614,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          637.8,
-          603.4
-        ]
-      }
-    },
-    "DUM": {
-      "name": "Dummy",
-      "type": "land",
-      "supplyCenter": true,
-      "adjacent": [
-        "DUM"
-      ],
-      "render": {
-        "center": [
-          -100,
-          -100
+          624.1,
+          609.9
         ]
       }
     },
@@ -674,8 +659,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          400.6,
-          534.7
+          381.1,
+          537.8
         ]
       }
     },
@@ -826,8 +811,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          200,
-          1200
+          231.6,
+          1199.2
         ]
       }
     },
@@ -866,8 +851,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          925,
-          1215
+          928,
+          1206.6
         ]
       }
     },
@@ -887,8 +872,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1462.4,
-          1576.6
+          1477.6,
+          1557.2
         ]
       }
     },
@@ -904,8 +889,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          581.4,
-          626.9
+          596.9,
+          616.7
         ]
       }
     },
@@ -971,8 +956,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          262,
-          640
+          274,
+          639.8
         ]
       }
     },
@@ -1018,8 +1003,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          629.1,
-          706.4
+          626.2,
+          756.7
         ]
       }
     },
@@ -1043,8 +1028,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1240,
-          1240
+          1245.3,
+          1236.4
         ]
       }
     },
@@ -1067,8 +1052,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          417.9,
-          724.4
+          446.1,
+          690.6
         ]
       }
     },
@@ -1118,8 +1103,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          386.5,
-          621
+          386.4,
+          598.2
         ]
       }
     },
@@ -1170,8 +1155,8 @@ export const map1900: MapDefinition = {
       },
       "render": {
         "center": [
-          905,
-          1140
+          1008.8,
+          1109.2
         ]
       }
     },
@@ -1239,8 +1224,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          643.6,
-          1011.9
+          620.2,
+          957.2
         ]
       }
     },
@@ -1264,7 +1249,7 @@ export const map1900: MapDefinition = {
       "render": {
         "center": [
           110,
-          1380
+          1370
         ]
       }
     },
@@ -1329,8 +1314,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          778.1,
-          1177.6
+          723.6,
+          1131
         ]
       }
     },
@@ -1373,8 +1358,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          534.8,
-          726
+          553.6,
+          739.7
         ]
       }
     },
@@ -1468,8 +1453,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1352,
-          1460
+          1365.2,
+          1469.8
         ]
       }
     },
@@ -1532,8 +1517,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          564.2,
-          982.2
+          553.4,
+          996.1
         ]
       }
     },
@@ -1551,8 +1536,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          123.3,
-          1075.1
+          109,
+          1126
         ]
       }
     },
@@ -1601,8 +1586,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          690,
-          1110
+          707.1,
+          1109
         ]
       }
     },
@@ -1645,8 +1630,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          901.4,
-          1068.8
+          919.4,
+          1020.6
         ]
       }
     },
@@ -1686,8 +1671,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1460.2,
-          352.3
+          1470,
+          430
         ]
       }
     },
@@ -1722,8 +1707,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          660.8,
-          527.9
+          678.1,
+          563.6
         ]
       }
     },
@@ -1901,8 +1886,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          553,
-          935
+          593.8,
+          900.9
         ]
       }
     },
@@ -1927,8 +1912,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          800,
-          1030
+          748,
+          971.5
         ]
       }
     },
@@ -1949,8 +1934,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          689.6,
-          1511.6
+          690.3,
+          1523.4
         ]
       }
     },
@@ -1973,8 +1958,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          600,
-          1330
+          594.2,
+          1349
         ]
       }
     },
@@ -2055,8 +2040,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          700,
-          960
+          692.3,
+          1046.8
         ]
       }
     },
@@ -2097,8 +2082,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          352.3,
-          686.2
+          354.8,
+          657.7
         ]
       }
     },
@@ -2159,11 +2144,39 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          425.4,
-          663.6
+          414.7,
+          651.9
         ]
       }
     }
+  },
+  "rules": {
+    "longRoutes": [
+      [
+        "EGY",
+        "MAO"
+      ],
+      [
+        "HEJ",
+        "MAO"
+      ]
+    ],
+    "convoyCoasts": [
+      "GIB"
+    ],
+    "disorderHomes": {
+      "britain": [
+        "EGY"
+      ],
+      "france": [
+        "ALG"
+      ]
+    },
+    "emergency": {
+      "nation": "russia",
+      "buildSite": "SIB"
+    },
+    "strictVictory": true
   },
   "startingUnits": [
     {

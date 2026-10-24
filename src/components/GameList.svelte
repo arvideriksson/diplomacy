@@ -87,6 +87,7 @@
       </div>
       <div class="card-meta">
         <span class="phase-pill">{game.phase}</span>
+        {#if game.map_id && game.map_id !== 'classical'}<span class="phase-pill">{maps[game.map_id]?.name ?? game.map_id}</span>{/if}
         <span class="season">{game.season} {game.year}</span>
         <span class="player-count">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">

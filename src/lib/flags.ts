@@ -13,6 +13,8 @@ import turkey from '../assets/flags/turkey.svg'
 export const flagUrl: Record<string, string> = {
   austria,
   england,
+  // The 1900 variant names the same power Britain (the asset is the Union Jack).
+  britain: england,
   france,
   germany,
   italy,

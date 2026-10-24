@@ -15,6 +15,32 @@ export interface MapDefinition {
   powers: PowerDefinition[]
   territories: Record<string, TerritoryDefinition>
   startingUnits: StartingUnit[]
+  /** Variant-specific rules on top of the standard rulebook. */
+  rules?: VariantRules
+}
+
+/** Optional variant rules the engine understands (all absent on the classical map). */
+export interface VariantRules {
+  /**
+   * Province pairs joined by a long sea route (1900: Egypt/Hejaz <-> Mid-Atlantic,
+   * around Africa). Moves along one are at half strength; a unit cannot support
+   * across one; an attack along one cuts support only by dislodging; an army
+   * convoyed into a province only via one attacks at half strength; and a retreat
+   * along one loses to a competing ordinary retreat.
+   */
+  longRoutes?: [string, string][]
+  /** Coastal provinces whose fleets may convoy as if at sea (1900: Gibraltar). */
+  convoyCoasts?: string[]
+  /** Centers that count as a nation's home only for civil-disorder removals (1900: Egypt, Algeria). */
+  disorderHomes?: Record<string, string[]>
+  /**
+   * Emergency measures (1900 Russia): while the nation holds at least one but not
+   * all of its home centers it may keep one unit more than its center count and
+   * may build in `buildSite` (never a supply center) when it is unoccupied.
+   */
+  emergency?: { nation: string; buildSite: string }
+  /** A winner must also hold strictly more centers than every other power; ties play on. */
+  strictVictory?: boolean
 }
 
 export interface PowerDefinition {

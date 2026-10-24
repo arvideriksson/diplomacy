@@ -2,7 +2,6 @@
   import { classicalMap } from '../lib/maps/classical'
   import { getMap } from '../lib/maps'
   import GameBoard from './GameBoard.svelte'
-  import UnitStylePicker from './UnitStylePicker.svelte'
   import {
     sandboxes,
     resolveCurrent,
@@ -14,7 +13,7 @@
     exportSandbox,
     type Sandbox,
   } from '../lib/sandbox'
-  import type { AnyOrder, OrderResult } from '../lib/adjudicator'
+  import { victoryFor, type AnyOrder, type OrderResult } from '../lib/adjudicator'
   import type { Unit } from '../lib/game'
   import { formatAnyOrder } from '../lib/orders/notation'
   import { onDestroy } from 'svelte'
@@ -31,11 +30,13 @@
   $: map = sb ? getMap(sb.mapId) : classicalMap
   $: frame = sb ? sb.frames[sb.cursor] : undefined
   $: board = frame?.board
+  // The game is over once the board shows a winner; the sandbox then becomes read-only.
+  $: winner = board ? victoryFor(map, board.supplyCenters) : undefined
+  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   $: canBack = sb ? sb.cursor > 0 : false
   $: canForward = sb ? sb.cursor < sb.frames.length - 1 : false
 
   let lastResults: OrderResult[] = []
-  let lastVictory: { nation: string; centers: number } | undefined
   // Board state from just BEFORE the last resolution — needed to render results in
   // notation (unit types for the A/F prefix; dislodged units for retreats).
   let preUnits: Unit[] = []
@@ -47,7 +48,6 @@
     preDislodged = board.dislodged
     const result = resolveCurrent(sb.id, orders)
     lastResults = (result?.results as OrderResult[]) ?? []
-    lastVictory = result?.victory
   }
   function handleOrdersChange(orders: AnyOrder[]) {
     if (sb) setCurrentOrders(sb.id, orders)
@@ -55,19 +55,16 @@
   function handleBackPhase() {
     if (sb) goBack(sb.id)
     lastResults = []
-    lastVictory = undefined
   }
   function handleForwardPhase() {
     if (sb) goForward(sb.id)
     lastResults = []
-    lastVictory = undefined
   }
   function handleReset() {
     if (sb && confirm('Reset this sandbox to the opening position?')) {
       resetSandbox(sb.id)
       lastResults = []
-      lastVictory = undefined
-    }
+      }
   }
   function handleDelete() {
     if (sb && confirm('Delete this sandbox?')) {
@@ -112,11 +109,8 @@
     dislodged={board.dislodged}
     contested={board.contested}
     supplyCenters={board.supplyCenters}
+    readOnly={Boolean(winner)}
   >
-    <div class="left-content" slot="left">
-      <UnitStylePicker />
-    </div>
-
     <svelte:fragment slot="toolbar">
       <button class="tool" on:click={handleReset}>Reset</button>
       <button class="tool" on:click={handleExport}>Copy JSON</button>
@@ -124,10 +118,10 @@
     </svelte:fragment>
 
     <svelte:fragment slot="results">
-      {#if lastVictory || lastResults.length}
+      {#if winner || lastResults.length}
         <div class="results-stack">
-          {#if lastVictory}
-            <div class="card victory">🏆 {lastVictory.nation} controls {lastVictory.centers} centers — game over.</div>
+          {#if winner}
+            <div class="card victory">🏆 {winnerName} wins with {winner.centers} supply centers.</div>
           {/if}
           {#if lastResults.length}
             <div class="card results">
@@ -163,10 +157,6 @@
     max-width: 600px;
     margin: 80px auto;
     text-align: center;
-  }
-  .left-content {
-    padding: 12px;
-    overflow-y: auto;
   }
   .tool {
     padding: 4px 9px;

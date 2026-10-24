@@ -400,6 +400,7 @@ const spotlightOverlayLayer = (
   unitPositions: Map<string, Point>,
   state: RenderState,
   viewBox: { minX: number; minY: number; width: number; height: number },
+  fixedRoutes: Map<string, Point[]> = new Map(),
 ): string => {
   if (!state.spotlightNation) return ''
   const style = state.unitStyle ?? DEFAULT_UNIT_STYLE
@@ -437,7 +438,7 @@ const spotlightOverlayLayer = (
     units: spotlitUnits,
     orders: state.orders?.filter((o) => isSpotlit(o.nation)),
   }
-  const orders = ordersLayer(unitPositions, spotlitState)
+  const orders = ordersLayer(unitPositions, spotlitState, fixedRoutes)
   const units = unitsLayer(unitPositions, spotlitState)
 
   const rect = `x="${viewBox.minX}" y="${viewBox.minY}" width="${viewBox.width}" height="${viewBox.height}"`
@@ -752,7 +753,8 @@ const moveOrderParts = (
   unitPositions: Map<string, Point>,
   state: RenderState,
   headToHead: Map<string, Point>,
-  routes: Map<string, ConvoyRoute>
+  routes: Map<string, ConvoyRoute>,
+  fixedRoutes: Map<string, Point[]> = new Map(),
 ): string[] => {
   const parts: string[] = []
   for (const order of orders) {
@@ -774,6 +776,25 @@ const moveOrderParts = (
     const color = nationColor(state, order.nation)
     const renderCenter = order.failed ? failureCross : undefined
 
+    // A move along a drawn route (1900: around Africa) follows its waypoints.
+    const fixed = fixedRoutes.get(`${order.source}~${order.target}`) ?? fixedRoutes.get(`${order.target}~${order.source}`)?.slice().reverse()
+    if (fixed && order.type === 'Move') {
+      parts.push(
+        moveViaConvoyArrow({
+          waypoints: [source, ...fixed, target],
+          startOffset: 0,
+          lineWidth: ORDER_LINE_WIDTH,
+          arrowWidth: ORDER_ARROW_WIDTH,
+          arrowLength: ORDER_ARROW_LENGTH,
+          strokeWidth: ORDER_STROKE_WIDTH,
+          offset: UNIT_RADIUS,
+          stroke: SUCCESS_COLOR,
+          fill: color,
+          renderCenter,
+        })
+      )
+      continue
+    }
     if (order.type === 'MoveViaConvoy') {
       const route = routes.get(`${order.source}->${order.target}`)
       if (route) {
@@ -860,14 +881,15 @@ const convoyOrderParts = (
 // `front` (everything else, drawn over the units as before).
 const ordersLayer = (
   unitPositions: Map<string, Point>,
-  state: RenderState
+  state: RenderState,
+  fixedRoutes: Map<string, Point[]> = new Map(),
 ): { behind: string; front: string } => {
   const orders = state.orders ?? []
   const ofType = (type: OrderType): OrderState[] => orders.filter((order) => order.type === type)
   const headToHead = headToHeadControlPoints(orders, unitPositions)
   const groups = supportMoveGroups(orders)
   const routes = convoyRoutes(orders, unitPositions)
-  const behind: string[] = moveOrderParts(orders, unitPositions, state, headToHead, routes)
+  const behind: string[] = moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes)
   const front: string[] = []
 
   for (const order of ofType('Hold')) {
@@ -920,7 +942,7 @@ export class DiplicityMap {
     const fills = provinceFillsLayer(regionPaths, state)
     const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius)
     const units = unitsLayer(this.parsed.unitPositions, state)
-    const orders = ordersLayer(this.parsed.unitPositions, state)
+    const orders = ordersLayer(this.parsed.unitPositions, state, this.parsed.routes)
 
     // An artisanal dsvg with a hand-authored background owns its whole look; otherwise
     // synthesize the atmosphere (sea/land/coast-shadow/borders) from geometry + theme.
@@ -983,6 +1005,7 @@ export class DiplicityMap {
       this.parsed.unitPositions,
       state,
       this.parsed.viewBox,
+      this.parsed.routes,
     )
   }
 }

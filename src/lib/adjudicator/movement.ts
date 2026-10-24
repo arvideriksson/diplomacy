@@ -8,7 +8,8 @@ import type { Unit } from '../types'
 import type { Order } from '../orders/types'
 import type { BoardState, DislodgedUnit, OrderResult, ResultCode } from './types'
 import { sortIds, sortUnits, unitAt } from './state'
-import { canMoveDirect, convoyPathExists, isSea, landingCoasts } from './graph'
+import { canMoveDirect, convoyPathExists, landingCoasts } from './graph'
+import { canConvoyFrom, isLongRoute } from './rules'
 
 type Kind = 'hold' | 'move' | 'support' | 'convoy'
 
@@ -53,8 +54,15 @@ export function resolveMovement(
   const byProvince = new Map<string, MOrder>()
 
   // index submitted orders by their source unit's province
+  // One order per unit. An order from the unit's own power always wins over one
+  // naming another power (which voids), so a stray or forged order can't displace it.
   const submitted = new Map<string, Order>()
-  for (const o of orders) submitted.set(o.source, o)
+  const ownerOf = new Map(units.map((u) => [u.territory, u.nation]))
+  for (const o of orders) {
+    const prev = submitted.get(o.source)
+    if (prev && prev.nation === ownerOf.get(o.source) && o.nation !== ownerOf.get(o.source)) continue
+    submitted.set(o.source, o)
+  }
 
   // army moves for which a fleet was ordered to convoy (path survival aside). Marks
   // a move as an attempted convoy even when no physical fleet sits on the route.
@@ -110,6 +118,16 @@ export function resolveMovement(
     return convoyRouteExists(m)
   }
 
+  // A move's own strength: half along a long route (1900 Suez rule 3), and half for
+  // an army that can only be convoyed into its destination along one (rule 7).
+  const baseStrength = (m: MOrder): number => {
+    if (isConvoyedMove(m)) {
+      const fleets = new Set(matchingConvoys(m).filter((c) => resolve(c.idx)).map((c) => c.src))
+      return convoyPathExists(map, m.src, m.dst!, fleets, (sea) => !isLongRoute(map, sea, m.dst!)) ? 1 : 0.5
+    }
+    return isLongRoute(map, m.src, m.dst!) ? 0.5 : 1
+  }
+
   const headToHeadOpponent = (m: MOrder): MOrder | undefined => {
     if (m.kind !== 'move' || m.void) return undefined
     const o = byProvince.get(m.dst!)
@@ -126,6 +144,7 @@ export function resolveMovement(
     // attacked from a province other than the supported destination, by another power
     for (const m of moveOrdersInto(s.src)) {
       if (m.src === s.dst) continue // attack from the province support is directed at
+      if (isLongRoute(map, m.src, s.src)) continue // long-route attacks cut only by dislodging (Suez rule 6)
       if (m.unit.nation === s.unit.nation) continue // can't cut own support
       if (hasPath(m)) return true
     }
@@ -159,19 +178,19 @@ export function resolveMovement(
       const h2h = headToHeadOpponent(m)
       if (!(h2h && h2h.idx === occ.idx)) vacated = resolve(occ.idx)
     }
-    if (vacated) return 1 + supportCount(m)
+    if (vacated) return baseStrength(m) + supportCount(m)
     // occupant stays
     if (occ!.unit.nation === m.unit.nation) return 0 // can't dislodge own unit
-    return 1 + supportCount(m, occ!.unit.nation)
+    return baseStrength(m) + supportCount(m, occ!.unit.nation)
   }
 
-  const defendStrength = (m: MOrder): number => 1 + supportCount(m)
+  const defendStrength = (m: MOrder): number => baseStrength(m) + supportCount(m)
 
   const preventStrength = (m: MOrder): number => {
     if (!hasPath(m)) return 0
     const h2h = headToHeadOpponent(m)
     if (h2h && resolve(h2h.idx)) return 0 // dislodged by head-to-head opponent
-    return 1 + supportCount(m)
+    return baseStrength(m) + supportCount(m)
   }
 
   const moveSucceeds = (m: MOrder): boolean => {
@@ -424,7 +443,7 @@ function normalize(
       // destination. With neither, the order is illegal and treated as a hold, which
       // can receive support (DATC 6.D.32, "a missing fleet").
       const seaFleets = new Set(
-        units.filter((u) => u.type === 'fleet' && isSea(map, u.territory)).map((u) => u.territory),
+        units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory),
       )
       if (
         convoyIntents.has(`${unit.territory}->${o.target}`) ||
@@ -447,12 +466,15 @@ function normalize(
     if (!canMoveDirect(map, unit, s.dst!) && s.dst !== unit.territory) {
       return voidify(s, 'support of unreachable province')
     }
+    if (isLongRoute(map, unit.territory, s.dst!)) {
+      return voidify(s, 'cannot support along a long route')
+    }
     return s
   }
 
   if (o.type === 'Convoy') {
     const c = base('convoy', { aux: o.aux, dst: o.target })
-    if (unit.type !== 'fleet' || map.territories[unit.territory]?.type !== 'sea') {
+    if (unit.type !== 'fleet' || !canConvoyFrom(map, unit.territory)) {
       return voidify(c, 'only a fleet at sea may convoy')
     }
     if (!o.aux || !o.target) return voidify(c, 'convoy without army/destination')

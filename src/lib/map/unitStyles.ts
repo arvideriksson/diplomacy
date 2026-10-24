@@ -2,8 +2,7 @@
 //
 // Shapes are authored in a normalised 64×64 box (chip disc r=22 centred at 32,32)
 // and scaled down to the map's UNIT_RADIUS so every shape shares one footprint.
-// The sandbox view (SandboxView.svelte) lets us swap styles live to compare them
-// on the real board; the chosen style is held in src/lib/unitStyle.ts.
+// The board always draws DEFAULT_UNIT_STYLE.
 
 const BOX = 64
 const BOX_C = 32
@@ -245,14 +244,4 @@ export function unitOutlineSvg(
   const tag = el.match(/^<(\w+)/)?.[1] ?? 'path'
   const open = inner ? el.replace(/\s*\/>\s*$/, `>${inner}</${tag}>`) : el
   return `<g transform="translate(${tx} ${ty}) scale(${scale})">${open}</g>`
-}
-
-/** Standalone preview token in its own <svg>, for menus/swatches. */
-export function previewSvg(
-  def: Def,
-  color: string,
-  style: UnitStyle,
-  px: number
-): string {
-  return `<svg width="${px}" height="${px}" viewBox="0 0 ${BOX} ${BOX}">${defMarkup(def, color, style)}</svg>`
 }

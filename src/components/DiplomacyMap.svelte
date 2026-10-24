@@ -6,7 +6,6 @@
   import { toRenderState } from '../lib/map/renderState'
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
-  import { unitStyle } from '../lib/unitStyle'
   import { errorMessage } from '../lib/errors'
 
   export let mapDef: MapDefinition
@@ -130,7 +129,7 @@
       ? split(
           stripWrapper(
             renderer.render(
-              toRenderState({ mapDef, units, dislodged, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders, unitStyle: $unitStyle })
+              toRenderState({ mapDef, units, dislodged, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders })
             )
           )
         )
@@ -144,7 +143,7 @@
   $: spotlightMarkup =
     renderer && veilNation
       ? renderer.renderSpotlight(
-          toRenderState({ mapDef, units, dislodged, ownership, spotlightNation: veilNation, orders, unitStyle: $unitStyle })
+          toRenderState({ mapDef, units, dislodged, ownership, spotlightNation: veilNation, orders })
         )
       : ''
 
@@ -184,8 +183,12 @@
   function onWheel(e: WheelEvent) {
     if (!interactive) return
     e.preventDefault()
-    const { x: vx, y: vy } = pointerToView(e.clientX, e.clientY)
-    const factor = Math.exp(-e.deltaY * 0.0015)
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015))
+  }
+
+  // Zoom by `factor` keeping the map point under (clientX, clientY) fixed.
+  function zoomAt(clientX: number, clientY: number, factor: number) {
+    const { x: vx, y: vy } = pointerToView(clientX, clientY)
     const k2 = Math.min(MAX_K, Math.max(MIN_K, k * factor))
     if (k2 === k) return
     // keep the map point under the cursor fixed
@@ -197,9 +200,22 @@
     clampPan()
   }
 
+  // Two-finger pinch on touch screens: active pointers and the last pinch spread.
+  const touches = new Map<number, { x: number; y: number }>()
+  let pinchDist = 0
+  const spread = () => {
+    const [a, b] = [...touches.values()]
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }
+  }
+
   let captured = false
   function onPointerDown(e: PointerEvent) {
     if (!interactive) return
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touches.size === 2) {
+      pinchDist = spread().d
+      moved = true // a pinch is never a click
+    }
     panning = true
     moved = false
     captured = false
@@ -209,6 +225,13 @@
     // on:click. Capture lazily once a real drag begins (see onPointerMove).
   }
   function onPointerMove(e: PointerEvent) {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touches.size === 2) {
+      const { d, cx, cy } = spread()
+      if (pinchDist > 0) zoomAt(cx, cy, d / pinchDist)
+      pinchDist = d
+      return
+    }
     if (!panning) return
     const { scale } = pointerToView(e.clientX, e.clientY)
     const dx = (e.clientX - last.x) / scale
@@ -228,6 +251,13 @@
     clampPan()
   }
   function onPointerUp(e: PointerEvent) {
+    touches.delete(e.pointerId)
+    pinchDist = 0
+    if (touches.size === 1) {
+      // continue panning with the remaining finger from where it is now
+      last = { ...[...touches.values()][0] }
+      return
+    }
     panning = false
     if (captured) {
       ;(e.currentTarget as Element).releasePointerCapture?.(e.pointerId)
@@ -270,6 +300,7 @@
       on:pointermove={onPointerMove}
       on:pointerup={onPointerUp}
       on:pointerleave={onPointerUp}
+      on:pointercancel={onPointerUp}
     >
       <g transform={`translate(${tx} ${ty}) scale(${k})`}>
         <!-- eslint-disable-next-line svelte/no-at-html-tags -->

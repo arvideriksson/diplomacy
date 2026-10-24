@@ -5,6 +5,7 @@ import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../game'
 import type { Order, OrderType } from './types'
 import { toDsvgId } from '../map/idMap'
+import { isLongRoute } from '../adjudicator/rules'
 import type { OrderState } from '../map/mapRenderer'
 import {
   moveTargets,
@@ -13,6 +14,7 @@ import {
   supportTargets,
   convoyAux,
   convoyTargets,
+  convoyNext,
 } from './options'
 
 export interface Draft {
@@ -22,6 +24,8 @@ export interface Draft {
   target?: string
   targetCoast?: string
   aux?: string
+  /** Army moves: fleets chosen so far to convoy it, in order (army → … → destination). */
+  convoyPath?: string[]
 }
 
 export interface WizardContext {
@@ -36,6 +40,8 @@ export interface Choice {
   /** Named coast, when this choice is a specific landing coast. */
   coast?: string
   label: string
+  /** Picking this choice adds a fleet to the convoy route instead of ending the move. */
+  chain?: boolean
 }
 
 export type Step =
@@ -54,7 +60,7 @@ const provinceChoices = (map: MapDefinition, ids: string[]): Choice[] =>
 export const applicableOrderTypes = (ctx: WizardContext): OrderType[] => {
   const { map, unit, units } = ctx
   const types: OrderType[] = ['Hold']
-  if (moveTargets(map, unit).length > 0) types.push('Move')
+  if (moveTargets(map, unit).length > 0 || (unit.type === 'army' && convoyNext(map, unit.territory, [], units).fleets.length > 0)) types.push('Move')
   if (supportAux(map, unit, units).length > 0) types.push('Support')
   if (unit.type === 'fleet' && convoyAux(map, unit, units).length > 0) types.push('Convoy')
   return types
@@ -75,6 +81,24 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
       return { kind: 'done' }
 
     case 'Move': {
+      if (!draft.target && unit.type === 'army') {
+        // Armies: walkable neighbours, plus fleets that could start (or continue) a
+        // convoy. Picking a fleet extends the route; the destinations then offered are
+        // only those reachable from the last chosen fleet.
+        const path = draft.convoyPath ?? []
+        const next = convoyNext(map, unit.territory, path, units)
+        const fleetChoices = next.fleets.map((id) => ({ id, label: `${name(map, id)} (convoy through)`, chain: true }))
+        if (path.length) {
+          return {
+            kind: 'province',
+            field: 'target',
+            prompt: `Convoy via ${path.map((p) => name(map, p)).join(' → ')}: choose where to land, or another fleet`,
+            choices: [...next.destinations.map((id) => ({ id, label: name(map, id) })), ...fleetChoices],
+          }
+        }
+        const choices: Choice[] = moveTargets(map, unit).map((t) => ({ id: t.province, label: name(map, t.province) }))
+        return { kind: 'province', field: 'target', prompt: 'Choose destination, or a fleet to convoy through', choices: [...choices, ...fleetChoices] }
+      }
       if (!draft.target) {
         // Destinations are coast-specific for multi-coast provinces: each reachable
         // coast is its own choice (highlighting that coast on the map), so picking a
@@ -90,7 +114,8 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
               })
             }
           } else {
-            choices.push({ id: t.province, label: name(map, t.province) })
+            const note = isLongRoute(map, unit.territory, t.province) ? ' (long route, half strength)' : ''
+            choices.push({ id: t.province, label: `${name(map, t.province)}${note}` })
           }
         }
         return { kind: 'province', field: 'target', prompt: 'Choose destination', choices }
@@ -131,7 +156,7 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
       }
       if (!draft.target) {
         const aux = auxUnit(ctx, draft.aux)
-        const targets = aux ? convoyTargets(map, unit, aux) : []
+        const targets = aux ? convoyTargets(map, unit, aux, units) : []
         return {
           kind: 'province',
           field: 'target',
@@ -155,6 +180,8 @@ export const finalize = (draft: Draft, ctx: WizardContext): Order => {
     targetCoast: draft.targetCoast,
     aux: draft.aux,
   }
+  // A move routed through chosen fleets uses only that convoy route.
+  if (order.type === 'Move' && draft.convoyPath?.length) order.viaConvoy = true
   if (order.type === 'Move' && ctx.unit.type === 'fleet' && order.target && !order.targetCoast) {
     const coasts = reachableCoasts(ctx.map, order.target, order.source)
     if (coasts.length === 1) order.targetCoast = coasts[0]
@@ -185,8 +212,10 @@ export const toOrderStates = (orders: Order[]): OrderState[] =>
       }
     }
     if (o.type === 'Move') {
+      // A move some fleet is ordered to convoy is drawn along the convoy route.
+      const convoyed = o.viaConvoy || orders.some((c) => c.type === 'Convoy' && c.aux === o.source && c.target === o.target)
       return {
-        type: 'Move',
+        type: convoyed ? 'MoveViaConvoy' : 'Move',
         nation: o.nation,
         source: toDsvgId(o.source, o.sourceCoast),
         target: toDsvgId(o.target as string, o.targetCoast),

@@ -5,7 +5,8 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { BoardState, BuildOrder, OrderResult } from './types'
-import { homeCenters, scCountByNation, sortIds, sortUnits, unitCountByNation } from './state'
+import { sortUnits, unitCountByNation } from './state'
+import { buildSites, disorderHomes, nationsOf, unitAllowance } from './rules'
 
 export interface BuildOutcome {
   units: Unit[]
@@ -18,13 +19,12 @@ export function resolveBuild(
   orders: BuildOrder[],
 ): BuildOutcome {
   const owners = board.supplyCenters
-  const scCount = scCountByNation(owners)
   const unitCount = unitCountByNation(board.units)
   const units: Unit[] = board.units.map((u) => ({ ...u }))
   const results: OrderResult[] = []
   const occupied = new Set(units.map((u) => u.territory))
 
-  const nations = sortIds([...new Set([...Object.keys(scCount), ...Object.keys(unitCount)])])
+  const nations = nationsOf(owners, board.units)
   const ordersByNation = new Map<string, BuildOrder[]>()
   for (const o of orders) {
     const list = ordersByNation.get(o.nation) ?? []
@@ -33,13 +33,11 @@ export function resolveBuild(
   }
 
   for (const nation of nations) {
-    const delta = (scCount[nation] ?? 0) - (unitCount[nation] ?? 0)
+    const delta = unitAllowance(map, nation, owners) - (unitCount[nation] ?? 0)
     const nationOrders = ordersByNation.get(nation) ?? []
 
     if (delta > 0) {
-      const homes = homeCenters(map, nation).filter(
-        (sc) => owners[sc] === nation && !occupied.has(sc),
-      )
+      const homes = buildSites(map, nation, owners, units)
       let built = 0
       for (const o of nationOrders) {
         if (o.type !== 'Build') {
@@ -123,7 +121,7 @@ export function resolveBuild(
  * tiebreak where the rules leave the owner a choice).
  */
 function civilDisorderOrder(map: MapDefinition, nation: string) {
-  const homes = homeCenters(map, nation)
+  const homes = disorderHomes(map, nation)
   const dist = (u: Unit): number => distanceToNearest(map, u, homes)
   return (a: Unit, b: Unit): number => {
     const da = dist(a)
