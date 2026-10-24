@@ -3,29 +3,32 @@ import { createClient } from '@supabase/supabase-js'
 // Without a configured project (e.g. a local checkout with no .env) the app still
 // loads: sandboxes run entirely in the browser, and network calls simply fail.
 export const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'unconfigured'
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321'
+export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'unconfigured'
 if (!supabaseConfigured) console.warn('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY); only sandboxes will work.')
 
-// In dev, isolate the auth session to a single tab so you can drive a multi-player game
-// from several tabs at once (the point of the anonymous dev sign-in). Two things are
-// needed for true isolation:
-//   1. storage = sessionStorage — per-tab, not shared like the default localStorage.
-//   2. a UNIQUE storageKey per tab — GoTrue also runs a cross-tab BroadcastChannel and
-//      refresh lock keyed by storageKey; with the default shared key, one tab's
-//      sign-in/token-refresh broadcasts its session to every other tab and clobbers
-//      their in-memory user (so all tabs collapse onto one nation). A per-tab key gives
-//      each tab its own channel, so sessions can't leak across tabs.
-// The id lives in sessionStorage, so reloading a tab keeps its session. Production keeps
-// the defaults (localStorage + shared key) so a real user stays signed in across tabs.
+/**
+ * Dev-only test seats: up to seven independent sessions that live side by side in
+ * localStorage, one per storage key (`sb-dev-seat-<n>`). Each tab picks its active seat
+ * from sessionStorage (default 1), so one tab can hop between players (see
+ * src/lib/devSeats.ts) and several tabs can still sit in different seats at once — a
+ * distinct storageKey also gives each seat its own GoTrue BroadcastChannel, so seats
+ * never clobber each other. Production keeps the defaults.
+ */
+export const DEV_SEAT_COUNT = 7
+
+export function devSeatStorageKey(seat: number) {
+  return `sb-dev-seat-${seat}`
+}
+
+export function activeDevSeat(): number {
+  const seat = Number(sessionStorage.getItem('dev-seat'))
+  return seat >= 1 && seat <= DEV_SEAT_COUNT ? seat : 1
+}
+
 function devAuthOptions() {
   if (!import.meta.env.DEV) return undefined
-  let tabId = sessionStorage.getItem('sb-tab-id')
-  if (!tabId) {
-    tabId = crypto.randomUUID()
-    sessionStorage.setItem('sb-tab-id', tabId)
-  }
-  return { storage: window.sessionStorage, storageKey: `sb-dev-${tabId}` }
+  return { storage: window.localStorage, storageKey: devSeatStorageKey(activeDevSeat()) }
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
