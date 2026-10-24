@@ -2,6 +2,7 @@
   import type { PowerDefinition } from '../lib/mapDefinition'
   import { scCountByNation } from '../lib/adjudicator/state'
   import { flagUrl } from '../lib/flags'
+  import { sameNation } from '../lib/powers'
 
   /** Powers to show, in map order. */
   export let powers: PowerDefinition[] = []
@@ -12,7 +13,7 @@
   /** Hovering a row spotlights that nation's supply centers on the map (null = clear). */
   export let onHover: ((nation: string | null) => void) | null = null
 
-  const isMine = (id: string): boolean => !!nation && id.toLowerCase() === nation.toLowerCase()
+  const isMine = (id: string): boolean => !!nation && sameNation(id, nation)
 
   // Delegate hover for the whole card: spotlight the row under the pointer. Clearing is
   // deferred so the 2px sliver between rows doesn't flash the whole board on its way to
@@ -51,7 +52,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_mouse_events_have_key_events -->
-<div class="sc-card" class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
+<div class="glass sc-card" class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
   <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
     <span>Supply Centers</span>
     <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -88,11 +89,6 @@
     width: 200px;
     border-radius: 14px;
     overflow: hidden;
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
     font-size: 13px;
     user-select: none;
   }
@@ -193,6 +189,6 @@
     opacity: 0.45;
   }
   .sc-row.winner {
-    background: color-mix(in srgb, var(--gold, #f5af20) 18%, transparent);
+    background: color-mix(in srgb, var(--amber) 18%, transparent);
   }
 </style>

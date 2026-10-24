@@ -1,17 +1,15 @@
 // Compare the drawn partition with the variant's movement graph.
 import { sharedEdges } from './edges.mjs'
+import { refProvince } from './xml.mjs'
 
 // Adjacencies the board shows as explicit crossings rather than shared borders.
 export const CROSSINGS = new Set(['cly|ire', 'den|swe'])
-
-// The adjacency XML refers to these two seas by their judge aliases.
-const ALIASES = { mao: 'mid', nao: 'nat' }
 
 // `holes` are drawn non-province areas (unplayable islands, lakes) that may border provinces.
 export function audit(provinces, xmlProvinces, { frame, minBorder = 2.5, holes = [] } = {}) {
   const wanted = new Set()
   for (const p of xmlProvinces) for (const refs of Object.values(p.edges)) for (const ref of refs) {
-    const other = ALIASES[ref.split('-')[0]] ?? ref.split('-')[0]
+    const other = refProvince(ref)
     if (other !== p.id && p.id !== 'dum') wanted.add([p.id, other].sort().join('|'))
   }
   const { lengths, gaps, chains } = sharedEdges({ ...provinces, ...Object.fromEntries(holes.map((g, i) => [`#hole${i}`, g])) }, { frame })

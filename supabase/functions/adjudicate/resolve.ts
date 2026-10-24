@@ -1,6 +1,7 @@
 // Orchestrates one resolution: load → run the pure engine → commit atomically.
 // All game-advancing logic that isn't pure adjudication lives here; the rules
-// themselves are entirely in engine/.
+// themselves are entirely in engine/. The next deadline is stamped by the commit
+// RPCs (public.phase_deadline), not here.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 // Values come from the pre-bundled engine (run `npm run build:edge`); the bundle
@@ -15,30 +16,6 @@ export type RoundKey = { year: number; season: string; phase: string }
 
 const ORDER_PHASES = ['movement', 'retreat', 'build']
 
-// Legacy single-timer enum → minutes, for games created before per-phase timers.
-const LEGACY_TIMER_MIN: Record<string, number> = {
-  '12h': 720,
-  '24h': 1440,
-  '48h': 2880,
-  '72h': 4320,
-  '1w': 10080,
-}
-
-// Minutes for the phase being opened. Mirrors phaseTimerMinutes() in src/lib/game.ts
-// (duplicated here because Deno can't import the browser module). Prefers structured
-// per-phase timers; falls back to the legacy turn_timer or a 24h default.
-function phaseTimerMinutes(settings: GameRow['settings'], phase: string): number {
-  const s = settings as { phase_timers?: Record<string, number>; turn_timer?: string } | undefined
-  const perPhase = s?.phase_timers?.[phase]
-  if (typeof perPhase === 'number' && perPhase > 0) return perPhase
-  const legacy = s?.turn_timer ? LEGACY_TIMER_MIN[s.turn_timer] : undefined
-  return legacy ?? LEGACY_TIMER_MIN['24h']
-}
-
-function deadlineFor(game: GameRow, nextPhase: string, nowMs: number): string {
-  return new Date(nowMs + phaseTimerMinutes(game.settings, nextPhase) * 60_000).toISOString()
-}
-
 /** Board going into resolution: the stored snapshot, or the opening board for turn 1
  * (a null snapshot only occurs before the first resolution). */
 function loadBoard(game: GameRow): BoardState {
@@ -49,7 +26,6 @@ function loadBoard(game: GameRow): BoardState {
 export async function resolveGame(
   db: SupabaseClient,
   gameId: string,
-  nowMs: number,
 ): Promise<{ status: string; next?: unknown }> {
   const game = await getGame(db, gameId)
   if (!game) return { status: 'game-not-found' }
@@ -90,7 +66,6 @@ export async function resolveGame(
     p_round: { year: game.year, season: game.season, phase: game.phase },
     p_snapshot: newBoardState,
     p_next: next,
-    p_deadline: complete ? null : deadlineFor(game, next.phase as string, nowMs),
     p_ready_init: readyInit,
   })
   if (error) throw error
@@ -108,7 +83,6 @@ export async function revertGame(
   db: SupabaseClient,
   gameId: string,
   target: RoundKey,
-  nowMs: number,
 ): Promise<{ status: string; round?: RoundKey }> {
   const game = await getGame(db, gameId)
   if (!game) return { status: 'game-not-found' }
@@ -137,7 +111,6 @@ export async function revertGame(
     p_game_id: gameId,
     p_round: { year: target.year, season: target.season, phase: target.phase },
     p_snapshot: frame.board,
-    p_deadline: deadlineFor(game, target.phase, nowMs),
     p_ready_init: readyInit,
   })
   if (error) throw error

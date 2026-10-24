@@ -2,10 +2,11 @@
 // Mirrors the idea of diplicity's order wizard, but choices come from our own
 // adjacency-derived options rather than a backend options tree.
 import type { MapDefinition } from '../mapDefinition'
-import type { Unit } from '../game'
+import type { Unit } from '../types'
 import type { Order, OrderType } from './types'
 import { toDsvgId } from '../map/idMap'
 import { isLongRoute } from '../adjudicator/rules'
+import { unitAt } from '../adjudicator/state'
 import type { OrderState } from '../map/mapRenderer'
 import {
   moveTargets,
@@ -65,9 +66,6 @@ export const applicableOrderTypes = (ctx: WizardContext): OrderType[] => {
   if (unit.type === 'fleet' && convoyAux(map, unit, units).length > 0) types.push('Convoy')
   return types
 }
-
-const auxUnit = (ctx: WizardContext, province: string): Unit | undefined =>
-  ctx.units.find((u) => u.territory === province)
 
 export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
   const { map, unit, units } = ctx
@@ -133,7 +131,7 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
         }
       }
       if (!draft.target) {
-        const aux = auxUnit(ctx, draft.aux)
+        const aux = unitAt(units, draft.aux)
         const targets = aux ? supportTargets(map, unit, aux, units) : []
         return {
           kind: 'province',
@@ -155,7 +153,7 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
         }
       }
       if (!draft.target) {
-        const aux = auxUnit(ctx, draft.aux)
+        const aux = unitAt(units, draft.aux)
         const targets = aux ? convoyTargets(map, unit, aux, units) : []
         return {
           kind: 'province',

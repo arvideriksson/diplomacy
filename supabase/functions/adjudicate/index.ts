@@ -34,8 +34,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const db = serviceClient()
   try {
     const out = action === 'revert'
-      ? await revertGame(db, gameId, target!, Date.now())
-      : await resolveGame(db, gameId, Date.now())
+      ? await revertGame(db, gameId, target!)
+      : await resolveGame(db, gameId)
     return Response.json(out)
   } catch (e) {
     // Release the lock so the next tick retries this game exactly once.

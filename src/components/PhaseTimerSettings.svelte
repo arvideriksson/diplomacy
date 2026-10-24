@@ -1,16 +1,19 @@
 <script lang="ts">
   import type { PhaseTimers, OrderPhase } from '../lib/game'
+  import { ORDER_PHASES, PHASE_LABEL } from '../lib/phases'
+  import { formatMinutes } from '../lib/time'
 
   /** Current per-phase durations (minutes). Edits are reported via onChange. */
   export let timers: PhaseTimers
   export let disabled = false
   export let onChange: (timers: PhaseTimers) => void = () => {}
 
-  const PHASES: { key: OrderPhase; label: string; presets: number[] }[] = [
-    { key: 'movement', label: 'Movement', presets: [720, 1440, 2880, 4320, 10080] },
-    { key: 'retreat', label: 'Retreat', presets: [360, 720, 1440] },
-    { key: 'build', label: 'Build', presets: [360, 720, 1440] },
-  ]
+  const PRESETS: Record<OrderPhase, number[]> = {
+    movement: [720, 1440, 2880, 4320, 10080],
+    retreat: [360, 720, 1440],
+    build: [360, 720, 1440],
+  }
+  const PHASES = ORDER_PHASES.map((key) => ({ key, label: PHASE_LABEL[key], presets: PRESETS[key] }))
 
   const UNITS = [
     { id: 'minutes', label: 'min', factor: 1 },
@@ -18,13 +21,6 @@
     { id: 'days', label: 'days', factor: 1440 },
   ] as const
   type UnitId = (typeof UNITS)[number]['id']
-
-  function fmt(min: number): string {
-    if (min % 10080 === 0) return `${min / 10080}w`
-    if (min % 1440 === 0) return `${min / 1440}d`
-    if (min % 60 === 0) return `${min / 60}h`
-    return `${min}m`
-  }
 
   // Local custom-field state, derived from the value but independently editable so the
   // number/unit inputs keep their natural unit while you type.
@@ -86,7 +82,7 @@
             class:active={timers[p.key] === preset}
             {disabled}
             on:click={() => setPreset(p.key, preset)}
-          >{fmt(preset)}</button>
+          >{formatMinutes(preset)}</button>
         {/each}
         <div class="custom" class:active={isCustom}>
           <input
@@ -139,35 +135,6 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-  }
-
-  .pill {
-    padding: 6px 13px;
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.12s;
-    font-family: var(--font);
-  }
-  .pill:hover:not(:disabled) {
-    border-color: var(--border-strong);
-  }
-  .pill.active {
-    background: var(--accent-subtle);
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .pill:disabled {
-    cursor: default;
-    opacity: 0.65;
-  }
-  .pill.active:disabled {
-    opacity: 1;
   }
 
   /* Custom value reads as a single segmented control to match the pills. */

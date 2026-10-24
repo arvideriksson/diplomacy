@@ -44,11 +44,14 @@ interface LegacySandbox {
   createdAt: string
 }
 
+/** The opening phase of a new (or reset) sandbox on a map. */
+const freshFrame = (mapId: string): Frame => ({ board: initialBoard(getMap(mapId)), orders: [] })
+
 function migrate(s: LegacySandbox): Sandbox {
   if (s.frames) return s as Sandbox
   const boards = [...(s.past ?? []), s.board].filter(Boolean) as BoardState[]
   const frames: Frame[] = boards.map((board) => ({ board, orders: [] }))
-  if (frames.length === 0) frames.push({ board: initialBoard(getMap(s.mapId)), orders: [] })
+  if (frames.length === 0) frames.push(freshFrame(s.mapId))
   return { id: s.id, name: s.name, mapId: s.mapId, frames, cursor: frames.length - 1, createdAt: s.createdAt }
 }
 
@@ -66,12 +69,17 @@ function persist(list: Sandbox[]): void {
 
 export const sandboxes = writable<Sandbox[]>(loadAll())
 
-function update(id: string, fn: (s: Sandbox) => Sandbox): void {
+/** Replace the sandbox list and persist it. */
+function mutate(fn: (list: Sandbox[]) => Sandbox[]): void {
   sandboxes.update((list) => {
-    const next = list.map((s) => (s.id === id ? fn(s) : s))
+    const next = fn(list)
     persist(next)
     return next
   })
+}
+
+function update(id: string, fn: (s: Sandbox) => Sandbox): void {
+  mutate((list) => list.map((s) => (s.id === id ? fn(s) : s)))
 }
 
 export function getSandbox(id: string): Sandbox | undefined {
@@ -86,24 +94,16 @@ export function createSandbox(name: string, mapId = 'classical'): Sandbox {
     id: crypto.randomUUID(),
     name: name.trim() || 'Sandbox',
     mapId,
-    frames: [{ board: initialBoard(getMap(mapId)), orders: [] }],
+    frames: [freshFrame(mapId)],
     cursor: 0,
     createdAt: new Date().toISOString(),
   }
-  sandboxes.update((list) => {
-    const next = [s, ...list]
-    persist(next)
-    return next
-  })
+  mutate((list) => [s, ...list])
   return s
 }
 
 export function deleteSandbox(id: string): void {
-  sandboxes.update((list) => {
-    const next = list.filter((s) => s.id !== id)
-    persist(next)
-    return next
-  })
+  mutate((list) => list.filter((s) => s.id !== id))
 }
 
 export function renameSandbox(id: string, name: string): void {
@@ -150,7 +150,7 @@ export function resolveCurrent(id: string, orders: AnyOrder[]): AdjudicationResu
 }
 
 export function resetSandbox(id: string): void {
-  update(id, (s) => ({ ...s, frames: [{ board: initialBoard(getMap(s.mapId)), orders: [] }], cursor: 0 }))
+  update(id, (s) => ({ ...s, frames: [freshFrame(s.mapId)], cursor: 0 }))
 }
 
 export function exportSandbox(id: string): string {
@@ -163,11 +163,7 @@ export function importSandbox(json: string): Sandbox | null {
     const parsed = migrate(JSON.parse(json) as LegacySandbox)
     if (!parsed.frames?.length || !parsed.mapId) return null
     const s: Sandbox = { ...parsed, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
-    sandboxes.update((list) => {
-      const next = [s, ...list]
-      persist(next)
-      return next
-    })
+    mutate((list) => [s, ...list])
     return s
   } catch {
     return null

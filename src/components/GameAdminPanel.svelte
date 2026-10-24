@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { fade, scale } from 'svelte/transition'
   import { updateGame, updateGameSettings, setDeadline, forceResolve, revertTo, DEFAULT_SETTINGS } from '../lib/game'
   import type { GameState, PhaseTimers } from '../lib/game'
-  import { errorMessage } from '../lib/errors'
-  import PhaseTimerSettings from './PhaseTimerSettings.svelte'
-  import GracePeriodSetting from './GracePeriodSetting.svelte'
+  import { actionRunner } from '../lib/action'
+  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { toLocalInput } from '../lib/time'
   import InfoTip from './InfoTip.svelte'
+  import Modal from './Modal.svelte'
+  import PacingSettings from './PacingSettings.svelte'
+  import ToggleSetting from './ToggleSetting.svelte'
 
   export let game: GameState
   export let onClose: () => void = () => {}
@@ -17,7 +19,7 @@
   let error = ''
   let saving = false
 
-  $: isActive = ['movement', 'retreat', 'build'].includes(game.phase)
+  $: isActive = isOrderPhase(game.phase)
   $: phaseTimers = game.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
   $: gracePeriod = game.settings?.grace_period ?? null
   $: earlyResolution = game.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
@@ -25,24 +27,26 @@
   let nameField = game.name
   $: nameField = game.name
 
-  async function run(fn: () => Promise<GameState>) {
-    error = ''
+  // Every action reports failure inline and locks the controls while in flight.
+  const attempt = actionRunner((m) => (error = m))
+  async function busy<T>(fn: () => Promise<T>): Promise<T | undefined> {
     saving = true
     try {
-      onGameUpdate(await fn())
-    } catch (e) {
-      error = errorMessage(e)
+      return await attempt(fn)
     } finally {
       saving = false
     }
   }
 
+  async function run(fn: () => Promise<GameState>) {
+    const updated = await busy(fn)
+    if (updated) onGameUpdate(updated)
+  }
+
   const saveTimers = (t: PhaseTimers) => run(() => updateGameSettings(game.id, { phase_timers: t }))
   const saveGrace = (v: number | null) => run(() => updateGameSettings(game.id, { grace_period: v }))
-  const toggleEarly = (e: Event) =>
-    run(() => updateGameSettings(game.id, { early_resolution: (e.target as HTMLInputElement).checked }))
-  const toggleSpectators = (e: Event) =>
-    run(() => updateGameSettings(game.id, { allow_spectators: (e.target as HTMLInputElement).checked }))
+  const toggleEarly = (on: boolean) => run(() => updateGameSettings(game.id, { early_resolution: on }))
+  const toggleSpectators = (on: boolean) => run(() => updateGameSettings(game.id, { allow_spectators: on }))
   const saveName = () => {
     if (nameField.trim() && nameField !== game.name) run(() => updateGame(game.id, { name: nameField.trim() }))
   }
@@ -50,25 +54,16 @@
   // ── Turn actions ─────────────────────────────────────────────────────────────
   // Both run through the adjudicator; the new board arrives via the Realtime push, so
   // the panel closes once the request is accepted.
-  const PHASE_LABEL: Record<string, string> = { movement: 'Movement', retreat: 'Retreats', build: 'Adjustments' }
   const roundLabel = (r: { year: number; season: string; phase: string }) =>
-    `${r.season} ${r.year} · ${PHASE_LABEL[r.phase] ?? r.phase}`
+    `${r.season} ${r.year} · ${isOrderPhase(r.phase) ? PHASE_LABEL[r.phase] : r.phase}`
 
   // Newest first: the usual revert is "undo the last phase".
   $: revertOptions = [...pastRounds].reverse()
   let revertIndex = 0
 
   async function act(fn: () => Promise<void>) {
-    error = ''
-    saving = true
-    try {
-      await fn()
-      onClose()
-    } catch (e) {
-      error = errorMessage(e)
-    } finally {
-      saving = false
-    }
+    const ok = await busy(async () => (await fn(), true))
+    if (ok) onClose()
   }
 
   function resolveNow() {
@@ -87,12 +82,6 @@
   }
 
   // ── Deadline override ────────────────────────────────────────────────────────
-  const pad = (n: number) => String(n).padStart(2, '0')
-  function toLocalInput(iso: string | null | undefined): string {
-    if (!iso) return ''
-    const d = new Date(iso)
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  }
   $: deadlineInput = toLocalInput(game.deadline)
 
   function applyDeadline(value: string) {
@@ -107,159 +96,72 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="overlay" transition:fade={{ duration: 150 }} on:click={onClose}>
-  <div class="modal" transition:scale={{ duration: 150, start: 0.96 }} on:click|stopPropagation>
-    <div class="modal-head">
-      <h2>Manage game</h2>
-      <button class="close" on:click={onClose} aria-label="Close">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
+<Modal title="Manage game" maxWidth="460px" {onClose}>
+  {#if error}<p class="form-error">{error}</p>{/if}
+
+  <div class="setting-group">
+    <span class="setting-label">Turn<InfoTip text="Revert rolls the game back to the start of the chosen phase, erasing later phases. Resolve now ends the current phase immediately; powers that have not submitted hold." /></span>
+    <div class="action-row">
+      {#if revertOptions.length}
+        <select class="input" bind:value={revertIndex} disabled={saving}>
+          {#each revertOptions as r, i (i)}
+            <option value={i}>{roundLabel(r)}</option>
+          {/each}
+        </select>
+        <button class="btn btn-danger" on:click={revert} disabled={saving}>Revert</button>
+      {/if}
+      {#if isActive}
+        <button class="btn" on:click={resolveNow} disabled={saving}>Resolve now</button>
+      {/if}
     </div>
-
-    {#if error}<p class="error">{error}</p>{/if}
-
-    <div class="group">
-      <span class="label">Turn<InfoTip text="Revert rolls the game back to the start of the chosen phase, erasing later phases. Resolve now ends the current phase immediately; powers that have not submitted hold." /></span>
-      <div class="action-row">
-        {#if revertOptions.length}
-          <select class="round-select" bind:value={revertIndex} disabled={saving}>
-            {#each revertOptions as r, i (i)}
-              <option value={i}>{roundLabel(r)}</option>
-            {/each}
-          </select>
-          <button class="btn btn-danger" on:click={revert} disabled={saving}>Revert</button>
-        {/if}
-        {#if isActive}
-          <button class="btn" on:click={resolveNow} disabled={saving}>Resolve now</button>
-        {/if}
-      </div>
-    </div>
-
-    {#if isActive}
-      <div class="group">
-        <span class="label">Game name</span>
-        <input
-          class="name-input"
-          bind:value={nameField}
-          on:blur={saveName}
-          on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-          disabled={saving}
-        />
-      </div>
-
-      <div class="group">
-        <span class="label">Override deadline<InfoTip text="When the current phase is due, in your local time. If anyone still hasn't submitted by then, the phase waits for them (grace period)." /></span>
-        <div class="deadline-row">
-          <input
-            type="datetime-local"
-            value={deadlineInput}
-            on:change={(e) => applyDeadline(e.currentTarget.value)}
-            disabled={saving}
-          />
-        </div>
-        <div class="quick-row">
-          <button class="chip" on:click={() => shiftDeadline(-3600_000)} disabled={saving}>−1h</button>
-          <button class="chip" on:click={() => shiftDeadline(3600_000)} disabled={saving}>+1h</button>
-          <button class="chip" on:click={() => shiftDeadline(24 * 3600_000)} disabled={saving}>+1 day</button>
-        </div>
-      </div>
-
-      <div class="group">
-        <span class="label">Phase timers<InfoTip text="Applies to phases opened from the next resolution onward." /></span>
-        <PhaseTimerSettings timers={phaseTimers} disabled={saving} onChange={saveTimers} />
-      </div>
-
-      <div class="group">
-        <span class="label">Grace period<InfoTip text="If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold). Applies to the current phase too." /></span>
-        <GracePeriodSetting value={gracePeriod} movement={phaseTimers.movement} disabled={saving} onChange={saveGrace} />
-      </div>
-
-      <div class="group toggle-group">
-        <div>
-          <span class="label">Early resolution<InfoTip text="Resolve as soon as every power has submitted, instead of waiting for the deadline." /></span>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" checked={earlyResolution} on:change={toggleEarly} disabled={saving} />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </label>
-      </div>
-
-      <div class="group toggle-group">
-        <div>
-          <span class="label">Allow spectators</span>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" checked={spectators} on:change={toggleSpectators} disabled={saving} />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </label>
-      </div>
-    {/if}
   </div>
-</div>
+
+  {#if isActive}
+    <div class="setting-group">
+      <label class="setting-label" for="admin-game-name">Game name</label>
+      <input
+        id="admin-game-name"
+        class="input"
+        bind:value={nameField}
+        on:blur={saveName}
+        on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        disabled={saving}
+      />
+    </div>
+
+    <div class="setting-group">
+      <span class="setting-label">Override deadline<InfoTip text="When the current phase is due, in your local time. If anyone still hasn't submitted by then, the phase waits for them (grace period)." /></span>
+      <input
+        type="datetime-local"
+        class="input"
+        aria-label="Deadline"
+        value={deadlineInput}
+        on:change={(e) => applyDeadline(e.currentTarget.value)}
+        disabled={saving}
+      />
+      <div class="quick-row">
+        <button class="pill" on:click={() => shiftDeadline(-3600_000)} disabled={saving}>−1h</button>
+        <button class="pill" on:click={() => shiftDeadline(3600_000)} disabled={saving}>+1h</button>
+        <button class="pill" on:click={() => shiftDeadline(24 * 3600_000)} disabled={saving}>+1 day</button>
+      </div>
+    </div>
+
+    <PacingSettings
+      timers={phaseTimers}
+      grace={gracePeriod}
+      {earlyResolution}
+      disabled={saving}
+      midGame
+      onTimersChange={saveTimers}
+      onGraceChange={saveGrace}
+      onEarlyChange={toggleEarly}
+    />
+
+    <ToggleSetting label="Allow spectators" checked={spectators} disabled={saving} onChange={toggleSpectators} />
+  {/if}
+</Modal>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    background: rgba(0, 0, 0, 0.45);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 48px 16px;
-    overflow-y: auto;
-  }
-
-  .modal {
-    width: 100%;
-    max-width: 460px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg, 0 20px 50px rgba(0, 0, 0, 0.3));
-    padding: 22px 24px 26px;
-  }
-
-  .modal-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-
-  .modal-head h2 {
-    font-size: 17px;
-    font-weight: 700;
-    margin: 0;
-    color: var(--text);
-  }
-
-  .close {
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    border-radius: var(--radius-sm);
-  }
-  .close:hover {
-    color: var(--text);
-    background: var(--bg-hover);
-  }
-
-  .error {
-    color: var(--red);
-    background: var(--red-subtle);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
-    font-size: 13px;
-    margin: 4px 0 0;
-  }
-
   .action-row {
     display: flex;
     align-items: center;
@@ -267,167 +169,17 @@
     margin-top: 8px;
   }
 
-  .round-select {
+  .action-row select {
     flex: 1;
-    min-width: 0;
-    padding: 8px 10px;
-    font-size: 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-elevated);
-    color: var(--text);
-    font-family: var(--font);
-  }
-  .round-select:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
-  .btn {
-    flex-shrink: 0;
-    padding: 8px 14px;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text);
-    cursor: pointer;
-    font-family: var(--font);
-    white-space: nowrap;
-    transition: border-color 0.12s, opacity 0.12s;
-  }
-  .btn:hover:not(:disabled) {
-    border-color: var(--border-strong);
-  }
-  .btn-danger {
-    border-color: var(--red);
-    color: var(--red);
-  }
-  .btn-danger:hover:not(:disabled) {
-    background: var(--red-subtle);
-    border-color: var(--red);
-  }
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .group {
-    padding: 16px 0;
-    border-top: 1px solid var(--border);
-  }
-  .group:first-of-type {
-    border-top: none;
-  }
-
-  .label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .name-input {
-    width: 100%;
-    margin-top: 8px;
-    padding: 8px 10px;
-    font-size: 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-elevated);
-    color: var(--text);
-    font-family: var(--font);
-  }
-  .name-input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .deadline-row {
-    margin-top: 8px;
-  }
-  .deadline-row input {
-    width: 100%;
-    padding: 8px 10px;
-    font-size: 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-elevated);
-    color: var(--text);
-    font-family: var(--font);
-  }
-  .deadline-row input:focus {
-    outline: none;
-    border-color: var(--accent);
+  .setting-group > .input {
+    margin-top: 4px;
   }
 
   .quick-row {
     display: flex;
     gap: 6px;
     margin-top: 8px;
-  }
-  .chip {
-    padding: 5px 12px;
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-family: var(--font);
-    transition: border-color 0.12s;
-  }
-  .chip:hover:not(:disabled) {
-    border-color: var(--border-strong);
-  }
-  .chip:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .toggle-group {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .toggle {
-    flex-shrink: 0;
-    cursor: pointer;
-  }
-  .toggle input {
-    display: none;
-  }
-  .toggle-track {
-    display: block;
-    width: 40px;
-    height: 22px;
-    background: var(--border-strong);
-    border-radius: var(--radius-full);
-    position: relative;
-    transition: background 0.2s;
-  }
-  .toggle input:checked + .toggle-track {
-    background: var(--accent);
-  }
-  .toggle input:disabled + .toggle-track {
-    opacity: 0.5;
-  }
-  .toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  }
-  .toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(18px);
   }
 </style>

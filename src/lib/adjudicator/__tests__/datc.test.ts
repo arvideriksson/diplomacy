@@ -5,17 +5,21 @@
 import { describe, it, expect } from 'vitest'
 import datc from './datc.json'
 import { classicalMap } from '../../maps/classical'
-import { adjudicate, initialBoard } from '../index'
-import type { BoardState } from '../types'
+import { adjudicate, boardFromUnits } from '../index'
+import type { BoardState, Phase, Season } from '../types'
 import type { Unit } from '../../types'
+import { assertCodesCoverMap, toNation } from './datc-codes'
 import {
-  assertCodesCoverMap,
-  toNation,
-  toProvince,
-} from './datc-codes'
-import { casePhase, orderSource, parseOrder, parseUnit, type CasePhase } from './datc-parse'
+  casePhase,
+  orderSource,
+  parseLoc,
+  parseOrder,
+  parseUnit,
+  splitNation,
+  unitType,
+  type CasePhase,
+} from './datc-parse'
 import { SKIP } from './datc-allowlist'
-import { recomputeSupplyCenters } from '../state'
 
 interface Case {
   name: string
@@ -50,43 +54,23 @@ const section = (url: string): string => url.match(/#(6\.[A-J])/)?.[1] ?? 'other
 function inferUnits(orderStrings: string[]): Unit[] {
   const units = new Map<string, Unit>()
   for (const s of orderStrings) {
-    const [code, body] = [s.slice(0, s.indexOf(':')).trim(), s.slice(s.indexOf(':') + 1).trim()]
+    const [code, body] = splitNation(s)
     const parts = body.split(/\s+/)
-    const verb = parts[2]?.toLowerCase()
-    if (verb === 'build') continue // build orders reference an empty center
-    const m = parts[1].match(/^([a-z]{3})(?:\(([a-z]{2})\))?$/i)
-    if (!m) continue
-    const prov = toProvince(m[1])
-    units.set(prov, {
-      type: parts[0].toUpperCase() === 'F' ? 'fleet' : 'army',
-      nation: toNation(code),
-      territory: prov,
-      coast: m[2]?.toLowerCase(),
-    })
+    if (parts[2]?.toLowerCase() === 'build') continue // build orders reference an empty center
+    const loc = parseLoc(parts[1])
+    units.set(loc.province, { type: unitType(parts[0]), nation: toNation(code), territory: loc.province, coast: loc.coast })
   }
   return [...units.values()]
 }
 
-function seedSupplyCenters(units: Unit[]): Record<string, string> {
-  const owners: Record<string, string> = {}
-  for (const [id, t] of Object.entries(classicalMap.territories)) {
-    if (t.supplyCenter && t.homePower) owners[id] = t.homePower
-  }
-  return recomputeSupplyCenters(classicalMap, units, owners)
-}
-
-function mainBoard(c: { starting_state?: string[]; orders: Record<string, unknown> }, season: BoardState['season']): BoardState {
+/** The case's board (stated or inferred units, home centers seeded) in the given phase. */
+function caseBoard(
+  c: { starting_state?: string[]; orders: Record<string, unknown> },
+  season: Season,
+  phase: Phase,
+): BoardState {
   const units = c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders))
-  return {
-    mapId: 'classical',
-    year: 1901,
-    season,
-    phase: 'movement',
-    units,
-    supplyCenters: seedSupplyCenters(units),
-    dislodged: [],
-    contested: [],
-  }
+  return boardFromUnits(classicalMap, units, 1901, season, phase)
 }
 
 /** Build the board in the case's target phase, running any preceding main phase. */
@@ -94,23 +78,12 @@ function boardForCase(c: Case): BoardState {
   const phase = casePhase(c.phase)
   if (c.preceding_main_phase) {
     const season = c.phase === 'Build' ? 'Fall' : 'Spring'
-    const pre = mainBoard(c.preceding_main_phase, season)
+    const pre = caseBoard(c.preceding_main_phase, season, 'movement')
     const orders = Object.keys(c.preceding_main_phase.orders).map((s) => parseOrder('Main', s))
     return adjudicate(classicalMap, pre, orders).newBoardState
   }
-  if (phase === 'movement') return mainBoard(c, 'Spring')
-  // build / retreat with no preceding context
-  const units = c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders))
-  return {
-    mapId: 'classical',
-    year: 1901,
-    season: 'Fall',
-    phase,
-    units,
-    supplyCenters: seedSupplyCenters(units),
-    dislodged: [],
-    contested: [],
-  }
+  // build / retreat with no preceding context play out in Fall
+  return caseBoard(c, phase === 'movement' ? 'Spring' : 'Fall', phase)
 }
 
 // ── group cases by section for readable reporting ──────────────────────────────

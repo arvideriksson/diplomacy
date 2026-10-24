@@ -101,3 +101,251 @@ button {
 input {
   font-family: var(--font);
 }
+
+/* ── Shared UI primitives ────────────────────────────────────────────────────
+   Global so components stop carrying per-file copies. A component may still
+   override any of these in its own (scoped, higher-specificity) styles. */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Buttons. The 1px border is part of every variant (transparent-coloured on the
+   filled ones) so all variants share one box size. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 17px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font);
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.1s, opacity 0.12s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+}
+.btn-ghost {
+  color: var(--text-secondary);
+  background: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-input);
+}
+.btn-danger {
+  color: var(--red);
+  border-color: var(--red);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--red-subtle);
+  border-color: var(--red);
+}
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+/* Text-only inline action ("Cancel", "Discard changes", "✕"). */
+.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* Text inputs and selects with the accent focus ring. */
+.input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 13px;
+  font-size: 14px;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+.input:disabled {
+  opacity: 0.65;
+}
+
+/* Rounded option pill (timer presets, quick deadline shifts). State selectors use
+   :where() so a component's own scoped .pill (e.g. DevSeatSwitcher) always wins. */
+.pill {
+  padding: 6px 13px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.pill:where(:hover:not(:disabled)) {
+  border-color: var(--border-strong);
+}
+.pill.active {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.pill:where(:disabled) {
+  cursor: default;
+  opacity: 0.65;
+}
+.pill.active:disabled {
+  opacity: 1;
+}
+
+/* Small status badge. Tone modifiers recolour it; -caps is the uppercase label form. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+.badge-caps {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge-amber {
+  color: var(--amber);
+  background: var(--amber-subtle);
+}
+.badge-green {
+  color: var(--green);
+  background: var(--green-subtle);
+}
+.badge-red {
+  color: var(--red);
+  background: var(--red-subtle);
+}
+
+/* Content card with an icon + title header. */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+}
+.card + .card {
+  margin-top: 12px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.card-head svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.card-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+
+/* Frosted panel floating over the map (supply-center card, map buttons, popups). */
+.glass {
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+}
+
+/* Full-width tinted banner coloured by --tone / --tone-subtle (phase, nation). */
+.tone-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--tone, var(--accent));
+  background: var(--tone-subtle, var(--accent-subtle));
+  border-bottom: 1px solid var(--border);
+  box-shadow: inset 3px 0 0 var(--tone, var(--accent));
+}
+
+/* A settings row: hairline-separated group with a bold label. */
+.setting-group {
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.setting-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+/* Inline error message for a failed action. */
+.form-error {
+  color: var(--red);
+  background: var(--red-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+  margin: 4px 0 0;
+}

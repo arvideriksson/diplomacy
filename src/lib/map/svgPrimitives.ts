@@ -1,6 +1,7 @@
 // Ported from diplicity-react — SVG-string primitives for orders/markers.
 import type { Point } from './dsvgParser'
-import { closestPointOnLine, ROUTE_TENSION } from './orderGeometry'
+import { closestPointOnLine, splineControl } from './orderGeometry'
+import { add, len, lerp, midpoint, perp, scale, sub, unit } from './vec'
 
 export type Dash = { length: number; spacing: number }
 
@@ -98,12 +99,8 @@ export const octagon = (o: OctagonOptions): string => {
   )
 }
 
-const offsetPoint = (from: Point, toward: Point, offset: number): Point => {
-  const dx = toward.x - from.x
-  const dy = toward.y - from.y
-  const len = Math.sqrt(dx * dx + dy * dy)
-  return { x: from.x + (dx / len) * offset, y: from.y + (dy / len) * offset }
-}
+const offsetPoint = (from: Point, toward: Point, offset: number): Point =>
+  add(from, scale(unit(sub(toward, from)), offset))
 
 const cubicBezierPoint = (t: number, p0: Point, p1: Point, p2: Point, p3: Point): Point => {
   const mt = 1 - t
@@ -137,8 +134,8 @@ export const curvedArrow = (o: CurvedArrowOptions): string => {
   const source = { x: o.x1, y: o.y1 }
   const ecp = o.endControlPoint ?? { x: o.x3, y: o.y3 }
   const tip = offsetPoint({ x: o.x2, y: o.y2 }, ecp, o.offset)
-  const cp1 = { x: source.x + (o.x3 - source.x) * 0.5, y: source.y + (o.y3 - source.y) * 0.5 }
-  const cp2 = { x: tip.x + (ecp.x - tip.x) * 0.5, y: tip.y + (ecp.y - tip.y) * 0.5 }
+  const cp1 = lerp(source, { x: o.x3, y: o.y3 }, 0.5)
+  const cp2 = lerp(tip, ecp, 0.5)
   const points = Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, source, cp1, cp2, tip))
   return ribbonArrow({
     points,
@@ -202,26 +199,24 @@ const BEZIER_K = 4 / 3
 
 /** Points along a gentle wave from `start` to `end`. */
 const wavyPoints = (start: Point, end: Point): Point[] => {
-  const dx = end.x - start.x
-  const dy = end.y - start.y
-  const length = Math.sqrt(dx * dx + dy * dy)
+  const d = sub(end, start)
+  const length = len(d)
   if (length === 0) {
     return [start]
   }
-  const ux = dx / length
-  const uy = dy / length
-  const px = -uy
-  const py = ux
+  const u = unit(d)
+  const p = perp(u)
   const rawHalfWaves = Math.round(length / (WAVE_LENGTH / 2))
   const halfWaves = Math.max(2, rawHalfWaves % 2 === 0 ? rawHalfWaves : rawHalfWaves + 1)
   const halfWaveLength = length / halfWaves
   const points: Point[] = [start]
   for (let i = 0; i < halfWaves; i++) {
     const sign = i % 2 === 0 ? 1 : -1
-    const s0 = { x: start.x + i * halfWaveLength * ux, y: start.y + i * halfWaveLength * uy }
-    const e0 = { x: start.x + (i + 1) * halfWaveLength * ux, y: start.y + (i + 1) * halfWaveLength * uy }
-    const cp1 = { x: s0.x + halfWaveLength * 0.25 * ux + sign * WAVE_AMPLITUDE * BEZIER_K * px, y: s0.y + halfWaveLength * 0.25 * uy + sign * WAVE_AMPLITUDE * BEZIER_K * py }
-    const cp2 = { x: e0.x - halfWaveLength * 0.25 * ux + sign * WAVE_AMPLITUDE * BEZIER_K * px, y: e0.y - halfWaveLength * 0.25 * uy + sign * WAVE_AMPLITUDE * BEZIER_K * py }
+    const s0 = add(start, scale(u, i * halfWaveLength))
+    const e0 = add(start, scale(u, (i + 1) * halfWaveLength))
+    const bulge = scale(p, sign * WAVE_AMPLITUDE * BEZIER_K)
+    const cp1 = add(add(s0, scale(u, halfWaveLength * 0.25)), bulge)
+    const cp2 = add(sub(e0, scale(u, halfWaveLength * 0.25)), bulge)
     for (let k = 1; k <= 10; k++) points.push(cubicBezierPoint(k / 10, s0, cp1, cp2, e0))
   }
   return points
@@ -250,17 +245,16 @@ export const convoyArrow = (o: ConvoyArrowOptions): string => {
   const closest =
     o.attachmentPoint ??
     closestPointOnLine({ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }, { x: o.x3, y: o.y3 })
-  const dx = closest.x - o.x1
-  const dy = closest.y - o.y1
-  const magnitude = Math.sqrt(dx * dx + dy * dy)
+  const fleet = { x: o.x1, y: o.y1 }
+  const d = sub(closest, fleet)
+  const magnitude = len(d)
   if (magnitude < 1) {
     return o.renderCenter ? `<g>${o.renderCenter(o.x1, o.y1, 0)}</g>` : ''
   }
-  const ux = dx / magnitude
-  const uy = dy / magnitude
-  const start = { x: o.x1 + o.offset * ux, y: o.y1 + o.offset * uy }
+  const u = unit(d)
+  const start = add(fleet, scale(u, o.offset))
   const reach = Math.min(magnitude, o.maxLength ?? magnitude)
-  const end = { x: o.x1 + reach * ux, y: o.y1 + reach * uy }
+  const end = add(fleet, scale(u, reach))
   return (
     `<g>` +
     ribbonArrow({
@@ -281,11 +275,6 @@ export const convoyArrow = (o: ConvoyArrowOptions): string => {
   )
 }
 
-const unitVector = (dx: number, dy: number): Point => {
-  const length = Math.sqrt(dx * dx + dy * dy)
-  return length === 0 ? { x: 0, y: 0 } : { x: dx / length, y: dy / length }
-}
-
 const bSplinePath = (points: Point[]): string => {
   if (points.length < 2) {
     return ''
@@ -293,19 +282,8 @@ const bSplinePath = (points: Point[]): string => {
   if (points.length === 2) {
     return `M ${n(points[0].x)} ${n(points[0].y)} L ${n(points[1].x)} ${n(points[1].y)}`
   }
-  const mid = (i: number): Point => ({
-    x: (points[i].x + points[i + 1].x) / 2,
-    y: (points[i].y + points[i + 1].y) / 2,
-  })
-  const control = (i: number): Point => {
-    const previous = mid(i - 1)
-    const next = mid(i)
-    const midOfMids = { x: (previous.x + next.x) / 2, y: (previous.y + next.y) / 2 }
-    return {
-      x: midOfMids.x + ROUTE_TENSION * (points[i].x - midOfMids.x),
-      y: midOfMids.y + ROUTE_TENSION * (points[i].y - midOfMids.y),
-    }
-  }
+  const mid = (i: number): Point => midpoint(points[i], points[i + 1])
+  const control = (i: number): Point => splineControl(mid(i - 1), points[i], mid(i))
   const last = points.length - 1
   let d = `M ${n(points[0].x)} ${n(points[0].y)} L ${n(mid(0).x)} ${n(mid(0).y)}`
   for (let i = 1; i < last; i++) {
@@ -330,19 +308,12 @@ export const bSplinePoints = (points: Point[], perSegment = 12): Point[] => {
   if (points.length < 3) {
     return points.slice()
   }
-  const mid = (i: number): Point => ({
-    x: (points[i].x + points[i + 1].x) / 2,
-    y: (points[i].y + points[i + 1].y) / 2,
-  })
+  const mid = (i: number): Point => midpoint(points[i], points[i + 1])
   const out: Point[] = [points[0], mid(0)]
   for (let i = 1; i < points.length - 1; i++) {
     const a = mid(i - 1)
     const b = mid(i)
-    const midOfMids = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-    const c = {
-      x: midOfMids.x + ROUTE_TENSION * (points[i].x - midOfMids.x),
-      y: midOfMids.y + ROUTE_TENSION * (points[i].y - midOfMids.y),
-    }
+    const c = splineControl(a, points[i], b)
     out.push(...quadraticPoints(a, c, b, perSegment).slice(1))
   }
   out.push(points[points.length - 1])
@@ -369,7 +340,7 @@ const trimPolylineEnd = (points: Point[], by: number): Point[] => {
     const segment = Math.hypot(b.x - a.x, b.y - a.y)
     if (segment > left) {
       const k = left / segment
-      return [...points.slice(0, i), { x: b.x + (a.x - b.x) * k, y: b.y + (a.y - b.y) * k }]
+      return [...points.slice(0, i), lerp(b, a, k)]
     }
     left -= segment
   }
@@ -388,7 +359,7 @@ const pointAlong = (points: Point[], fraction: number): { point: Point; angle: n
     const segment = Math.hypot(b.x - a.x, b.y - a.y)
     if (segment >= need) {
       const k = segment ? need / segment : 0
-      return { point: { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }, angle: Math.atan2(b.y - a.y, b.x - a.x) }
+      return { point: lerp(a, b, k), angle: Math.atan2(b.y - a.y, b.x - a.x) }
     }
     need -= segment
   }
@@ -436,14 +407,13 @@ export const ribbonArrow = (o: RibbonArrowOptions): string => {
   const side = (i: number, sign: number): Point => {
     const a = shaft[Math.max(i - 1, 0)]
     const b = shaft[Math.min(i + 1, shaft.length - 1)]
-    const dir = unitVector(b.x - a.x, b.y - a.y)
-    return { x: shaft[i].x - dir.y * half * sign, y: shaft[i].y + dir.x * half * sign }
+    return add(shaft[i], scale(perp(unit(sub(b, a))), half * sign))
   }
   const left = shaft.map((_, i) => side(i, 1))
   const right = shaft.map((_, i) => side(i, -1))
   const base = shaft[shaft.length - 1]
-  const headDir = unitVector(tip.x - base.x, tip.y - base.y)
-  const wing = (sign: number): Point => ({ x: base.x - headDir.y * o.headWidth * sign, y: base.y + headDir.x * o.headWidth * sign })
+  const headNormal = perp(unit(sub(tip, base)))
+  const wing = (sign: number): Point => add(base, scale(headNormal, o.headWidth * sign))
   const head = o.headLength ? [wing(1), tip, wing(-1)] : []
   const outline = [...left, ...head, ...right.reverse()]
   const center = pointAlong(line, o.centerAt ?? 0.5)
@@ -477,8 +447,8 @@ export const tributaryArrow = (o: TributaryArrowOptions): string => {
   const dir = { x: Math.cos(join.angle), y: Math.sin(join.angle) }
   const end = join.point
   const lead = Math.min(22, Math.hypot(end.x - o.source.x, end.y - o.source.y) / 2)
-  const cp1 = { x: o.source.x + (end.x - o.source.x) * 0.45, y: o.source.y + (end.y - o.source.y) * 0.45 }
-  const cp2 = { x: end.x - dir.x * lead, y: end.y - dir.y * lead }
+  const cp1 = lerp(o.source, end, 0.45)
+  const cp2 = sub(end, scale(dir, lead))
   return ribbonArrow({
     points: Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, o.source, cp1, cp2, end)),
     shaftWidth: o.shaftWidth,

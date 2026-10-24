@@ -3,13 +3,17 @@
   import GameBoard from './GameBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
   import GameAdminPanel from './GameAdminPanel.svelte'
+  import VictoryBanner from './VictoryBanner.svelte'
+  import Icon from './Icon.svelte'
   import { user } from '../lib/auth'
-  import { fetchGame, fetchResolvedLog, subscribeToGame, graceMinutes } from '../lib/game'
+  import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { replayFrames, type HistoryFrame } from '../lib/history'
   import { getMap } from '../lib/maps'
   import { initialBoard, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
+  import { isOrderPhase } from '../lib/phases'
+  import { powerName } from '../lib/powers'
 
   export let game: GameState
   export let nation: string = ''
@@ -21,18 +25,17 @@
   // The creator manages a running game from an in-board panel.
   let showAdmin = false
   $: isCreator = !!($user && game.created_by === $user.id)
-  $: isActive = ['movement', 'retreat', 'build'].includes(game.phase)
+  $: isActive = isOrderPhase(game.phase)
   // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
   $: isComplete = game.phase === 'complete'
   $: winner = isComplete ? victoryFor(map, liveBoard().supplyCenters) : undefined
-  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   // Only games created with host controls get the in-game admin menu. A finished game
   // keeps it so the host can still revert out of the ending.
   $: canManage = isCreator && (isActive || isComplete) && !!game.settings?.host_controls
   // Played powers that haven't submitted this round — who a grace period waits on.
   $: awaiting = [...new Set(Object.values(game.players).map((p) => p.nation).filter((n): n is string => !!n))]
     .filter((n) => !game.ready?.[n])
-    .map((n) => map.powers.find((p) => p.id === n)?.name ?? n)
+    .map((n) => powerName(map.powers, n))
 
   let frames: HistoryFrame[] = []
   let cursor = 0
@@ -133,7 +136,7 @@
     readOnly={!isFrontier || isComplete}
     deadline={isFrontier && !isComplete ? game.deadline ?? null : null}
     {awaiting}
-    graceMinutes={graceMinutes(game.settings)}
+    graceEndsAt={isFrontier && !isComplete ? game.grace_ends_at ?? null : null}
     historyOrders={frame.orders}
     onPhaseBack={() => canBack && (cursor -= 1)}
     onPhaseForward={() => canForward && (cursor += 1)}
@@ -143,20 +146,15 @@
   >
     <svelte:fragment slot="map-action">
       {#if canManage}
-        <button class="cog-btn" on:click={() => (showAdmin = true)} title="Manage game" aria-label="Manage game">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
+        <button class="glass cog-btn" on:click={() => (showAdmin = true)} title="Manage game" aria-label="Manage game">
+          <Icon name="gear" size={17} />
         </button>
       {/if}
     </svelte:fragment>
 
     <svelte:fragment slot="results">
       {#if isComplete}
-        <div class="game-over">
-          {#if winner}🏆 {winnerName} wins with {winner.centers} supply centers.{:else}This game is over.{/if}
-        </div>
+        <VictoryBanner winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers }} />
       {/if}
     </svelte:fragment>
     <svelte:fragment slot="left">
@@ -177,15 +175,7 @@
 {/if}
 
 <style>
-  .game-over {
-    margin: 0 14px 14px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--amber, #f59e0b) 16%, var(--bg-card, #fff));
-    border: 1px solid color-mix(in srgb, var(--amber, #f59e0b) 45%, transparent);
-    font-weight: 600;
-  }
-  /* Frosted floating button, mirrored to the supply-center card. */
+  /* Frosted (.glass) floating button, mirrored to the supply-center card. */
   .cog-btn {
     display: inline-flex;
     align-items: center;
@@ -194,12 +184,7 @@
     height: 38px;
     padding: 0;
     color: var(--text-secondary);
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
     border-radius: 12px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s;
   }
@@ -207,10 +192,10 @@
     color: var(--accent);
     border-color: var(--accent);
   }
-  .cog-btn svg {
+  .cog-btn :global(svg) {
     transition: transform 0.3s ease;
   }
-  .cog-btn:hover svg {
+  .cog-btn:hover :global(svg) {
     transform: rotate(45deg);
   }
 </style>

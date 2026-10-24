@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useLocation } from 'svelte-routing'
   import UserMenu from './UserMenu.svelte'
+  import Icon from './Icon.svelte'
 
   export let onBack: () => void
 
@@ -8,8 +9,8 @@
 </script>
 
 {#if $location.pathname !== '/'}
-  <button class="float back" on:click={onBack} title="Back to games" aria-label="Back to games">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+  <button class="float glass back" on:click={onBack} title="Back to games" aria-label="Back to games">
+    <Icon name="back" strokeWidth={2.2} round />
   </button>
 {/if}
 <div class="float user"><UserMenu /></div>
@@ -29,10 +30,7 @@
     place-items: center;
     border-radius: 50%;
     color: var(--text);
-    background: color-mix(in srgb, var(--bg-elevated) 85%, transparent);
-    backdrop-filter: blur(16px) saturate(1.5);
-    -webkit-backdrop-filter: blur(16px) saturate(1.5);
-    border: 1px solid var(--border);
+    /* .glass, with the softer page-level shadow (it floats over the page, not the map). */
     box-shadow: var(--shadow-lg);
     cursor: pointer;
   }

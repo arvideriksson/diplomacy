@@ -15,7 +15,7 @@ import { unitAllowance, isLongRoute } from '../adjudicator/rules'
 import type { MapDefinition } from '../mapDefinition'
 import { map1900 } from '../maps/1900'
 import { classicalMap } from '../maps/classical'
-import { nextStep, type Draft } from '../orders/wizard'
+import { finalize, nextStep, type Draft } from '../orders/wizard'
 import { convoyReach, reachable } from '../orders/options'
 import { replayFrames, type ResolvedOrderRow } from '../history'
 import { buildSituation, retreatTargets } from '../orders/adjustments'
@@ -31,6 +31,13 @@ const rng = (seed: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
+/** Put an order in the list, replacing any earlier order for the same unit. */
+function setOrder(orders: Order[], o: Order) {
+  const i = orders.findIndex((x) => x.source === o.source)
+  if (i >= 0) orders[i] = o
+  else orders.push(o)
+}
+
 interface Stats { convoyMoves: number; convoysLanded: number; phases: number; orders: number; voids: string[]; victories: number; longMoves: number; convoyCoastConvoys: number; emergencyBuilds: number; retreats: number; builds: number; removals: number; years: number }
 
 function movementOrders(map: MapDefinition, board: BoardState, r: () => number, stats: Stats): Order[] {
@@ -38,8 +45,9 @@ function movementOrders(map: MapDefinition, board: BoardState, r: () => number, 
   for (const unit of board.units) {
     if (r() < 0.15) continue // missing order: holds
     const draft: Draft = { source: unit.territory, sourceCoast: unit.coast }
+    const ctx = { map, unit, units: board.units }
     for (let guard = 0; guard < 12; guard++) {
-      const step = nextStep(draft, { map, unit, units: board.units })
+      const step = nextStep(draft, ctx)
       if (step.kind === 'done') break
       if (step.kind === 'orderType') {
         // bias toward moves so the board actually evolves
@@ -56,7 +64,7 @@ function movementOrders(map: MapDefinition, board: BoardState, r: () => number, 
       else draft.targetCoast = c.coast ?? c.id
     }
     if (!draft.type) continue
-    const o: Order = { ...(draft.convoyPath?.length && draft.type === 'Move' ? { viaConvoy: true } : {}), type: draft.type, nation: unit.nation, source: unit.territory, ...(draft.sourceCoast ? { sourceCoast: draft.sourceCoast } : {}), ...(draft.target ? { target: draft.target } : {}), ...(draft.targetCoast ? { targetCoast: draft.targetCoast } : {}), ...(draft.aux ? { aux: draft.aux } : {}) }
+    const o = finalize(draft, ctx)
     if (o.type === 'Move' && isLongRoute(map, o.source, o.target!)) stats.longMoves++
     if (o.type === 'Convoy' && map.territories[o.source].type !== 'sea') stats.convoyCoastConvoys++
     orders.push(o)
@@ -79,12 +87,11 @@ function movementOrders(map: MapDefinition, board: BoardState, r: () => number, 
       else break
     }
     if (!dest) continue
-    const set = (o: Order) => { const k = orders.findIndex((x) => x.source === o.source); if (k >= 0) orders[k] = o; else orders.push(o) }
-    set({ type: 'Move', nation: army.nation, source: army.territory, target: dest, viaConvoy: true })
+    setOrder(orders, { type: 'Move', nation: army.nation, source: army.territory, target: dest, viaConvoy: true })
     stats.convoyMoves++
     for (const f of draft.convoyPath!) {
       const fleet = board.units.find((u) => u.territory === f)!
-      if (fleet.nation === army.nation || r() < 0.5) set({ type: 'Convoy', nation: fleet.nation, source: f, aux: army.territory, target: dest })
+      if (fleet.nation === army.nation || r() < 0.5) setOrder(orders, { type: 'Convoy', nation: fleet.nation, source: f, aux: army.territory, target: dest })
     }
   }
   return orders
@@ -110,14 +117,13 @@ function coordinate(map: MapDefinition, board: BoardState, orders: Order[], r: (
       if (!free.length) continue
       const lead = free[Math.floor(r() * free.length)]
       used.add(lead.unit.territory)
-      const set = (o: Order) => { const i = orders.findIndex((x) => x.source === o.source); if (i >= 0) orders[i] = o; else orders.push(o) }
-      set({ type: 'Move', nation, source: lead.unit.territory, target, ...(lead.unit.coast ? { sourceCoast: lead.unit.coast } : {}), ...(lead.choice.coast ? { targetCoast: lead.choice.coast } : {}) })
+      setOrder(orders, { type: 'Move', nation, source: lead.unit.territory, target, ...(lead.unit.coast ? { sourceCoast: lead.unit.coast } : {}), ...(lead.choice.coast ? { targetCoast: lead.choice.coast } : {}) })
       for (const helper of units) {
         if (used.has(helper.territory)) continue
         const st = nextStep({ source: helper.territory, sourceCoast: helper.coast, type: 'Support', aux: lead.unit.territory }, { map, unit: helper, units: board.units })
         if (st.kind === 'province' && st.choices.some((c) => c.id === target)) {
           used.add(helper.territory)
-          set({ type: 'Support', nation, source: helper.territory, aux: lead.unit.territory, target, ...(helper.coast ? { sourceCoast: helper.coast } : {}) })
+          setOrder(orders, { type: 'Support', nation, source: helper.territory, aux: lead.unit.territory, target, ...(helper.coast ? { sourceCoast: helper.coast } : {}) })
         }
       }
     }

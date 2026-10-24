@@ -14,9 +14,15 @@
   import JoinRoute from './components/JoinRoute.svelte'
   import AdminPanel from './components/AdminPanel.svelte'
   import SandboxView from './components/SandboxView.svelte'
-  import type { Unit } from './lib/game'
   import { classicalMap } from './lib/maps/classical'
+  import { initialBoard } from './lib/adjudicator'
   import { createSandbox } from './lib/sandbox'
+  import { supabaseConfigured } from './lib/supabase'
+
+  // Dev-only test-seat switcher; a dynamic import so production builds never ship it.
+  const devSeats = import.meta.env.DEV && supabaseConfigured
+    ? import('./components/DevSeatSwitcher.svelte')
+    : null
 
   let ready = false
 
@@ -28,19 +34,8 @@
     openSandbox(createSandbox(name, mapId).id)
   }
 
-  const demoUnits: Unit[] = classicalMap.startingUnits.map((u) => ({
-    type: u.type,
-    nation: u.power,
-    territory: u.territory,
-    coast: u.coast,
-  }))
-
-  // Starting political map: home supply centers tinted by their owning power.
-  const homeOwnership: Record<string, string> = Object.fromEntries(
-    Object.entries(classicalMap.territories)
-      .filter(([, t]) => t.supplyCenter && t.homePower)
-      .map(([id, t]) => [id, t.homePower as string])
-  )
+  // Opening position for the sign-in page: starting units, home centers tinted by owner.
+  const demoBoard = initialBoard(classicalMap)
 
   onMount(async () => {
     await initAuth()
@@ -83,7 +78,7 @@
           <div class="auth-hero">
             <h1>Diplomacy</h1>
           </div>
-          <DiplomacyMap mapDef={classicalMap} units={demoUnits} ownership={homeOwnership} interactive={false} />
+          <DiplomacyMap mapDef={classicalMap} units={demoBoard.units} ownership={demoBoard.supplyCenters} interactive={false} />
           <div class="login-container">
             <LoginButton />
           </div>
@@ -110,6 +105,11 @@
       </Route>
     {/if}
   </main>
+  {#if devSeats}
+    {#await devSeats then { default: DevSeatSwitcher }}
+      <DevSeatSwitcher />
+    {/await}
+  {/if}
 </Router>
 {/if}
 
@@ -119,19 +119,6 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-  }
-
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   main {

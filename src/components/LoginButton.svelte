@@ -1,35 +1,27 @@
 <script lang="ts">
   import { signInWithGoogle, signInAnonymously } from '../lib/auth'
+  import { errorMessage } from '../lib/errors'
 
   const dev = import.meta.env.DEV
 
   let loading = false
   let error = ''
 
-  async function handleLogin() {
+  // Both sign-in paths redirect (OAuth) or re-render (anon) on success, so `loading`
+  // only needs resetting on failure.
+  async function signIn(fn: () => Promise<unknown>) {
     loading = true
     error = ''
     try {
-      await signInWithGoogle()
-    } catch (e: any) {
-      error = e.message
-      loading = false
-    }
-  }
-
-  async function handleAnon() {
-    loading = true
-    error = ''
-    try {
-      await signInAnonymously()
-    } catch (e: any) {
-      error = e.message
+      await fn()
+    } catch (e) {
+      error = errorMessage(e)
       loading = false
     }
   }
 </script>
 
-<button class="login-btn" on:click={handleLogin} disabled={loading}>
+<button class="login-btn" on:click={() => signIn(signInWithGoogle)} disabled={loading}>
   <svg viewBox="0 0 24 24" width="18" height="18">
     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -40,7 +32,7 @@
 </button>
 
 {#if dev}
-  <button class="anon-btn" on:click={handleAnon} disabled={loading}>
+  <button class="anon-btn" on:click={() => signIn(() => signInAnonymously())} disabled={loading}>
     🧪 Dev: sign in anonymously
   </button>
 {/if}
@@ -87,7 +79,7 @@
     padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-muted, var(--text));
+    color: var(--text-secondary);
     background: transparent;
     border: 1px dashed var(--border-strong);
     border-radius: var(--radius-full);

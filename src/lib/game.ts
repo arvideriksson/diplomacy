@@ -1,11 +1,20 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
+import { rpc } from './rpc'
 import { getMap } from './maps'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
 import type { ResolvedOrderRow } from './history'
+import type { RoundKey, Season } from './adjudicator/types'
+import type { GamePhase, Phase } from './phases'
 
-export type { Unit }
+export type { Unit, RoundKey }
+
+/**
+ * A round as the order/revert RPCs take it. Looser than RoundKey because some callers
+ * still hold season/phase as plain strings; the server validates both.
+ */
+export type RoundArg = Omit<RoundKey, 'season' | 'phase'> & { season: string; phase: string }
 
 /** Per-phase auto-resolve durations, in minutes. */
 export interface PhaseTimers {
@@ -14,7 +23,7 @@ export interface PhaseTimers {
   build: number
 }
 
-export type OrderPhase = keyof PhaseTimers
+export type OrderPhase = Phase
 
 export interface GameSettings {
   /** No press: players cannot send chat / negotiate. The map is chosen via `map_id`. */
@@ -47,17 +56,12 @@ export const DEFAULT_SETTINGS: GameSettings = {
   phase_timers: { movement: 1440, retreat: 720, build: 720 }, // 24h / 12h / 12h
 }
 
-/** Grace period length in minutes. Mirrors public.grace_minutes() (130_grace_period.sql). */
-export function graceMinutes(settings: Partial<GameSettings> | null | undefined): number {
-  return Math.max(0, settings?.grace_period ?? settings?.phase_timers?.movement ?? 1440)
-}
-
 export interface GameState {
   id: string
   name: string
-  phase: string
+  phase: GamePhase
   year: number
-  season: 'Spring' | 'Fall'
+  season: Season
   /** Key into the map registry (see src/lib/maps/index.ts). */
   map_id: string
   players: Record<string, PlayerInfo>
@@ -68,6 +72,8 @@ export interface GameState {
   updated_at: string
   /** When the current phase auto-resolves (ISO). Null in the lobby / once complete. */
   deadline?: string | null
+  /** When the grace period after `deadline` runs out (ISO); kept server-side from settings. */
+  grace_ends_at?: string | null
   /** Authoritative board snapshot written by the adjudicator; clients read this. */
   snapshot?: unknown | null
   /** Per-nation early-resolution flags, e.g. { france: true }. */
@@ -81,10 +87,6 @@ export interface PlayerInfo {
   avatar_url?: string
   joined_at: string
 }
-
-export const NATIONS = [
-  'England', 'France', 'Germany', 'Italy', 'Austria', 'Russia', 'Turkey',
-] as const
 
 export const games = writable<GameState[]>([])
 export const currentGame = writable<GameState | null>(null)
@@ -118,13 +120,13 @@ export async function fetchGame(id: string) {
   return data as GameState
 }
 
-export async function createGame(
-  name: string,
-  userId: string,
-  isPrivate: boolean = true,
-  mapId: string = 'classical',
-  hostControls: boolean = false,
-) {
+/** Run a game-mutating RPC, then refetch the game (also refreshing `currentGame`). */
+async function rpcThenFetch(gameId: string, fn: string, args: Record<string, unknown>): Promise<GameState> {
+  await rpc(fn, args)
+  return fetchGame(gameId)
+}
+
+export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'classical') {
   const map = getMap(mapId)
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
@@ -145,7 +147,7 @@ export async function createGame(
       season: 'Spring',
       map_id: mapId,
       players: { [userId]: playerInfo },
-      settings: { ...DEFAULT_SETTINGS, host_controls: isPrivate && hostControls },
+      settings: DEFAULT_SETTINGS,
       is_private: isPrivate,
       created_by: userId,
     })
@@ -179,12 +181,7 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
  * server-side. Use this instead of a raw games update so the rules are enforced.
  */
 export async function updateGameSettings(gameId: string, settings: Partial<GameSettings>) {
-  const { error } = await supabase.rpc('update_game_settings', {
-    p_game_id: gameId,
-    p_settings: settings,
-  })
-  if (error) throw error
-  return fetchGame(gameId)
+  return rpcThenFetch(gameId, 'update_game_settings', { p_game_id: gameId, p_settings: settings })
 }
 
 /**
@@ -192,12 +189,7 @@ export async function updateGameSettings(gameId: string, settings: Partial<GameS
  * ISO string to set it, or null to clear (no backstop until the next resolution).
  */
 export async function setDeadline(gameId: string, deadline: string | null) {
-  const { error } = await supabase.rpc('set_deadline', {
-    p_game_id: gameId,
-    p_deadline: deadline,
-  })
-  if (error) throw error
-  return fetchGame(gameId)
+  return rpcThenFetch(gameId, 'set_deadline', { p_game_id: gameId, p_deadline: deadline })
 }
 
 /**
@@ -205,8 +197,7 @@ export async function setDeadline(gameId: string, deadline: string | null) {
  * nations that haven't submitted hold. The board arrives via the Realtime push.
  */
 export async function forceResolve(gameId: string) {
-  const { error } = await supabase.rpc('host_force_resolve', { p_game_id: gameId })
-  if (error) throw error
+  await rpc('host_force_resolve', { p_game_id: gameId })
 }
 
 /**
@@ -214,20 +205,18 @@ export async function forceResolve(gameId: string) {
  * phase is erased and that phase's orders reopen as unsubmitted drafts. Like a
  * resolution, the new board arrives via the Realtime push.
  */
-export async function revertTo(gameId: string, round: { year: number; season: string; phase: string }) {
-  const { error } = await supabase.rpc('host_revert_to', {
+export async function revertTo(gameId: string, round: RoundArg) {
+  await rpc('host_revert_to', {
     p_game_id: gameId,
     p_year: round.year,
     p_season: round.season,
     p_phase: round.phase,
   })
-  if (error) throw error
 }
 
 /** Claim a power in the lobby (atomic, server-checked). Pass null to release. */
 export async function claimNation(gameId: string, nation: string | null) {
-  const { error } = await supabase.rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
-  if (error) throw error
+  await rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
 }
 
 /**
@@ -237,25 +226,19 @@ export async function claimNation(gameId: string, nation: string | null) {
  * position. Powers with no human player simply hold (civil disorder).
  */
 export async function startGame(game: GameState) {
-  const { error } = await supabase.rpc('start_game', { p_game_id: game.id })
-  if (error) throw error
-  return fetchGame(game.id)
+  return rpcThenFetch(game.id, 'start_game', { p_game_id: game.id })
 }
 
 export async function joinGame(gameId: string) {
-  const { error } = await supabase.rpc('join_public_game', { game_id: gameId })
-  if (error) throw error
-  return fetchGame(gameId)
+  return rpcThenFetch(gameId, 'join_public_game', { game_id: gameId })
 }
 
 export async function leaveGame(gameId: string) {
-  const { error } = await supabase.rpc('leave_game', { game_id: gameId })
-  if (error) throw error
+  await rpc('leave_game', { game_id: gameId })
 }
 
 export async function kickPlayer(gameId: string, playerId: string) {
-  const { error } = await supabase.rpc('kick_player', { game_id: gameId, player_id: playerId })
-  if (error) throw error
+  await rpc('kick_player', { game_id: gameId, player_id: playerId })
 }
 
 /**
@@ -269,9 +252,9 @@ export async function submitOrders(
   gameId: string,
   orders: AnyOrder[],
   ready: boolean = false,
-  round?: { year: number; season: string; phase: string },
+  round?: RoundArg,
 ) {
-  const { error } = await supabase.rpc('submit_orders', {
+  await rpc('submit_orders', {
     p_game_id: gameId,
     p_orders: orders,
     p_ready: ready,
@@ -279,7 +262,6 @@ export async function submitOrders(
     p_season: round?.season ?? null,
     p_phase: round?.phase ?? null,
   })
-  if (error) throw error
 }
 
 /**
@@ -294,16 +276,15 @@ export async function submitOrders(
 export async function saveDraftOrders(
   gameId: string,
   orders: AnyOrder[],
-  round: { year: number; season: string; phase: string },
+  round: RoundArg,
 ) {
-  const { error } = await supabase.rpc('save_draft_orders', {
+  await rpc('save_draft_orders', {
     p_game_id: gameId,
     p_orders: orders,
     p_year: round.year,
     p_season: round.season,
     p_phase: round.phase,
   })
-  if (error) throw error
 }
 
 /**
@@ -345,9 +326,7 @@ export async function fetchMyOrders(
 }
 
 export async function adminDeleteAllGames(): Promise<number> {
-  const { data, error } = await supabase.rpc('admin_delete_all_games')
-  if (error) throw error
-  return data as number
+  return rpc<number>('admin_delete_all_games')
 }
 
 export function subscribeToGame(id: string, callback: (game: GameState) => void) {

@@ -54,6 +54,24 @@ var buildSites = (map, nation, owners, units) => {
 };
 var disorderHomes = (map, nation) => sortIds([...homeCenters(map, nation), ...map.rules?.disorderHomes?.[nation] ?? []]);
 
+// src/lib/adjudicator/convoy.ts
+var convoyFleets = (map, units) => new Set(units.filter((u) => u.type === "fleet" && canConvoyFrom(map, u.territory)).map((u) => u.territory));
+var convoyChain = (map, from, fleets) => {
+  const seen = /* @__PURE__ */ new Set();
+  const queue = (map.territories[from]?.adjacent ?? []).filter((p) => fleets.has(p));
+  queue.forEach((p) => seen.add(p));
+  while (queue.length) {
+    const p = queue.shift();
+    for (const n of map.territories[p]?.adjacent ?? []) {
+      if (fleets.has(n) && !seen.has(n)) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+  }
+  return seen;
+};
+
 // src/lib/orders/options.ts
 var territory = (map, id) => map.territories[id];
 var reachable = (map, unit) => {
@@ -88,23 +106,11 @@ var adjacentProvinces = (map, province) => {
 var directReach = (map, unit) => reachable(map, unit);
 var canMoveDirect = (map, unit, dest) => reachable(map, unit).includes(dest);
 var landingCoasts = (map, target, from) => reachableCoasts(map, target, from);
-var convoyPathExists = (map, from, to, convoyFleets, lastHopOk = () => true) => {
+var convoyPathExists = (map, from, to, convoyFleets2, lastHopOk = () => true) => {
   if (from === to) return false;
-  const seasAdjTo = (p) => adjacentProvinces(map, p).includes(to) && lastHopOk(p);
-  const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s));
-  const visited = new Set(frontier);
-  const queue = [...frontier].sort();
-  while (queue.length) {
-    const s = queue.shift();
-    if (seasAdjTo(s)) return true;
-    for (const n of adjacentProvinces(map, s)) {
-      if (convoyFleets.has(n) && !visited.has(n)) {
-        visited.add(n);
-        queue.push(n);
-      }
-    }
-  }
-  return false;
+  return [...convoyChain(map, from, convoyFleets2)].some(
+    (sea) => adjacentProvinces(map, sea).includes(to) && lastHopOk(sea)
+  );
 };
 
 // src/lib/adjudicator/movement.ts
@@ -398,10 +404,7 @@ function normalize(map, unit, o, units, convoyIntents) {
       if (o.targetCoast) return voidify(m, "army cannot be ordered to a coast");
       if (canMoveDirect(map, unit, o.target) && !o.viaConvoy) return m;
       if (o.viaConvoy) return m;
-      const seaFleets = new Set(
-        units.filter((u) => u.type === "fleet" && canConvoyFrom(map, u.territory)).map((u) => u.territory)
-      );
-      if (convoyIntents.has(`${unit.territory}->${o.target}`) || convoyPathExists(map, unit.territory, o.target, seaFleets)) {
+      if (convoyIntents.has(`${unit.territory}->${o.target}`) || convoyPathExists(map, unit.territory, o.target, convoyFleets(map, units))) {
         return m;
       }
       return voidify(m, "illegal move (no possible convoy)");
@@ -502,10 +505,9 @@ function resolveRetreat(map, board, orders) {
   }
   return { units: sortUnits(survivors), results };
 }
+var isRetreatBlocked = (dest, attackedFrom, occupied, contested) => occupied.has(dest) || dest === attackedFrom || contested.includes(dest);
 function legalRetreat(map, dis, dest, coast, occupied, contested) {
-  if (occupied.has(dest)) return false;
-  if (dest === dis.attackedFrom) return false;
-  if (contested.includes(dest)) return false;
+  if (isRetreatBlocked(dest, dis.attackedFrom, occupied, contested)) return false;
   if (!directReach(map, dis.unit).includes(dest)) return false;
   const destT = map.territories[dest];
   if (dis.unit.type === "fleet" && destT?.coasts) {
@@ -714,32 +716,21 @@ function victoryFor(map, owners) {
 }
 
 // src/lib/adjudicator/idle.ts
+function isIdle(map, board, nation) {
+  if (board.phase === "retreat") return !board.dislodged.some((d) => d.unit.nation === nation);
+  if (board.phase === "build") {
+    const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0);
+    if (delta < 0) return false;
+    return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0;
+  }
+  return !board.units.some((u) => u.nation === nation);
+}
 function idleNations(map, board) {
   const present = /* @__PURE__ */ new Set([
     ...board.units.map((u) => u.nation),
     ...Object.values(board.supplyCenters)
   ]);
-  const idle = [];
-  if (board.phase === "retreat") {
-    const needsRetreat = new Set(board.dislodged.map((d) => d.unit.nation));
-    for (const n of present) if (!needsRetreat.has(n)) idle.push(n);
-    return idle;
-  }
-  if (board.phase === "build") {
-    const un = unitCountByNation(board.units);
-    for (const n of present) {
-      const delta = unitAllowance(map, n, board.supplyCenters) - (un[n] ?? 0);
-      if (delta < 0) continue;
-      if (delta > 0 && buildSites(map, n, board.supplyCenters, board.units).length > 0) {
-        continue;
-      }
-      idle.push(n);
-    }
-    return idle;
-  }
-  const withUnits = new Set(board.units.map((u) => u.nation));
-  for (const n of present) if (!withUnits.has(n)) idle.push(n);
-  return idle;
+  return [...present].filter((n) => isIdle(map, board, n));
 }
 
 // src/lib/adjudicator/fold.ts
@@ -793,23 +784,16 @@ function boardFromUnits(map, units, year, season, phase) {
     contested: []
   };
 }
-function initialBoard(map) {
-  const units = map.startingUnits.map((u) => ({
+function startingUnits(map) {
+  return map.startingUnits.map((u) => ({
     type: u.type,
     nation: u.power,
     territory: u.territory,
     coast: u.coast
   }));
-  return {
-    mapId: map.id,
-    year: map.startingYear ?? 1901,
-    season: "Spring",
-    phase: "movement",
-    units: sortUnits(units),
-    supplyCenters: seedOwnership(map, units),
-    dislodged: [],
-    contested: []
-  };
+}
+function initialBoard(map) {
+  return boardFromUnits(map, startingUnits(map), map.startingYear ?? 1901, "Spring", "movement");
 }
 
 // src/lib/maps/classical.ts

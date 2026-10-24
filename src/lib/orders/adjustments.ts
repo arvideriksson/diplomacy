@@ -6,6 +6,7 @@ import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import { reachable, reachableCoasts, type MoveTarget } from './options'
 import { buildSites, unitAllowance } from '../adjudicator/rules'
+import { isRetreatBlocked } from '../adjudicator/retreat'
 
 /**
  * Legal retreat destinations for a dislodged unit: reachable provinces that are
@@ -22,9 +23,7 @@ export function retreatTargets(
   const occupied = new Set(units.map((u) => u.territory))
   const out: MoveTarget[] = []
   for (const province of reachable(map, unit)) {
-    if (occupied.has(province)) continue
-    if (province === attackedFrom) continue
-    if (contested.includes(province)) continue
+    if (isRetreatBlocked(province, attackedFrom, occupied, contested)) continue
     const t = map.territories[province]
     if (unit.type === 'fleet' && t?.coasts) {
       const coasts = reachableCoasts(map, province, unit.territory)

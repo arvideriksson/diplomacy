@@ -6,6 +6,13 @@ import type { Unit } from '../types'
 export type Season = 'Spring' | 'Fall'
 export type Phase = 'movement' | 'retreat' | 'build'
 
+/** Identifies one round of a game: the (year, season, phase) a set of orders belongs to. */
+export interface RoundKey {
+  year: number
+  season: Season
+  phase: Phase
+}
+
 /** A unit dislodged during a movement phase; must retreat or disband. */
 export interface DislodgedUnit {
   unit: Unit

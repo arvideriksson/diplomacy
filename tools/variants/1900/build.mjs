@@ -1,21 +1,24 @@
 /** Rebuild the 1900 board and map definition from the classical board and the variant data.
- * Run: node tools/variants/1900/build.mjs
+ * Run: npm run map:1900
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { readClassical } from './lib/classical.mjs'
+import { attrs, refProvince } from './lib/xml.mjs'
 import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
 import { drawBoard, geomPath, label, coastMark, offBoardNote } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
 import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
+// The app's own data, loaded as TypeScript (type-only imports, stripped by Node).
+import { GAME_TO_DSVG_OVERRIDES } from '../../../src/lib/map/idOverrides.ts'
+import { classicalMap } from '../../../src/lib/maps/classical.ts'
 
 const HEIGHT = 1620
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const src = (name) => readFileSync(resolve(root, 'tools/variants/1900/source', name), 'utf8')
-const attrs = (s) => Object.fromEntries([...s.matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]))
 const xml = src('1900_adjacency.xml')
 const rules = src('variants.xml')
 const provinces = [...xml.matchAll(/<PROVINCE\s+([^>]+)>([\s\S]*?)<\/PROVINCE>/g)].map((m) => {
@@ -35,11 +38,8 @@ if (!Number.isInteger(startingYear) || !Number.isInteger(victoryCenters) || vict
   throw new Error('Invalid starting year or victory target in variants.xml')
 }
 const sourceIds = new Set(provinces.map((p) => p.id))
-// The source adjacency XML uses judge aliases for these two sea provinces.
-const sourceAliases = { mao: 'mid', nao: 'nat' }
 for (const p of provinces) for (const ref of Object.values(p.edges).flat()) {
-  const target = ref.split('-')[0]
-  if (!sourceIds.has(sourceAliases[target] ?? target)) throw new Error(`Unknown adjacency ${p.id} -> ${ref}`)
+  if (!sourceIds.has(refProvince(ref))) throw new Error(`Unknown adjacency ${p.id} -> ${ref}`)
 }
 for (const s of starts) if (!sourceIds.has(s.province)) throw new Error(`Unknown starting province ${s.province}`)
 
@@ -271,8 +271,15 @@ let longRoutes
 for (const [id, pt] of Object.entries(centers)) if (!inside(id, pt)) layoutProblems.push(`supply center of ${id} lies outside it`)
 if (layoutProblems.length) (process.env.LAYOUT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Layout problems:\n  ${layoutProblems.join('\n  ')}`)
 
+// --- Id mapping. The app's ids (src/lib/map/idOverrides.ts) are the source ids uppercased,
+// except a few whose dSVG id differs; their source ids are the classical dSVG ids after
+// RENAMES (classical nrg is 1900's nws). ---
+const OVERRIDE_BY_SOURCE = Object.fromEntries(Object.entries(GAME_TO_DSVG_OVERRIDES).map(([game, dsvg]) => [RENAMES[dsvg] ?? dsvg, { game, dsvg }]))
+/** Source id -> app province id. */
+const toGame = (id) => OVERRIDE_BY_SOURCE[id]?.game ?? id.toUpperCase()
+
 // --- dSVG output. Province ids follow the app's dSVG naming. ---
-const outId = (id) => ({ nws: 'nrg' }[id] ?? id)
+const outId = (id) => OVERRIDE_BY_SOURCE[id]?.dsvg ?? id
 // Finishing: embedded label font; no frame or compass rose on the board.
 const style = { font: true }
 const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, centers: Object.values(centers), labels, waterParts: [gibraltarStrait], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
@@ -300,9 +307,9 @@ ${layer('foreground', clipped(board.foreground))}
 writeFileSync(resolve(root, 'public/maps/1900.dsvg'), dsvg)
 
 // --- Map definition. ---
-const toGame = (id) => ({ nws: 'NWG', nwy: 'NOR', nat: 'NAO', mid: 'MAO' }[id] ?? id.toUpperCase())
-const normalize = (refs) => [...new Set((refs ?? []).map((r) => toGame(sourceAliases[r.split('-')[0]] ?? r.split('-')[0])))]
-const powerColors = { britain: '#4b85fe', france: '#00bdd5', germany: '#8c929f', italy: '#4aa961', austria: '#f0574e', russia: '#9975fa', turkey: '#f5af20' }
+const normalize = (refs) => [...new Set((refs ?? []).map((r) => toGame(refProvince(r))))]
+// The classical palette; 1900's Britain is classical England.
+const powerColors = Object.fromEntries(classicalMap.powers.map((p) => [p.id === 'england' ? 'britain' : p.id, p.color]))
 const round = (p) => p.map(r1)
 const territories = {}
 for (const p of provinces) {

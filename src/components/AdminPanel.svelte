@@ -1,5 +1,6 @@
 <script lang="ts">
   import { adminDeleteAllGames, fetchGames } from '../lib/game'
+  import { errorMessage } from '../lib/errors'
 
   let deleting = false
   let result = ''
@@ -12,16 +13,16 @@
       const count = await adminDeleteAllGames()
       result = `Deleted ${count} game${count === 1 ? '' : 's'}`
       await fetchGames()
-    } catch (e: any) {
-      result = e.message ?? 'Failed to delete'
+    } catch (e) {
+      result = errorMessage(e)
     } finally {
       deleting = false
     }
   }
 </script>
 
-<section class="admin-panel">
-  <div class="admin-header">
+<section class="card admin-panel">
+  <div class="card-head admin-header">
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
@@ -29,7 +30,7 @@
   </div>
 
   <div class="admin-actions">
-    <button class="btn-danger" on:click={handleDeleteAll} disabled={deleting}>
+    <button class="delete-all" on:click={handleDeleteAll} disabled={deleting}>
       {deleting ? 'Deleting...' : 'Delete all games'}
     </button>
   </div>
@@ -41,25 +42,16 @@
 
 <style>
   .admin-panel {
-    background: var(--bg-card);
-    border: 1px solid var(--red);
-    border-radius: var(--radius-lg);
-    padding: 22px 24px;
+    border-color: var(--red);
     margin-bottom: 24px;
   }
 
   .admin-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     margin-bottom: 16px;
-    color: var(--red);
   }
 
+  .admin-header svg,
   .admin-header h2 {
-    font-size: 15px;
-    font-weight: 600;
-    margin: 0;
     color: var(--red);
   }
 
@@ -68,7 +60,7 @@
     gap: 10px;
   }
 
-  .btn-danger {
+  .delete-all {
     padding: 8px 16px;
     font-size: 13px;
     font-weight: 600;
@@ -82,15 +74,15 @@
     transition: opacity 0.12s, transform 0.1s;
   }
 
-  .btn-danger:hover:not(:disabled) {
+  .delete-all:hover:not(:disabled) {
     opacity: 0.9;
   }
 
-  .btn-danger:active:not(:disabled) {
+  .delete-all:active:not(:disabled) {
     transform: scale(0.97);
   }
 
-  .btn-danger:disabled {
+  .delete-all:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }

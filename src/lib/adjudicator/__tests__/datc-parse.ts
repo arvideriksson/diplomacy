@@ -16,19 +16,19 @@ const PHASE_MAP: Record<CasePhase, Phase> = {
 
 export const casePhase = (p: CasePhase): Phase => PHASE_MAP[p]
 
-interface Loc {
+export interface Loc {
   province: string
   coast?: string
 }
 
 /** Parse a unit location token: `nth` or `spa(nc)`. */
-function parseLoc(token: string): Loc {
+export function parseLoc(token: string): Loc {
   const m = token.match(/^([a-z]{3})(?:\(([a-z]{2})\))?$/i)
   if (!m) throw new Error(`Bad location token: ${token}`)
   return { province: toProvince(m[1]), coast: m[2]?.toLowerCase() }
 }
 
-const unitType = (letter: string): Unit['type'] => (letter.toUpperCase() === 'F' ? 'fleet' : 'army')
+export const unitType = (letter: string): Unit['type'] => (letter.toUpperCase() === 'F' ? 'fleet' : 'army')
 
 /** A `starting_state` entry, e.g. "ENG: F lon" or "FRA: F spa(sc)". */
 export function parseUnit(entry: string): Unit {
@@ -43,7 +43,7 @@ export function parseUnit(entry: string): Unit {
   }
 }
 
-function splitNation(entry: string): [string, string] {
+export function splitNation(entry: string): [string, string] {
   const idx = entry.indexOf(':')
   if (idx < 0) throw new Error(`Order missing nation prefix: ${entry}`)
   return [entry.slice(0, idx).trim(), entry.slice(idx + 1).trim()]
