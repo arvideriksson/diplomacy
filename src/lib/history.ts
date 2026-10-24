@@ -4,7 +4,7 @@
 // phase, the same frame shape the sandbox navigates. Read-only: the past is fixed.
 
 import { initialBoard, replayLog } from './adjudicator'
-import type { LogRow, ReplayFrame, RoundKey } from './adjudicator'
+import type { LogRow, ReplayFrame } from './adjudicator'
 import type { MapDefinition } from './mapDefinition'
 
 /** A resolved-orders row as stored in the `orders` table (one per nation per round). */
@@ -21,7 +21,7 @@ export function replayFrames(
   map: MapDefinition,
   rows: ResolvedOrderRow[],
   /** The live round, if known: trailing phases nobody ordered in are resolved up to it. */
-  until?: RoundKey,
+  until?: Parameters<typeof replayLog>[3],
 ): HistoryFrame[] {
   return replayLog(map, initialBoard(map), rows, until)
 }

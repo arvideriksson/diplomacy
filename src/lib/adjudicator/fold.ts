@@ -3,12 +3,9 @@
 // deterministic, replaying the log always reproduces the same state.
 
 import type { MapDefinition } from '../mapDefinition'
-import type { AnyOrder, BoardState } from './types'
+import type { AnyOrder, BoardState, RoundKey } from './types'
 
-export interface ResolvedRound {
-  phase: BoardState['phase']
-  season: BoardState['season']
-  year: number
+export interface ResolvedRound extends RoundKey {
   orders: AnyOrder[]
 }
 
@@ -28,10 +25,7 @@ export function foldGame(
 }
 
 /** A resolved-orders row as stored in the `orders` table (one per nation per round). */
-export interface LogRow {
-  year: number
-  season: string
-  phase: string
+export type LogRow = RoundKey & {
   nation: string
   orders: AnyOrder[]
 }
@@ -42,17 +36,14 @@ export interface ReplayFrame {
   orders: AnyOrder[]
 }
 
-export interface RoundKey {
-  year: number
-  season: string
-  phase: string
-}
-
 const SEASON_ORDER: Record<string, number> = { Spring: 0, Fall: 1 }
 const PHASE_ORDER: Record<string, number> = { movement: 0, retreat: 1, build: 2 }
 
+/** A round whose phase may also be a non-order game phase (lobby, complete, …). */
+type LooseRoundKey = Omit<RoundKey, 'phase'> & { phase: string }
+
 /** Chronological sort key for a round. Mirrors round_rank() in the host-controls migration. */
-export const roundRank = (r: RoundKey): number =>
+export const roundRank = (r: LooseRoundKey): number =>
   r.year * 100 + (SEASON_ORDER[r.season] ?? 0) * 10 + (PHASE_ORDER[r.phase] ?? 0)
 
 /**
@@ -64,10 +55,13 @@ export function replayLog(
   map: MapDefinition,
   initial: BoardState,
   rows: LogRow[],
-  /** The live round, if known: trailing phases nobody ordered in are resolved up to it. */
-  until?: RoundKey,
+  /**
+   * The live round, if known: trailing phases nobody ordered in are resolved up to it.
+   * A non-order phase (lobby, complete) is ignored.
+   */
+  until?: LooseRoundKey,
 ): ReplayFrame[] {
-  const rounds = new Map<string, RoundKey & { orders: AnyOrder[] }>()
+  const rounds = new Map<string, ResolvedRound>()
   for (const r of rows) {
     const key = `${r.year}|${r.season}|${r.phase}`
     const round = rounds.get(key) ?? { year: r.year, season: r.season, phase: r.phase, orders: [] }

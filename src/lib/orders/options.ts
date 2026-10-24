@@ -6,6 +6,7 @@ import type { MapDefinition, TerritoryDefinition } from '../mapDefinition'
 import { canArmyEnter, canFleetEnter } from '../mapDefinition'
 import type { Unit } from '../types'
 import { canConvoyFrom, isLongRoute } from '../adjudicator/rules'
+import { convoyChain, convoyFleets } from '../adjudicator/convoy'
 
 type Def = MapDefinition
 
@@ -58,18 +59,9 @@ export interface MoveTarget {
  * convoy coasts such as 1900 Gibraltar). `through`, if given, must be on the chain.
  */
 export const convoyReach = (map: Def, from: string, units: Unit[], through?: string): string[] => {
-  const fleetAt = new Set(units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory))
-  const start = territory(map, from)
-  if (!start || start.type !== 'coast') return []
-  const seen = new Set<string>()
-  const queue = start.adjacent.filter((p) => fleetAt.has(p))
-  queue.forEach((p) => seen.add(p))
-  while (queue.length) {
-    const p = queue.shift()!
-    for (const n of territory(map, p)?.adjacent ?? []) {
-      if (fleetAt.has(n) && !seen.has(n)) { seen.add(n); queue.push(n) }
-    }
-  }
+  const fleetAt = convoyFleets(map, units)
+  if (territory(map, from)?.type !== 'coast') return []
+  const seen = convoyChain(map, from, fleetAt)
   if (through && !seen.has(through)) return []
   const out = new Set<string>()
   for (const sea of seen) {
@@ -93,7 +85,7 @@ export const convoyNext = (
   path: string[],
   units: Unit[],
 ): { fleets: string[]; destinations: string[] } => {
-  const fleetAt = new Set(units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory))
+  const fleetAt = convoyFleets(map, units)
   if (territory(map, army)?.type !== 'coast') return { fleets: [], destinations: [] }
   const last = path.at(-1) ?? army
   const around = territory(map, last)?.adjacent ?? []

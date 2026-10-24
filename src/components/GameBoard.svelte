@@ -3,24 +3,29 @@
   import { submitOrders, fetchMyOrders, saveDraftOrders } from '../lib/game'
   import { onDestroy } from 'svelte'
   import { errorMessage } from '../lib/errors'
+  import { createDebouncer } from '../lib/debounce'
+  import { isOrderPhase } from '../lib/phases'
+  import { sameNation } from '../lib/powers'
   import type { MapDefinition } from '../lib/mapDefinition'
   import DiplomacyMap from './DiplomacyMap.svelte'
   import { toDsvgId, toGameId } from '../lib/map/idMap'
-  import type { AnyOrder, BuildOrder, Order, OrderType, RetreatOrder } from '../lib/orders/types'
+  import type { AnyOrder, BuildOrder, OrderType, RetreatOrder } from '../lib/orders/types'
+  import { nextStep, finalize, applicableOrderTypes, type Draft, type Step, type WizardContext } from '../lib/orders/wizard'
+  import { buildSituation } from '../lib/orders/adjustments'
   import {
-    nextStep,
-    finalize,
-    toOrderStates,
-    applicableOrderTypes,
-    type Draft,
-    type Step,
-    type WizardContext,
-  } from '../lib/orders/wizard'
-  import { retreatTargets, buildSituation } from '../lib/orders/adjustments'
+    orderSource, withImplicitHolds, toRenderOrders, applyChoice, commitMove, ORDER_TYPE_KEYS, unorderedUnitIds,
+    retreatChoices as retreatChoicesFor, retreatMapInputs,
+    openBuildSpots, openRemovals, buildMapInputs, buildPrompt as buildPromptFor,
+  } from '../lib/orders/board'
+  import { isIdle } from '../lib/adjudicator/idle'
   import { formatAnyOrder } from '../lib/orders/notation'
-  import type { OrderState } from '../lib/map/mapRenderer'
-  import { unitTokenSvg, DEFAULT_UNIT_STYLE } from '../lib/map/unitStyles'
   import SupplyCenterCard from './SupplyCenterCard.svelte'
+  import LeftRail from './LeftRail.svelte'
+  import DeadlineBanner from './DeadlineBanner.svelte'
+  import BuildPicker from './BuildPicker.svelte'
+  import OrderPanel from './OrderPanel.svelte'
+  import SubmitControls from './SubmitControls.svelte'
+  import PhaseHeader from './PhaseHeader.svelte'
 
   export let mapDef: MapDefinition
   export let gameId: string = ''
@@ -70,8 +75,8 @@
   export let deadline: string | null = null
   /** Powers yet to submit this round; once the deadline passes the phase waits on them. */
   export let awaiting: string[] = []
-  /** How long past the deadline the phase waits on `awaiting` before resolving anyway. */
-  export let graceMinutes: number = 0
+  /** When the phase stops waiting on `awaiting` past the deadline and resolves anyway. */
+  export let graceEndsAt: string | null = null
 
   let orders: AnyOrder[] = []
   let spotlightNation = '' // nation whose SCs are spotlit (hovering the SC card)
@@ -81,8 +86,6 @@
   let buildSel: { province: string; nation: string } | null = null // center awaiting unit type (build)
   let saving = false
   let saveError = ''
-  // Live autosave of the unsubmitted draft (Phase 1, !ready); silent, no status UI.
-  let draftTimer: ReturnType<typeof setTimeout> | null = null
   // Optimistic ready state: submit flips the UI immediately instead of waiting
   // for `ready` to round-trip back through the parent's realtime subscription. Cleared
   // once the prop catches up (or on round change).
@@ -99,99 +102,25 @@
   // Resubmitted). Reset on every load — on entry we can't tell submit from resubmit,
   // so an already-submitted game always reads as the calm "Submitted".
   let hasResubmitted = false
-
-  // Submit-button state machine:
-  //   not submitted        → green  "Submit"
-  //   submitted, no edits   → green  "Submitted"   (pressed, inert)
-  //   submitted, edited     → blue   "Resubmit"
-  //   resubmitted, no edits → blue   "Resubmitted" (pressed, inert)
-  $: submitPressed = saving || (effectiveReady && !dirtySinceSubmit)
-  $: submitTone = !effectiveReady || (!dirtySinceSubmit && !hasResubmitted) ? 'submit' : 'resubmit'
-  // No transient "Submitting…": clicking jumps straight to the committed label.
-  // While the save is in flight, optimistically show the target committed state.
-  $: submitLabel = saving
-    ? effectiveReady
-      ? 'Resubmitted'
-      : 'Submitted'
-    : !effectiveReady
-      ? 'Submit'
-      : dirtySinceSubmit
-        ? 'Resubmit'
-        : hasResubmitted
-          ? 'Resubmitted'
-          : 'Submitted'
+  // (The Submit/Submitted/Resubmit/Resubmitted labels derive from these in SubmitControls.)
   const DRAFT_DEBOUNCE_MS = 750
+  // Live autosave of the unsubmitted draft (Phase 1, !ready); silent, no status UI.
+  // A pending save is dropped (not flushed) on round change, submit and destroy.
+  const draftSave = createDebouncer(() => saveDraftNow(), DRAFT_DEBOUNCE_MS)
 
   // Build type-picker popup: anchored at the clicked point within the map area.
   let mapArea: HTMLDivElement | undefined
   let lastPointer = { x: 0, y: 0 } // staged on pointerdown
-  // Group destinations that carry a note ("via convoy", "long route…") so the panel
-  // can explain them; plain destinations are just highlighted on the map.
-  function choiceNotes(choices: { label: string }[]): [string, string][] {
-    const groups = new Map<string, string[]>()
-    for (const c of choices) {
-      const m = c.label.match(/^(.*) \((via convoy|long route, half strength)\)$/)
-      if (m) groups.set(m[2], [...(groups.get(m[2]) ?? []), m[1]])
-    }
-    return [...groups].map(([note, names]) => [note[0].toUpperCase() + note.slice(1), names.join(', ')])
-  }
 
   // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
   let leftOpen = false
   let popupPos = { x: 0, y: 0 } // committed only when the selection changes (avoids flicker)
   let buildJustOpened = false
 
-  const ORDER_PHASES = ['movement', 'retreat', 'build']
-  $: canAct = !readOnly && (controlAll || Boolean(nation)) && ORDER_PHASES.includes(phase)
+  // The left rail shows when there's a title, a Leave action or slotted rail content.
+  $: hasRail = Boolean(title || onExit || $$slots.left)
 
-  // Phase banner: human label + theme color key. The color keys map to tokens in
-  // app.css that already define light/dark variants (--{key} / --{key}-subtle).
-  const PHASE_META: Record<string, { label: string; tone: string }> = {
-    movement: { label: 'Movement', tone: 'accent' },
-    retreat: { label: 'Retreat', tone: 'amber' },
-    build: { label: 'Build', tone: 'green' },
-  }
-  $: phaseMeta = PHASE_META[phase] ?? { label: phase, tone: 'accent' }
-
-  // ── deadline countdown ─────────────────────────────────────────────────────
-  // Live "time left" plus the exact local resolution time. Ticks every second so
-  // the countdown stays honest; cleared on destroy.
-  let now = Date.now()
-  const clock = setInterval(() => (now = Date.now()), 1000)
-  onDestroy(() => clearInterval(clock))
-
-  $: deadlineMs = deadline ? new Date(deadline).getTime() : null
-  $: msLeft = deadlineMs == null ? null : deadlineMs - now
-  $: deadlineUrgent = msLeft != null && msLeft <= 60 * 60 * 1000 // ≤ 1h
-  // Grace period: the deadline passed with powers unready, so the phase waits until the
-  // last of them submits or the grace runs out. Derived, not stored server-side.
-  $: graceMsLeft = msLeft == null ? null : msLeft + graceMinutes * 60_000
-  $: inGrace = msLeft != null && msLeft <= 0 && graceMsLeft! > 0 && awaiting.length > 0
-  $: deadlineAbs = deadlineMs == null ? '' : deadlineFmt.format(deadlineMs)
-
-  function formatCountdown(ms: number): string {
-    if (ms <= 0) return 'Resolving…'
-    const s = Math.floor(ms / 1000)
-    const d = Math.floor(s / 86400)
-    const h = Math.floor((s % 86400) / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    const sec = s % 60
-    if (d > 0) return `${d}d ${h}h left`
-    if (h > 0) return `${h}h ${m}m left`
-    if (m > 0) return `${m}m ${sec}s left`
-    return `${sec}s left`
-  }
-
-  const deadlineFmt = new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  })
-
-  const MOVE_TYPES = ['Hold', 'Move', 'Support', 'Convoy']
+  $: canAct = !readOnly && (controlAll || Boolean(nation)) && isOrderPhase(phase)
 
   // Reset order entry whenever the ROUND changes — identified by (year, season,
   // phase), which changes on every phase transition even when no unit moved (e.g.
@@ -211,9 +140,9 @@
       hasResubmitted = false
       submittedOrders = [] // loadOrders() repopulates it for an already-ready nation
       saveError = '' // clear any "catching up…" notice once the new round arrives
-      if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
+      draftSave.cancel()
       if (onResolve) orders = initialOrders ?? [] // sandbox: preset
-      else if (gameId && nation && ORDER_PHASES.includes(phase)) loadOrders() // live: reload saved
+      else if (gameId && nation && isOrderPhase(phase)) loadOrders() // live: reload saved
       else orders = []
     }
   }
@@ -245,13 +174,11 @@
   // Debounced autosave of the unsubmitted draft. No-op in sandbox, once ready, or
   // outside an order phase — those never write a draft.
   function scheduleDraftSave() {
-    if (onResolve || effectiveReady || !gameId || !nation || !ORDER_PHASES.includes(phase)) return
-    if (draftTimer) clearTimeout(draftTimer)
-    draftTimer = setTimeout(saveDraftNow, DRAFT_DEBOUNCE_MS)
+    if (onResolve || effectiveReady || !gameId || !nation || !isOrderPhase(phase)) return
+    draftSave.schedule()
   }
 
   async function saveDraftNow() {
-    draftTimer = null
     if (effectiveReady) return
     try {
       await saveDraftOrders(gameId, orders, { year, season, phase })
@@ -260,9 +187,7 @@
     }
   }
 
-  onDestroy(() => {
-    if (draftTimer) clearTimeout(draftTimer)
-  })
+  onDestroy(draftSave.cancel)
 
   // Submit (or resubmit): the orders row becomes the only persisted truth and the
   // draft is dropped server-side. Cancels any pending autosave and clears dirty.
@@ -270,9 +195,9 @@
     if (!gameId || !nation) return
     saving = true
     saveError = ''
-    if (draftTimer) { clearTimeout(draftTimer); draftTimer = null }
+    draftSave.cancel()
     const wasReady = effectiveReady // a commit while already submitted is a *re*submit
-    const committed = withImplicitHolds(orders) // un-ordered units become explicit Holds
+    const committed = withImplicitHolds(orders, phase, ownUnits) // un-ordered units become explicit Holds
     try {
       await submitOrders(gameId, committed, true, { year, season, phase })
       orders = committed // reflect the filled-in holds in the live, editable list too
@@ -299,7 +224,7 @@
   }
 
   const controllable = (n: string): boolean =>
-    controlAll || !nation || n.toLowerCase() === nation.toLowerCase()
+    controlAll || !nation || sameNation(n, nation)
 
   $: ownUnits = units.filter((u) => controllable(u.nation))
 
@@ -330,15 +255,8 @@
 
   function commit(ctx: WizardContext) {
     if (!draft) return
-    const order = finalize(draft, ctx)
-    // A convoy route picked fleet by fleet: order the fleets this player controls to
-    // convoy it (other powers' fleets must be arranged through diplomacy).
-    const convoys: Order[] = (draft.convoyPath ?? [])
-      .map((p) => units.find((u) => u.territory === p))
-      .filter((f): f is Unit => Boolean(f) && (controlAll || f!.nation === nation))
-      .map((f) => ({ type: 'Convoy', nation: f.nation, source: f.territory, aux: order.source, target: order.target }))
-    const touched = new Set([order.source, ...convoys.map((c) => c.source)])
-    orders = [...orders.filter((o) => !touched.has(o.source)), order, ...convoys]
+    // A picked convoy route also orders the fleets this player controls to convoy it.
+    orders = commitMove(orders, finalize(draft, ctx), draft.convoyPath, units, (n) => controlAll || n === nation)
     draft = null
     currentStep = null
     notifyOrders()
@@ -365,8 +283,7 @@
       return
     }
     if (!draft) return
-    const byKey: Record<string, OrderType> = { h: 'Hold', m: 'Move', s: 'Support', c: 'Convoy' }
-    const t = byKey[e.key.toLowerCase()]
+    const t = ORDER_TYPE_KEYS[e.key.toLowerCase()]
     if (t && (t === 'Hold' || draftTypes.includes(t))) {
       e.preventDefault()
       setType(t)
@@ -375,13 +292,9 @@
 
   function applyProvince(dsvgId: string) {
     if (!draft || currentStep?.kind !== 'province') return
-    const choice = currentStep.choices.find((c) => toDsvgId(c.id, c.coast) === dsvgId)
-    if (!choice) return
-    // A target choice may carry a coast (multi-coast destinations), completing the move.
-    if (choice.chain) draft = { ...draft, convoyPath: [...(draft.convoyPath ?? []), choice.id] }
-    else if (currentStep.field === 'target') draft = { ...draft, target: choice.id, targetCoast: choice.coast }
-    else if (currentStep.field === 'coast') draft = { ...draft, targetCoast: choice.coast }
-    else if (currentStep.field === 'aux') draft = { ...draft, aux: choice.id }
+    const next = applyChoice(draft, currentStep, dsvgId)
+    if (!next) return
+    draft = next
     recompute()
   }
 
@@ -418,19 +331,6 @@
     notifyOrders()
   }
 
-  const orderSource = (o: AnyOrder): string => (o as { source: string }).source
-
-  // The adjudicator holds any movement unit without an order. Make that explicit on
-  // submit so the locked-in set the player sees is the set that actually resolves —
-  // un-ordered units appear as Holds rather than silently vanishing.
-  function withImplicitHolds(set: AnyOrder[]): AnyOrder[] {
-    if (phase !== 'movement') return set
-    const ordered = new Set(set.map(orderSource))
-    const holds: Order[] = ownUnits
-      .filter((u) => !ordered.has(u.territory))
-      .map((u) => ({ type: 'Hold', nation: u.nation, source: u.territory, sourceCoast: u.coast }))
-    return [...set, ...holds]
-  }
   const setOrder = (source: string, order: AnyOrder) => {
     orders = [...orders.filter((o) => orderSource(o) !== source), order]
     notifyOrders()
@@ -444,16 +344,7 @@
   const dislodgedAt = (p: string) => myDislodged.find((d) => d.unit.territory === p)
 
   /** Coast-specific retreat destinations for a dislodged unit. */
-  function retreatChoices(p: string): Array<{ province: string; coast?: string }> {
-    const d = dislodgedAt(p)
-    if (!d) return []
-    const out: Array<{ province: string; coast?: string }> = []
-    for (const t of retreatTargets(mapDef, d.unit, d.attackedFrom, units, contested)) {
-      if (t.coasts.length > 0) for (const c of t.coasts) out.push({ province: t.province, coast: c })
-      else out.push({ province: t.province })
-    }
-    return out
-  }
+  const retreatChoices = (p: string) => retreatChoicesFor(mapDef, dislodgedAt(p), units, contested)
 
   function handleRetreatClick(dsvgId: string) {
     const gid = toGameId(dsvgId)
@@ -492,47 +383,23 @@
       ? [nation]
       : []
   $: buildSituations = buildNations.map((n) => ({ nation: n, ...buildSituation(mapDef, n, supplyCenters, units) }))
-  const placed = (type: 'Build' | 'Remove', n: string) =>
-    orders.filter((o) => o.type === type && (o as BuildOrder).nation === n).length
-
-  // Open home centers still buildable (nation under its build quota, center not yet ordered).
-  $: buildSpots = buildSituations
-    .filter((s) => s.delta > 0 && placed('Build', s.nation) < s.delta)
-    .flatMap((s) =>
-      s.spots
-        .filter((sp) => !orders.some((o) => o.type === 'Build' && (o as BuildOrder).source === sp.province))
-        .map((sp) => ({ ...sp, nation: s.nation })),
-    )
-  // Units still removable (nation owes removals, not yet ordered).
-  $: removeChoices = buildSituations
-    .filter((s) => s.delta < 0 && placed('Remove', s.nation) < -s.delta)
-    .flatMap((s) =>
-      s.removable
-        .filter((u) => !orders.some((o) => o.type === 'Remove' && (o as BuildOrder).source === u.territory))
-        .map((u) => ({ territory: u.territory, nation: s.nation })),
-    )
+  // Open home centers still buildable, and units still removable.
+  $: buildSpots = openBuildSpots(buildSituations, orders)
+  $: removeChoices = openRemovals(buildSituations, orders)
   const buildSpotAt = (p: string) => buildSpots.find((sp) => sp.province === p)
   $: buildSpotChoice = buildSel
     ? buildSituations.flatMap((s) => s.spots).find((sp) => sp.province === buildSel!.province)
     : null
 
   // A nation with nothing to do this phase is auto-readied server-side (see idleNations);
-  // the panel shows a calm "Waiting…" rather than a Submit button. Mirrors the engine's
-  // idle rule: no units (movement), no dislodgements (retreat), or a build phase with
-  // nothing to build/disband. Live play only — sandbox/god-mode always lets you act.
-  $: myBuild = nation ? buildSituations.find((s) => s.nation === nation) : undefined
+  // the panel shows a calm "Waiting…" rather than a Submit button. Live play only —
+  // sandbox/god-mode always lets you act.
   $: amIdle =
     !onResolve &&
     !controlAll &&
     Boolean(nation) &&
-    ORDER_PHASES.includes(phase) &&
-    (phase === 'movement'
-      ? ownUnits.length === 0
-      : phase === 'retreat'
-        ? myDislodged.length === 0
-        : phase === 'build'
-          ? !myBuild || myBuild.delta === 0 || (myBuild.delta > 0 && myBuild.spots.length === 0)
-          : false)
+    isOrderPhase(phase) &&
+    isIdle(mapDef, { phase, units, supplyCenters, dislodged }, nation)
 
   function handleBuildClick(dsvgId: string) {
     const gid = toGameId(dsvgId)
@@ -587,14 +454,6 @@
     if (buildSel) buildSel = null
   }
 
-  /** A power's display colour, for the popup unit glyphs. */
-  const powerColor = (n: string): string =>
-    mapDef.powers.find((p) => p.id === n || p.name.toLowerCase() === n.toLowerCase())?.color ?? '#888'
-
-  // Spell out coast codes for the build cards (the terse Stp(sc) form is for notation).
-  const COAST_NAMES: Record<string, string> = { nc: 'North', sc: 'South', ec: 'East', wc: 'West' }
-  const coastName = (c: string): string => COAST_NAMES[c.toLowerCase()] ?? c
-
   // ── map inputs, per phase ─────────────────────────────────────────────────
   // Movement: wizard choices; units targeted at province level (coast collapsed)
   // so a fleet on a multi-coast province highlights the whole province on hover.
@@ -608,67 +467,22 @@
   // Fleets already chosen for a convoy route stay marked while the route is built.
   $: convoyChain = (draft?.convoyPath ?? []).map((p) => toDsvgId(p))
 
-  // Retreat: idle highlights the dislodged units still awaiting an order; once one is
-  // picked, its targets. A dislodged unit that's already been routed/disbanded drops its
-  // highlight (its order overlay carries the cue) — matching movement, where ordered units
-  // lose the prompt but stay clickable so you can still change them.
-  $: unorderedDislodged = myDislodged.filter(
-    (d) => !orders.some((o) => orderSource(o) === d.unit.territory)
-  )
-  $: retreatHi = retreatSel
-    ? retreatChoices(retreatSel).map((c) => toDsvgId(c.province, c.coast))
-    : unorderedDislodged.map((d) => toDsvgId(d.unit.territory))
-  $: retreatSelectable = retreatSel
-    ? [...retreatHi, toDsvgId(retreatSel)]
-    : myDislodged.map((d) => toDsvgId(d.unit.territory))
+  // Retreat: the dislodged units awaiting an order, or the picked one's destinations.
+  $: retreatMap = retreatMapInputs(mapDef, myDislodged, orders, units, contested, retreatSel)
+  // Build: open slots as dashed "+" rings; placed builds/removes stay clickable to undo.
+  $: buildMap = buildMapInputs(buildSpots, removeChoices, orders)
 
-  // Build: available slots are drawn as dashed "+" rings (buildSlots/removeSlots),
-  // not stripe highlights. Placed builds/removes show as ghost units / markers, and
-  // stay clickable so you can undo them.
-  $: buildSpotIds = buildSpots.map((sp) => toDsvgId(sp.province))
-  $: removeIds = removeChoices.map((r) => toDsvgId(r.territory))
-  $: buildSelectable = [
-    ...buildSpotIds,
-    ...removeIds,
-    ...orders.filter((o) => o.type === 'Build' || o.type === 'Remove').map((o) => toDsvgId(orderSource(o))),
-  ]
-
-  $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatHi : phase === 'build' ? [] : moveHighlighted
-  $: selectable = readOnly ? [] : phase === 'retreat' ? retreatSelectable : phase === 'build' ? buildSelectable : moveSelectable
-  $: mapBuildSlots = !readOnly && phase === 'build' ? buildSpotIds : []
-  $: mapRemoveSlots = !readOnly && phase === 'build' ? removeIds : []
+  $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : moveHighlighted
+  $: selectable = readOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : moveSelectable
+  $: mapBuildSlots = !readOnly && phase === 'build' ? buildMap.buildIds : []
+  $: mapRemoveSlots = !readOnly && phase === 'build' ? buildMap.removeIds : []
 
   // Movement: amber-flag own units that still have no order so none get forgotten.
-  // The unit currently being drafted is excluded — it's mid-edit, not forgotten.
-  $: unorderedSlots =
-    canAct && phase === 'movement'
-      ? ownUnits
-          .filter((u) => u.territory !== draft?.source && !orders.some((o) => orderSource(o) === u.territory))
-          .map((u) => toDsvgId(u.territory))
-      : []
+  $: unorderedSlots = canAct && phase === 'movement' ? unorderedUnitIds(ownUnits, orders, draft?.source) : []
 
   // Map overlays per order kind: movement/retreat as arrows, builds as ghost unit
   // tokens, removes/disbands as red markers. Read-only history uses resolved orders.
-  $: renderOrders = ((): OrderState[] => {
-    const src = readOnly ? historyOrders : orders
-    const out: OrderState[] = toOrderStates(src.filter((o) => MOVE_TYPES.includes(o.type)) as Order[])
-    for (const o of src) {
-      if (o.type === 'Retreat') {
-        const r = o as RetreatOrder
-        out.push({ type: 'Move', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), target: toDsvgId(r.target ?? '', r.targetCoast), dislodged: true })
-      } else if (o.type === 'Disband') {
-        const r = o as RetreatOrder
-        out.push({ type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), dislodged: true })
-      } else if (o.type === 'Build') {
-        const b = o as BuildOrder
-        out.push({ type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' })
-      } else if (o.type === 'Remove') {
-        const b = o as BuildOrder
-        out.push({ type: 'Disband', nation: b.nation, source: toDsvgId(b.source) })
-      }
-    }
-    return out
-  })()
+  $: renderOrders = toRenderOrders(readOnly ? historyOrders : orders)
 
   const provinceName = (id: string): string => mapDef.territories[id]?.name ?? id
   $: draftUnit = draft ? units.find((u) => u.territory === draft!.source) : undefined
@@ -682,39 +496,19 @@
     return d ? `${d.unit.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(retreatSel)} dislodged` : ''
   })()
 
-  $: buildPrompt = (() => {
-    const builds = buildSituations.filter((s) => s.delta > 0).reduce((a, s) => a + s.delta, 0)
-    const removes = buildSituations.filter((s) => s.delta < 0).reduce((a, s) => a - s.delta, 0)
-    if (builds && removes) return 'Click a highlighted home center to build, or a unit to remove.'
-    if (builds) return `Click a highlighted home center to build (${builds} available).`
-    if (removes) return `Click a highlighted unit to remove (${removes} required).`
-    return 'No adjustments needed this phase.'
-  })()
+  $: buildPrompt = buildPromptFor(buildSituations)
+
+  // Reactive so the panels re-render their order text when the board changes.
+  $: formatOrder = (o: AnyOrder): string => formatAnyOrder(mapDef, units, dislodged, o)
 </script>
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="game" class:left-open={leftOpen}>
-  {#if title || onExit || $$slots.left}
-    <!-- On narrow screens the left rail is a drawer; the scrim closes it. -->
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="rail-scrim" on:click={() => (leftOpen = false)}></div>
-    <aside class="left-rail" style="--rail-width: {leftWidth}">
-      {#if title || onExit}
-        <div class="side-title">
-          {#if onExit}
-            <button class="leave" on:click={onExit} title="Leave game">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              Leave
-            </button>
-          {/if}
-          {#if title}<span class="game-name">{title}</span>{/if}
-        </div>
-      {/if}
-      <div class="left-body"><slot name="left" /></div>
-    </aside>
+<div class="game">
+  {#if hasRail}
+    <LeftRail {title} {onExit} width={leftWidth} open={leftOpen} onClose={() => (leftOpen = false)}>
+      <slot name="left" />
+    </LeftRail>
   {/if}
 
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
@@ -750,213 +544,76 @@
     {/if}
 
     {#if buildSel && buildSpotChoice}
-      {@const color = powerColor(buildSel.nation)}
-      <!-- svelte-ignore a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
-      <div
-        class="build-popup"
-        style="left:{popupPos.x}px; top:{popupPos.y}px"
-        role="group"
-        aria-label="Choose unit to build"
-        on:click|stopPropagation
-        on:pointerdown|stopPropagation
-      >
-        {#if buildSpotChoice.types.includes('army')}
-          <button class="build-card" on:click={() => placeBuild('army')}>
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Army', color, 13, DEFAULT_UNIT_STYLE)}</svg>
-            <span class="bc-label">Army</span>
-          </button>
-        {/if}
-        {#if buildSpotChoice.types.includes('fleet')}
-          {#if buildSpotChoice.coasts && buildSpotChoice.coasts.length > 1}
-            {#each buildSpotChoice.coasts as c}
-              <button class="build-card" on:click={() => placeBuild('fleet', c)}>
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, DEFAULT_UNIT_STYLE)}</svg>
-                <span class="bc-label">Fleet ({coastName(c)})</span>
-              </button>
-            {/each}
-          {:else}
-            <button class="build-card" on:click={() => placeBuild('fleet')}>
-              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-              <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, DEFAULT_UNIT_STYLE)}</svg>
-              <span class="bc-label">Fleet</span>
-            </button>
-          {/if}
-        {/if}
-      </div>
+      <BuildPicker
+        {mapDef}
+        province={buildSel.province}
+        nation={buildSel.nation}
+        spot={buildSpotChoice}
+        x={popupPos.x}
+        y={popupPos.y}
+        onPick={placeBuild}
+      />
     {/if}
   </div>
 
   <aside class="sidebar">
 
-    <div class="side-head">
-      {#if title || onExit || $$slots.left}
-        <button class="rail-toggle" on:click={() => (leftOpen = !leftOpen)} title={leftOpen ? 'Close menu' : 'Menu'} aria-expanded={leftOpen}>☰</button>
-      {/if}
-      {#if onPhaseBack}
-        <!-- Sandbox: step back/forward through the phase chain. -->
-        <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase">←</button>
-        <span class="phase-label">{season} {year}</span>
-        <button class="nav" on:click={onPhaseForward} disabled={!canPhaseForward} title="Next phase">→</button>
-      {:else}
-        <span class="phase-label">{season} {year}</span>
-      {/if}
-    </div>
+    <PhaseHeader
+      {phase}
+      {season}
+      {year}
+      {onPhaseBack}
+      {onPhaseForward}
+      {canPhaseBack}
+      {canPhaseForward}
+      hasMenu={hasRail}
+      menuOpen={leftOpen}
+      onToggleMenu={() => (leftOpen = !leftOpen)}
+    />
 
-    <!-- Component-wide phase banner: large, color-coded by phase. -->
-    <div
-      class="phase-banner"
-      style="--tone: var(--{phaseMeta.tone}); --tone-subtle: var(--{phaseMeta.tone}-subtle);"
-    >
-      {phaseMeta.label} Phase
-    </div>
-
-    {#if inGrace && msLeft != null}
-      <div class="deadline grace" role="status">
-        <span class="grace-label">Grace period</span>
-        <span class="grace-detail">Waiting on {awaiting.join(', ')}</span>
-        <span class="countdown">{formatCountdown(graceMsLeft ?? 0)}</span>
-        <span class="deadline-abs">Resolves early once all orders are in</span>
-      </div>
-    {:else if msLeft != null}
-      <div class="deadline" class:urgent={deadlineUrgent}>
-        <span class="countdown">{formatCountdown(msLeft)}</span>
-        <span class="deadline-abs">{deadlineAbs}</span>
-      </div>
-    {/if}
+    <DeadlineBanner {deadline} {graceEndsAt} {awaiting} />
 
     {#if $$slots.toolbar}
       <div class="side-toolbar"><slot name="toolbar" /></div>
     {/if}
 
     <div class="side-body">
-      {#if readOnly}
-        <div class="panel">
-          {#if historyOrders.length}
-            <ul class="orders">
-              {#each historyOrders as o, i (i)}
-                <li><span>{formatAnyOrder(mapDef, units, dislodged, o)}</span></li>
-              {/each}
-            </ul>
-          {:else}
-            <p class="prompt">No orders were submitted this phase.</p>
-          {/if}
-        </div>
-      {:else if canAct}
-        <div class="panel">
-          <!-- per-phase entry header -->
-          {#if phase === 'movement'}
-            {#if draft}
-              <div class="panel-head">
-                <strong>{draftLabel}</strong>
-                <button class="link" on:click={cancel}>Cancel</button>
-              </div>
-              <div class="type-row">
-                {#each draftTypes as t}
-                  <button class="type" class:active={draft.type === t} on:click={() => setType(t)}>
-                    {t}<kbd>{t[0]}</kbd>
-                  </button>
-                {/each}
-              </div>
-              {#if currentStep?.kind === 'province'}
-                <p class="prompt">{currentStep.prompt} — click a highlighted region (or this unit to hold)</p>
-                {#each choiceNotes(currentStep.choices) as [note, names]}
-                  <p class="choice-note"><strong>{note}:</strong> {names}</p>
-                {/each}
-              {/if}
-            {:else}
-              <p class="prompt">
-                Click a unit — it defaults to <strong>Move</strong>. Then <kbd>S</kbd> support,
-                <kbd>C</kbd> convoy, <kbd>H</kbd> hold (or click the unit again to hold).
-              </p>
-            {/if}
-          {:else if phase === 'retreat'}
-            {#if myDislodged.length === 0}
-              <p class="prompt">No dislodged units — nothing to retreat.</p>
-            {:else if retreatSel}
-              <div class="panel-head">
-                <strong>{retreatLabel}</strong>
-                <button class="link" on:click={cancel}>Cancel</button>
-              </div>
-              <p class="prompt">Click a highlighted province to retreat there, or:</p>
-              <div class="type-row">
-                <button class="type" on:click={disbandSelected}>Disband</button>
-              </div>
-            {:else}
-              <p class="prompt">Click a highlighted dislodged unit to retreat or disband it.</p>
-            {/if}
-          {:else if phase === 'build'}
-            {#if buildSel}
-              <div class="panel-head">
-                <strong>Build at {provinceName(buildSel.province)}</strong>
-                <button class="link" on:click={cancel}>Cancel</button>
-              </div>
-              <p class="prompt">Pick a unit type from the card on the map.</p>
-            {:else}
-              <p class="prompt">{buildPrompt}</p>
-            {/if}
-          {/if}
-
-          {#if orders.length}
-            <ul class="orders">
-              {#each orders as o (orderSource(o))}
-                <li>
-                  <span>{formatAnyOrder(mapDef, units, dislodged, o)}</span>
-                  <button class="link" on:click={() => deleteOrder(orderSource(o))}>✕</button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-
-          <div class="actions">
-            {#if onResolve}
-              <button class="primary submit" on:click={() => onResolve?.(withImplicitHolds(orders))}>Submit</button>
-            {:else if amIdle}
-              <!-- Nothing to do this phase: auto-readied server-side, just waiting on others. -->
-              <button class="primary waiting pressed" disabled>Waiting…</button>
-            {:else}
-              <!-- Submit→Submitted (green) then Resubmit→Resubmitted (blue); pressed = committed, inert. -->
-              <button
-                class="primary"
-                class:submit={submitTone === 'submit'}
-                class:resubmit={submitTone === 'resubmit'}
-                class:pressed={submitPressed}
-                on:click={submit}
-                disabled={saving || submitPressed}
-              >
-                {submitLabel}
-              </button>
-              {#if effectiveReady && dirtySinceSubmit}
-                <div class="actions-secondary">
-                  <button class="link" on:click={discardChanges} disabled={saving}>Discard changes</button>
-                </div>
-              {/if}
-            {/if}
-            {#if saveError}<span class="status error">{saveError}</span>{/if}
-          </div>
-
-          {#if !onResolve && effectiveReady && submittedOrders.length}
-            <!-- Read-only mirror of the set actually locked in on the server. Survives
-                 Phase 2 edits so it stays the committed truth, not the live draft. -->
-            <div class="locked-box">
-              <div class="locked-head">
-                <span class="locked-dot"></span>
-                Locked in
-              </div>
-              <ul class="locked-list">
-                {#each submittedOrders as o (orderSource(o))}
-                  <li>{formatAnyOrder(mapDef, units, dislodged, o)}</li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <div class="panel">
-          <p class="prompt">Order entry for the {phase} phase isn’t available.</p>
-        </div>
-      {/if}
+      <OrderPanel
+        {readOnly}
+        {canAct}
+        {phase}
+        {historyOrders}
+        {orders}
+        format={formatOrder}
+        drafting={Boolean(draft)}
+        draftType={draft?.type}
+        {draftLabel}
+        {draftTypes}
+        {currentStep}
+        hasDislodged={myDislodged.length > 0}
+        retreating={Boolean(retreatSel)}
+        {retreatLabel}
+        buildingAt={buildSel ? provinceName(buildSel.province) : null}
+        {buildPrompt}
+        onCancel={cancel}
+        onSetType={setType}
+        onDisband={disbandSelected}
+        onDelete={deleteOrder}
+      >
+        <SubmitControls
+          sandbox={Boolean(onResolve)}
+          idle={amIdle}
+          {saving}
+          ready={effectiveReady}
+          dirty={dirtySinceSubmit}
+          resubmitted={hasResubmitted}
+          error={saveError}
+          locked={submittedOrders}
+          format={formatOrder}
+          onSubmit={onResolve ? () => onResolve?.(withImplicitHolds(orders, phase, ownUnits)) : submit}
+          onDiscard={discardChanges}
+        />
+      </OrderPanel>
 
       <slot name="results" />
     </div>
@@ -971,53 +628,6 @@
     height: 100%;
     overflow: hidden;
     position: relative;
-  }
-  .choice-note {
-    margin: 4px 0 0;
-    font-size: 12.5px;
-    color: var(--text-secondary, #555);
-  }
-  .rail-toggle,
-  .rail-scrim {
-    display: none;
-  }
-  .rail-toggle {
-    flex: none;
-    width: 30px;
-    height: 30px;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 8px;
-    background: var(--bg-card, #fff);
-    color: var(--text, #1a1a1a);
-    font-size: 15px;
-    cursor: pointer;
-  }
-  /* Tablets and phones: the left rail slides over the map instead of taking a column. */
-  @media (max-width: 1100px) {
-    .rail-toggle {
-      display: inline-flex;
-    }
-    .left-rail {
-      position: absolute;
-      inset: 0 auto 0 0;
-      z-index: 40;
-      width: min(var(--rail-width, 320px), 86vw);
-      transform: translateX(-100%);
-      transition: transform 0.2s ease;
-      box-shadow: 0 0 32px rgba(0, 0, 0, 0.25);
-    }
-    .game.left-open .left-rail {
-      transform: none;
-    }
-    .game.left-open .rail-scrim {
-      display: block;
-      position: absolute;
-      inset: 0;
-      z-index: 39;
-      background: rgba(0, 0, 0, 0.25);
-    }
   }
   /* Phones and portrait tablets: map on top, orders below in a scrollable sheet. */
   @media (max-width: 760px), (orientation: portrait) and (max-width: 1100px) {
@@ -1041,81 +651,6 @@
     min-width: 0;
     position: relative;
   }
-  /* Left rail: game/sandbox title + Leave on top, then chat (game) or unit
-     styles (sandbox) below. Mirror of the right order sidebar. */
-  .left-rail {
-    flex: none;
-    width: var(--rail-width, 320px);
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--border, #e5e7eb);
-    background: var(--bg-card, #fff);
-    overflow: hidden;
-  }
-  .left-body {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* Build type-picker popup — a rounded card tray anchored at the clicked centre. */
-  .build-popup {
-    position: absolute;
-    transform: translate(-50%, calc(-100% - 14px));
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-    z-index: 20;
-  }
-  /* little pointer at the bottom, aimed at the clicked centre */
-  .build-popup::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    bottom: -7px;
-    width: 14px;
-    height: 14px;
-    transform: translateX(-50%) rotate(45deg);
-    background: inherit;
-    border-right: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-    border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-  }
-  .build-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    width: 72px;
-    padding: 10px 8px;
-    border: 1px solid color-mix(in srgb, var(--border-strong, #cbd5e1) 70%, transparent);
-    border-radius: 10px;
-    /* Translucent so the tray's frosted blur reads through, matching the SC card. */
-    background: color-mix(in srgb, var(--bg-input, #fff) 35%, transparent);
-    color: var(--text, #1a1a1a);
-    cursor: pointer;
-    transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease;
-  }
-  .build-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent, #6366f1);
-    background: color-mix(in srgb, var(--accent, #6366f1) 18%, transparent);
-  }
-  .bc-token {
-    width: 40px;
-    height: 40px;
-  }
-  .bc-label {
-    font-size: 12px;
-    font-weight: 600;
-  }
   .sidebar {
     flex: none;
     width: 340px;
@@ -1125,141 +660,12 @@
     background: var(--bg-card, #fff);
     overflow-y: auto;
   }
-  .side-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border, #eee);
-  }
   /* Overlay action mirrored to the supply-center card, hugging the sidebar's edge. */
   .map-action {
     position: absolute;
     top: 14px;
     right: 14px;
     z-index: 15;
-  }
-  .side-title {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 12px 14px;
-    min-height: 52px;
-    border-bottom: 1px solid var(--border, #eee);
-  }
-  .side-title .game-name {
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: -0.2px;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    max-width: calc(100% - 180px);
-  }
-  .side-title .leave {
-    position: absolute;
-    left: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border: 1px solid var(--border-strong, #cbd5e1);
-    background: var(--bg-input, #fff);
-    color: var(--text-secondary, #555);
-    border-radius: 6px;
-    padding: 0 10px 0 6px;
-    height: 28px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: var(--font);
-    flex: none;
-  }
-  .side-title .leave:hover {
-    border-color: var(--accent, #3b82f6);
-    color: var(--accent, #3b82f6);
-  }
-  .side-head .nav {
-    border: 1px solid var(--border-strong, #cbd5e1);
-    background: var(--bg-input, #fff);
-    color: var(--text, #1a1a1a);
-    border-radius: 6px;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-    font-size: 15px;
-    line-height: 1;
-    flex: none;
-  }
-  .side-head .nav:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  .side-head .phase-label {
-    flex: 1;
-    text-align: center;
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: -0.2px;
-  }
-  .phase-banner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 10px 14px;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    color: var(--tone, var(--accent));
-    background: var(--tone-subtle, var(--accent-subtle));
-    border-bottom: 1px solid var(--border, #eee);
-    box-shadow: inset 3px 0 0 var(--tone, var(--accent));
-  }
-  .deadline {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--border, #eee);
-  }
-  .deadline .countdown {
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: -0.1px;
-    color: var(--text, #1a1a1a);
-    font-variant-numeric: tabular-nums;
-  }
-  .deadline .deadline-abs {
-    font-size: 11px;
-    color: var(--text-muted, #64748b);
-  }
-  .deadline.urgent .countdown {
-    color: var(--red, #dc2626);
-  }
-  .deadline.grace {
-    background: var(--amber-subtle);
-    box-shadow: inset 3px 0 0 var(--amber);
-    text-align: center;
-  }
-  .deadline.grace .grace-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    text-transform: uppercase;
-    color: var(--amber);
-  }
-  .deadline.grace .grace-detail {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--text, #1a1a1a);
   }
   .side-toolbar {
     display: flex;
@@ -1275,197 +681,5 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-  }
-  .panel {
-    font-size: 14px;
-  }
-  .panel-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-  .prompt {
-    margin: 0 0 8px;
-    color: var(--text-secondary, #555);
-  }
-  .type-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 8px;
-  }
-  .type-row .type {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border: 1px solid var(--border-strong, #bbb);
-    border-radius: 6px;
-    background: var(--bg-input, #fff);
-    color: var(--text, #1a1a1a);
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .type-row .type.active {
-    background: var(--accent, #3b82f6);
-    color: #fff;
-    border-color: var(--accent, #3b82f6);
-  }
-  kbd {
-    font: 11px/1 ui-monospace, monospace;
-    padding: 1px 4px;
-    border-radius: 3px;
-    border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.2));
-    background: var(--bg-hover, rgba(0, 0, 0, 0.06));
-    color: var(--text-secondary, #5c5c5c);
-  }
-  /* On the selected (accent) button the hint needs to read against the blue fill. */
-  .type-row .type.active kbd {
-    border-color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.25);
-    color: #fff;
-  }
-  .link {
-    background: none;
-    border: none;
-    color: var(--accent, #3b82f6);
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .orders {
-    list-style: none;
-    margin: 12px 0 0;
-    padding: 10px 0 0;
-    border-top: 1px solid var(--border, #eee);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .orders li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-variant-numeric: tabular-nums;
-  }
-  .actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border, #eee);
-  }
-  /* Full-width, prominent primary action: Submit (green) / Resubmit (blue). */
-  .actions .primary {
-    width: 100%;
-    padding: 12px 16px;
-    /* Transparent 2px border so the committed "pressed" state (which adds a 2px
-       outline) has identical dimensions — Submitted == Submit, Resubmitted == Resubmit. */
-    border: 2px solid transparent;
-    box-sizing: border-box;
-    border-radius: 8px;
-    color: #fff;
-    cursor: pointer;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.2px;
-  }
-  .actions .primary.submit {
-    background: var(--green, #059669);
-  }
-  .actions .primary.resubmit {
-    background: var(--accent, #2563eb);
-  }
-  .actions .primary:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  /* Committed state (Submitted / Resubmitted): inverted — colored outline + text on
-     the dark panel fill, rather than the solid color. Reads as "done", inert. */
-  .actions .primary.pressed,
-  .actions .primary.pressed:disabled {
-    opacity: 1;
-    cursor: default;
-    box-sizing: border-box;
-    background: transparent;
-    border: 2px solid currentColor;
-    box-shadow: none;
-    filter: none;
-  }
-  .actions .primary.submit.pressed {
-    color: var(--green, #059669);
-  }
-  .actions .primary.resubmit.pressed {
-    color: var(--accent, #2563eb);
-  }
-  /* Nothing to do this phase: amber, inverted, inert — waiting on the other powers. */
-  .actions .primary.waiting.pressed {
-    color: var(--amber, #d97706);
-  }
-  .actions-secondary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-  }
-  .actions-secondary .link {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 12px;
-    color: var(--text-secondary, #777);
-    cursor: pointer;
-  }
-  .actions-secondary .link:hover {
-    color: var(--text, #1a1a1a);
-  }
-  .actions-secondary .link:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  /* Locked-in orders: a calm, slightly recessed card under Submit confirming what's
-     committed on the server. Green accent ties it to the "Submitted" state. */
-  .locked-box {
-    margin-top: 12px;
-    border: 1px solid var(--green, #059669);
-    border-radius: 8px;
-    background: var(--green-subtle, rgba(5, 150, 105, 0.08));
-    padding: 10px 12px;
-  }
-  .locked-head {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    text-transform: uppercase;
-    color: var(--green, #059669);
-    margin-bottom: 8px;
-  }
-  .locked-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green, #059669);
-  }
-  .locked-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-    color: var(--text, #1a1a1a);
-  }
-  .status {
-    font-size: 12px;
-    color: var(--text-secondary, #777);
-  }
-  .status.error {
-    color: #dc2626;
   }
 </style>

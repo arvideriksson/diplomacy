@@ -8,13 +8,14 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { AnyOrder, Order } from './types'
+import { unitAt } from '../adjudicator/state'
 
 type Dislodged = { unit: Unit }
 
-/** A unit's type letter (A/F), searching the given unit lists in priority order. */
-const letterFrom = (lists: Unit[][], province: string): string => {
+/** The type letter (A/F) of the unit in a province, searching unit lists in priority order. */
+const unitLetter = (province: string, ...lists: Unit[][]): string => {
   for (const list of lists) {
-    const u = list.find((x) => x.territory === province)
+    const u = unitAt(list, province)
     if (u) return u.type === 'fleet' ? 'F' : 'A'
   }
   return ''
@@ -27,14 +28,9 @@ export function fmtProvince(map: MapDefinition, id: string, coast?: string): str
   return coast ? `${base}(${coast.toLowerCase()})` : base
 }
 
-const unitLetter = (units: Unit[], province: string): string => {
-  const u = units.find((x) => x.territory === province)
-  return u ? (u.type === 'fleet' ? 'F' : 'A') : ''
-}
-
 /** A movement-phase order in standard notation. */
 export function formatOrder(map: MapDefinition, units: Unit[], o: Order): string {
-  const a = unitLetter(units, o.source)
+  const a = unitLetter(o.source, units)
   const src = fmtProvince(map, o.source, o.sourceCoast)
   switch (o.type) {
     case 'Hold':
@@ -42,14 +38,14 @@ export function formatOrder(map: MapDefinition, units: Unit[], o: Order): string
     case 'Move':
       return `${a} ${src} - ${fmtProvince(map, o.target ?? '', o.targetCoast)}`
     case 'Support': {
-      const aux = unitLetter(units, o.aux ?? '')
+      const aux = unitLetter(o.aux ?? '', units)
       const auxP = fmtProvince(map, o.aux ?? '')
       return o.target && o.target !== o.aux
         ? `${a} ${src} S ${aux} ${auxP} - ${fmtProvince(map, o.target)}`
         : `${a} ${src} S ${aux} ${auxP}`
     }
     case 'Convoy': {
-      const aux = unitLetter(units, o.aux ?? '')
+      const aux = unitLetter(o.aux ?? '', units)
       return `${a} ${src} C ${aux} ${fmtProvince(map, o.aux ?? '')} - ${fmtProvince(map, o.target ?? '')}`
     }
   }
@@ -73,11 +69,11 @@ export function formatAnyOrder(
       return formatOrder(map, units, o)
     case 'Retreat': {
       // the actor is the dislodged unit — a survivor may sit on the same province
-      const a = letterFrom([dislodged.map((d) => d.unit), units], o.source)
+      const a = unitLetter(o.source, dislodged.map((d) => d.unit), units)
       return `${a} ${fmtProvince(map, o.source, o.sourceCoast)} - ${fmtProvince(map, o.target ?? '', o.targetCoast)}`
     }
     case 'Disband': {
-      const a = letterFrom([dislodged.map((d) => d.unit), units], o.source)
+      const a = unitLetter(o.source, dislodged.map((d) => d.unit), units)
       return `${a} ${fmtProvince(map, o.source, o.sourceCoast)} D`
     }
     case 'Build': {
@@ -85,7 +81,7 @@ export function formatAnyOrder(
       return `Build ${a} ${fmtProvince(map, o.source, o.sourceCoast)}`
     }
     case 'Remove': {
-      const a = letterFrom([units], o.source)
+      const a = unitLetter(o.source, units)
       return `Remove ${a} ${fmtProvince(map, o.source, o.sourceCoast)}`
     }
   }

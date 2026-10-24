@@ -1,18 +1,19 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { fade, slide, fly } from 'svelte/transition'
   import { user } from '../lib/auth'
   import {
     fetchGame, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
     claimNation, DEFAULT_SETTINGS,
   } from '../lib/game'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
-  import { getMap, maps } from '../lib/maps'
+  import { getMap } from '../lib/maps'
   import { initialBoard } from '../lib/adjudicator'
-  import { errorMessage } from '../lib/errors'
-  import PhaseTimerSettings from './PhaseTimerSettings.svelte'
-  import GracePeriodSetting from './GracePeriodSetting.svelte'
-  import InfoTip from './InfoTip.svelte'
+  import { actionRunner } from '../lib/action'
+  import LobbySettings from './LobbySettings.svelte'
+  import PowerPicker from './PowerPicker.svelte'
+  import InviteCard from './InviteCard.svelte'
+  import PlayerList from './PlayerList.svelte'
+  import LobbyActions from './LobbyActions.svelte'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -23,7 +24,6 @@
   let loading = !initialGame
   let saving = false
   let starting = false
-  let copied = false
   let channel: ReturnType<typeof subscribeToGame> | null = null
 
   let joiningGame = false
@@ -31,7 +31,7 @@
   $: isAdmin = game && $user && game.created_by === $user.id
   $: playerCount = game ? Object.keys(game.players).length : 0
   $: isMember = game && $user && !!game.players[$user.id]
-  $: canJoin = game && $user && !isMember && playerCount < 7 && game.phase === 'lobby'
+  $: canJoin = game && $user && !isMember && playerCount < maxPlayers && game.phase === 'lobby'
   $: canStart = isAdmin && playerCount >= 2 && game?.phase === 'lobby'
 
   $: settingsName = game?.name ?? ''
@@ -52,6 +52,8 @@
   // ── Power picker (shown when nations aren't random) ──────────────────────────
   $: map = getMap(game?.map_id ?? 'classical')
   $: powers = map.powers
+  // One seat per power.
+  $: maxPlayers = powers.length
   $: myNation = game && $user ? game.players[$user.id]?.nation : undefined
   // power id -> the player holding it
   $: holderByNation = game
@@ -66,19 +68,18 @@
   // Centers each power starts with (home centers plus any variant extras, e.g. 1900 Egypt).
   $: startCenters = Object.values(initialBoard(map).supplyCenters)
   $: homeCenters = (id: string): number => startCenters.filter((n) => n === id).length
-  const powerName = (id: string): string => powers.find((p) => p.id === id)?.name ?? id
-  const powerColor = (id: string): string | undefined => powers.find((p) => p.id === id)?.color
 
+  // Failed actions report inline instead of becoming unhandled rejections. Power
+  // claims report next to the picker; everything else under the title.
+  let error = ''
   let claimError = ''
+  const run = actionRunner((m) => (error = m))
+  const runClaim = actionRunner((m) => (claimError = m))
+
   async function claimPower(nation: string) {
     if (!game || !isMember || game.phase !== 'lobby') return
-    claimError = ''
-    try {
-      // clicking your own power releases it
-      await claimNation(gameId, myNation === nation ? null : nation)
-    } catch (e) {
-      claimError = errorMessage(e)
-    }
+    // clicking your own power releases it
+    await runClaim(() => claimNation(gameId, myNation === nation ? null : nation))
   }
 
   onMount(async () => {
@@ -123,7 +124,7 @@
       // The map is a top-level column, not a setting; only mutable in the lobby.
       const updates: Parameters<typeof updateGame>[1] = { name: settingsName, settings }
       if (game.phase === 'lobby') updates.map_id = settingsMapId
-      game = await updateGame(gameId, updates)
+      game = (await run(() => updateGame(gameId, updates))) ?? game
     } finally {
       saving = false
     }
@@ -131,15 +132,19 @@
 
   async function togglePrivate() {
     if (!game || !isAdmin) return
-    game = await updateGame(gameId, { is_private: !game.is_private })
+    const isPrivate = !game.is_private
+    game = (await run(() => updateGame(gameId, { is_private: isPrivate }))) ?? game
   }
 
   async function handleStartGame() {
     if (!game || !isAdmin) return
     starting = true
     try {
-      game = await startGame(game)
-      onStart(game)
+      const started = await run(() => startGame(game!))
+      if (started) {
+        game = started
+        onStart(started)
+      }
     } finally {
       starting = false
     }
@@ -149,7 +154,7 @@
     if (!game || !$user || !canJoin) return
     joiningGame = true
     try {
-      game = await joinGame(gameId)
+      game = (await run(() => joinGame(gameId))) ?? game
     } finally {
       joiningGame = false
     }
@@ -157,24 +162,16 @@
 
   async function handleLeave() {
     if (!game || !$user) return
-    await leaveGame(gameId)
-    onBack() // leaving returns to the game list
+    const left = await run(async () => (await leaveGame(gameId), true))
+    if (left) onBack() // leaving returns to the game list
   }
 
   async function handleKick(playerId: string) {
     if (!game || !isAdmin) return
-    await kickPlayer(gameId, playerId)
+    const kicked = await run(async () => (await kickPlayer(gameId, playerId), true))
+    if (!kicked || !game) return
     const { [playerId]: _, ...remaining } = game.players
     game = { ...game, players: remaining }
-  }
-
-  // The game's UUID is the invite token — anyone with this link can join the lobby.
-  $: inviteLink = `${window.location.origin}/join/${gameId}`
-
-  function copyInviteLink() {
-    navigator.clipboard.writeText(inviteLink)
-    copied = true
-    setTimeout(() => (copied = false), 2000)
   }
 
   function onTimersChange(t: PhaseTimers) {
@@ -187,12 +184,11 @@
     saveSettings()
   }
 
-  // Variant = which board to play. Derived from the map registry, so adding a map
-  // here makes it selectable automatically.
-  const MAP_OPTIONS = Object.values(maps).map((m) => ({
-    value: m.id,
-    label: m.name,
-  }))
+  // A toggle setting: apply the new value locally, then persist.
+  const setAndSave = (apply: (v: boolean) => void) => (v: boolean) => {
+    apply(v)
+    saveSettings()
+  }
 </script>
 
 {#if loading}
@@ -214,318 +210,70 @@
         {:else}
           <h1>{game.name}</h1>
         {/if}
-        <span class="phase-badge">{game.phase}</span>
+        <span class="badge badge-caps phase-badge">{game.phase}</span>
       </div>
+      {#if error}<p class="form-error">{error}</p>{/if}
     </div>
 
     <div class="lobby-grid">
       <div class="lobby-main">
-        <!-- Settings -->
-        <section class="card">
-          <div class="card-head">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            <h2>Game Settings</h2>
-          </div>
-
-          <div class="setting-group">
-            <span class="setting-label">Phase Timers<InfoTip text="How long each phase runs before its deadline." /></span>
-            <PhaseTimerSettings
-              timers={settingsPhaseTimers}
-              disabled={!isAdmin}
-              onChange={onTimersChange}
-            />
-          </div>
-
-          <div class="setting-group">
-            <span class="setting-label">Grace Period<InfoTip text="If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold)." /></span>
-            <GracePeriodSetting
-              value={settingsGracePeriod}
-              movement={settingsPhaseTimers.movement}
-              disabled={!isAdmin}
-              onChange={onGraceChange}
-            />
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <div>
-                <span class="setting-label">Early Resolution<InfoTip text="Resolve as soon as every power has submitted, instead of waiting for the deadline." /></span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsEarlyResolution} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <span class="setting-label">Variant</span>
-            <div class="variant-options">
-              {#each MAP_OPTIONS as opt}
-                <button
-                  class="variant-card"
-                  class:active={settingsMapId === opt.value}
-                  disabled={!canChooseMap}
-                  on:click={() => { settingsMapId = opt.value; saveSettings() }}
-                >
-                  <span class="variant-name">{opt.label}</span>
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <div>
-                <span class="setting-label">Gunboat<InfoTip text="No press: players cannot chat or negotiate." /></span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsGunboat} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <div>
-                <span class="setting-label">Allow Spectators</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsSpectators} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <div>
-                <span class="setting-label">Random Nation Assignment<InfoTip text="Powers are dealt at random when the game starts." /></span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsRandomNations} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <div>
-                <span class="setting-label">Public{#if hostControls}<InfoTip text="Turn off host controls to make the game public." />{/if}</span>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" checked={!game.is_private} disabled={!isAdmin || hostControls}
-                  on:change={togglePrivate} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="setting-group">
-            <div class="toggle-row">
-              <span class="setting-label">Host Controls<InfoTip text="The host can revert turns, resolve phases early and change the deadline and timers mid-game. Fixed once the game starts. Private games only." /></span>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsHostControls} disabled={!isAdmin || !game.is_private}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-        </section>
+        <LobbySettings
+          isAdmin={!!isAdmin}
+          canChooseMap={!!canChooseMap}
+          timers={settingsPhaseTimers}
+          grace={settingsGracePeriod}
+          earlyResolution={settingsEarlyResolution}
+          mapId={settingsMapId}
+          gunboat={settingsGunboat}
+          spectators={settingsSpectators}
+          randomNations={settingsRandomNations}
+          isPrivate={game.is_private}
+          hostControls={settingsHostControls}
+          hostControlsLocked={hostControls}
+          {onTimersChange}
+          {onGraceChange}
+          onEarlyChange={setAndSave((v) => (settingsEarlyResolution = v))}
+          onMapChange={(id) => { settingsMapId = id; saveSettings() }}
+          onGunboatChange={setAndSave((v) => (settingsGunboat = v))}
+          onSpectatorsChange={setAndSave((v) => (settingsSpectators = v))}
+          onRandomNationsChange={setAndSave((v) => (settingsRandomNations = v))}
+          onTogglePrivate={togglePrivate}
+          onHostControlsChange={setAndSave((v) => (settingsHostControls = v))}
+        />
 
         {#if game.phase === 'lobby' && !settingsRandomNations && isMember}
-          <section class="card power-picker">
-            <div class="card-head"><h2>Choose your power</h2></div>
-            {#if claimError}<p class="error">{claimError}</p>{/if}
-            <div class="power-grid">
-              {#each powers as power (power.id)}
-                {@const holder = holderByNation[power.id]}
-                {@const mine = myNation === power.id}
-                {@const takenByOther = Boolean(holder) && !mine}
-                <button
-                  class="power-card"
-                  class:mine
-                  class:taken={takenByOther}
-                  style={`--power: ${power.color}`}
-                  disabled={takenByOther}
-                  on:click={() => claimPower(power.id)}
-                >
-                  <span class="power-name">{power.name}</span>
-                  <span class="power-holder">
-                    {#if mine}✓ You
-                    {:else if holder}{holder.info.display_name ?? 'Player'}
-                    {:else}Available{/if}
-                  </span>
-                </button>
-              {/each}
-            </div>
-          </section>
+          <PowerPicker {powers} {holderByNation} {myNation} error={claimError} onClaim={claimPower} />
         {/if}
       </div>
 
       <div class="lobby-sidebar">
-        <!-- Invite -->
         {#if game.phase === 'lobby'}
-          <section class="card invite-card">
-            <div class="card-head">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              <h2>Invite Players</h2>
-            </div>
-            <button class="invite-link-display" on:click={copyInviteLink} class:copied>
-              <span class="link-text">{inviteLink}</span>
-              {#if copied}
-                <span class="copy-label" transition:fade={{ duration: 120 }}>
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  Copied
-                </span>
-              {:else}
-                <span class="copy-label">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                  </svg>
-                  Copy
-                </span>
-              {/if}
-            </button>
-          </section>
+          <InviteCard {gameId} />
         {/if}
 
-        <!-- Players -->
-        <section class="card">
-          <div class="card-head">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-            <h2>Players</h2>
-            <span class="player-counter">{playerCount}/7</span>
-          </div>
+        <PlayerList
+          players={game.players}
+          {powers}
+          {maxPlayers}
+          hostId={game.created_by}
+          userId={$user?.id}
+          isAdmin={!!isAdmin}
+          onLeave={handleLeave}
+          onKick={handleKick}
+        />
 
-          <div class="player-list">
-            {#each Object.entries(game.players) as [uid, player] (uid)}
-              {@const info = player}
-              <div
-                class="player-row"
-                class:has-nation={info.nation}
-                style={info.nation ? `--power: ${powerColor(info.nation)}` : ''}
-                transition:fly={{ y: 10, duration: 200 }}
-              >
-                <div class="player-avatar-wrap">
-                  {#if info.avatar_url}
-                    <img src={info.avatar_url} alt="" class="player-avatar" />
-                  {:else}
-                    <div class="player-avatar placeholder">
-                      {(info.display_name ?? '?')[0].toUpperCase()}
-                    </div>
-                  {/if}
-                </div>
-                <div class="player-info">
-                  <span class="player-name">
-                    {info.display_name ?? 'Anonymous'}
-                    {#if uid === game.created_by}
-                      <span class="host-badge">Host</span>
-                    {/if}
-                  </span>
-                  {#if info.nation}
-                    <span class="player-nation">{powerName(info.nation)}</span>
-                  {/if}
-                </div>
-                {#if uid === $user?.id && !isAdmin}
-                  <button class="leave-btn" on:click={handleLeave} title="Leave game">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-                    </svg>
-                  </button>
-                {:else if isAdmin && uid !== $user?.id}
-                  <button class="kick-btn" on:click={() => handleKick(uid)} title="Remove player">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                {/if}
-              </div>
-            {/each}
-
-            {#each { length: 7 - playerCount } as _, i}
-              <div class="player-row empty-slot">
-                <div class="player-avatar-wrap">
-                  <div class="player-avatar empty">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                  </div>
-                </div>
-                <span class="empty-label">Waiting for player...</span>
-              </div>
-            {/each}
-          </div>
-        </section>
-
-        <!-- Actions -->
-        <div class="lobby-actions">
-          {#if canJoin}
-            <button
-              class="btn-join"
-              disabled={joiningGame}
-              on:click={handleJoin}
-            >
-              {#if joiningGame}
-                <div class="btn-spinner"></div>
-                Joining...
-              {:else}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="8.5" cy="7" r="4" />
-                  <line x1="20" y1="8" x2="20" y2="14" />
-                  <line x1="23" y1="11" x2="17" y2="11" />
-                </svg>
-                Join Game
-              {/if}
-            </button>
-            {#if playerCount >= 7}
-              <p class="start-hint">Game is full</p>
-            {/if}
-          {:else if isAdmin}
-            <button
-              class="btn-start"
-              disabled={!canStart || starting}
-              on:click={handleStartGame}
-            >
-              {#if starting}
-                <div class="btn-spinner"></div>
-                Starting...
-              {:else}
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
-                Start Game
-              {/if}
-            </button>
-            {#if !canStart && !starting && playerCount < 2}
-              <p class="start-hint">Need at least 2 players to start</p>
-            {/if}
-          {:else if isMember}
-            <p class="waiting-msg">Waiting for host to start the game...</p>
-          {/if}
-        </div>
+        <LobbyActions
+          canJoin={!!canJoin}
+          joining={joiningGame}
+          full={playerCount >= maxPlayers}
+          isAdmin={!!isAdmin}
+          isMember={!!isMember}
+          canStart={!!canStart}
+          {starting}
+          needsPlayers={playerCount < 2}
+          onJoin={handleJoin}
+          onStart={handleStartGame}
+        />
       </div>
     </div>
   </div>
@@ -537,67 +285,6 @@
     align-items: center;
     justify-content: center;
     padding: 80px 0;
-  }
-
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .power-picker {
-    margin-bottom: 24px;
-  }
-  .power-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
-  }
-  .power-card {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    align-items: flex-start;
-    text-align: left;
-    padding: 10px 12px 10px 14px;
-    border: 1px solid var(--border);
-    border-left: 4px solid var(--power, var(--border-strong));
-    border-radius: var(--radius-md);
-    background: var(--bg-card);
-    color: var(--text);
-    cursor: pointer;
-    font-family: var(--font);
-    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-  }
-  .power-card:hover:not(:disabled) {
-    box-shadow: var(--shadow-sm);
-  }
-  .power-card:disabled {
-    cursor: default;
-  }
-  .power-card.taken {
-    opacity: 0.55;
-  }
-  .power-card.mine {
-    border-color: var(--power, var(--accent));
-    background: color-mix(in srgb, var(--power, var(--accent)) 12%, var(--bg-card));
-  }
-  .power-name {
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .power-holder {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    margin-top: 2px;
   }
 
   .lobby-top {
@@ -644,14 +331,11 @@
 
   .phase-badge {
     font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     padding: 3px 10px;
-    border-radius: var(--radius-full);
-    background: var(--accent-subtle);
-    color: var(--accent);
-    flex-shrink: 0;
+  }
+
+  .lobby-top .form-error {
+    margin-top: 12px;
   }
 
   .lobby-grid {
@@ -665,414 +349,5 @@
     .lobby-grid {
       grid-template-columns: 1fr;
     }
-  }
-
-  .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 22px 24px;
-  }
-
-  .card + .card {
-    margin-top: 12px;
-  }
-
-  .card-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .card-head svg {
-    color: var(--text-tertiary);
-    flex-shrink: 0;
-  }
-
-  .card-head h2 {
-    font-size: 15px;
-    font-weight: 600;
-    margin: 0;
-    color: var(--text);
-  }
-
-  .player-counter {
-    margin-left: auto;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    background: var(--bg-elevated);
-    padding: 2px 8px;
-    border-radius: var(--radius-full);
-  }
-
-  /* Settings */
-
-  .setting-group {
-    padding: 16px 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .setting-label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 4px;
-  }
-
-  .variant-options {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .variant-card {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 12px 14px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    cursor: pointer;
-    text-align: left;
-    transition: all 0.12s;
-    font-family: var(--font);
-  }
-
-  .variant-card:hover:not(:disabled) {
-    border-color: var(--border-strong);
-  }
-
-  .variant-card.active {
-    border-color: var(--accent);
-    background: var(--accent-subtle);
-  }
-
-  .variant-card:disabled {
-    cursor: default;
-    opacity: 0.65;
-  }
-
-  .variant-card.active:disabled {
-    opacity: 1;
-  }
-
-  .variant-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .toggle {
-    flex-shrink: 0;
-    cursor: pointer;
-  }
-
-  .toggle input {
-    display: none;
-  }
-
-  .toggle-track {
-    display: block;
-    width: 40px;
-    height: 22px;
-    background: var(--border-strong);
-    border-radius: var(--radius-full);
-    position: relative;
-    transition: background 0.2s;
-  }
-
-  .toggle input:checked + .toggle-track {
-    background: var(--accent);
-  }
-
-  .toggle input:disabled + .toggle-track {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  }
-
-  .toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(18px);
-  }
-
-  /* Invite */
-
-  .invite-card {
-    background: var(--accent-subtle);
-    border-color: var(--accent-muted);
-  }
-
-  .invite-link-display {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    width: 100%;
-    padding: 12px 16px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    font-family: var(--font);
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-
-  .invite-link-display:hover {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-subtle);
-  }
-
-  .invite-link-display.copied {
-    border-color: var(--green);
-    box-shadow: 0 0 0 3px var(--green-subtle);
-  }
-
-  .link-text {
-    flex: 1;
-    min-width: 0;
-    font-family: var(--mono);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text);
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .copy-label {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-  }
-
-  .copied .copy-label {
-    color: var(--green);
-  }
-
-  /* Players */
-
-  .player-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .player-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    transition: background 0.12s;
-  }
-
-  .player-row:not(.empty-slot):hover {
-    background: var(--bg-hover);
-  }
-
-  /* Tint a seated player's row in their chosen nation's color. */
-  .player-row.has-nation,
-  .player-row.has-nation:not(.empty-slot):hover {
-    background: color-mix(in srgb, var(--power) 14%, var(--bg-card));
-    box-shadow: inset 3px 0 0 var(--power);
-  }
-
-  .player-avatar-wrap {
-    flex-shrink: 0;
-  }
-
-  .player-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .player-avatar.placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--accent);
-    color: var(--text-inverse);
-    font-weight: 600;
-    font-size: 13px;
-  }
-
-  .player-avatar.empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-elevated);
-    border: 1px dashed var(--border);
-    color: var(--text-tertiary);
-  }
-
-  .player-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .player-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .host-badge {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 1px 6px;
-    border-radius: var(--radius-full);
-    background: var(--amber-subtle);
-    color: var(--amber);
-  }
-
-  .player-nation {
-    display: inline-block;
-    margin-top: 2px;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: var(--radius-full);
-    background: color-mix(in srgb, var(--power, var(--border-strong)) 22%, transparent);
-    color: var(--text-secondary);
-  }
-
-  .empty-label {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    font-style: italic;
-  }
-
-  .leave-btn, .kick-btn {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 5px 8px;
-    cursor: pointer;
-    color: var(--text-tertiary);
-    transition: all 0.12s;
-    display: flex;
-    align-items: center;
-    font-family: var(--font);
-  }
-
-  .leave-btn:hover, .kick-btn:hover {
-    color: var(--red);
-    border-color: var(--red);
-    background: var(--red-subtle);
-  }
-
-  /* Start Game */
-
-  .lobby-actions {
-    margin-top: 12px;
-    text-align: center;
-  }
-
-  .btn-join, .btn-start {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    padding: 14px 24px;
-    font-size: 16px;
-    font-weight: 700;
-    color: white;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-    border: none;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    font-family: var(--font);
-    transition: transform 0.1s, box-shadow 0.15s, opacity 0.15s;
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-  }
-
-  .btn-join {
-    background: linear-gradient(135deg, var(--green) 0%, #047857 100%);
-    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.3);
-  }
-
-  .btn-join:hover:not(:disabled), .btn-start:hover:not(:disabled) {
-    transform: translateY(-1px);
-  }
-
-  .btn-join:hover:not(:disabled) {
-    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.4);
-  }
-
-  .btn-start:hover:not(:disabled) {
-    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
-  }
-
-  .btn-join:active:not(:disabled), .btn-start:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  .btn-join:disabled, .btn-start:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    box-shadow: none;
-  }
-
-  .btn-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  .start-hint {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin: 10px 0 0;
-  }
-
-  .waiting-msg {
-    font-size: 14px;
-    color: var(--text-tertiary);
-    margin: 0;
-    padding: 14px;
-    background: var(--bg-elevated);
-    border-radius: var(--radius-md);
-    border: 1px dashed var(--border);
-    text-align: center;
   }
 </style>

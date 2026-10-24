@@ -2,6 +2,9 @@
   import { classicalMap } from '../lib/maps/classical'
   import { getMap } from '../lib/maps'
   import GameBoard from './GameBoard.svelte'
+  import VictoryBanner from './VictoryBanner.svelte'
+  import StatusPage from './StatusPage.svelte'
+  import { powerName } from '../lib/powers'
   import {
     sandboxes,
     resolveCurrent,
@@ -32,7 +35,6 @@
   $: board = frame?.board
   // The game is over once the board shows a winner; the sandbox then becomes read-only.
   $: winner = board ? victoryFor(map, board.supplyCenters) : undefined
-  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   $: canBack = sb ? sb.cursor > 0 : false
   $: canForward = sb ? sb.cursor < sb.frames.length - 1 : false
 
@@ -80,10 +82,7 @@
 </script>
 
 {#if !sb || !board}
-  <div class="missing">
-    <p>This sandbox no longer exists.</p>
-    <button on:click={onBack}>Back</button>
-  </div>
+  <StatusPage message="This sandbox no longer exists." actionLabel="Back" onAction={onBack} />
 {:else}
   <div class="sandbox-stage">
   <GameBoard
@@ -121,10 +120,10 @@
       {#if winner || lastResults.length}
         <div class="results-stack">
           {#if winner}
-            <div class="card victory">🏆 {winnerName} wins with {winner.centers} supply centers.</div>
+            <VictoryBanner winner={{ name: powerName(map.powers, winner.nation), centers: winner.centers }} />
           {/if}
           {#if lastResults.length}
-            <div class="card results">
+            <div class="glass results">
               <h4>Last resolution</h4>
               <ul>
                 {#each lastResults as r (src(r) + r.code)}
@@ -153,11 +152,6 @@
     position: relative;
     height: 100%;
   }
-  .missing {
-    max-width: 600px;
-    margin: 80px auto;
-    text-align: center;
-  }
   .tool {
     padding: 4px 9px;
     border: 1px solid var(--border-strong, #cbd5e1);
@@ -181,23 +175,18 @@
     flex-direction: column;
     gap: 8px;
   }
-  .card {
+  /* .glass, with a lighter shadow: it sits in the sidebar, not over the map. */
+  .results {
     padding: 10px 12px;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--bg-card, #fff) 94%, transparent);
-    backdrop-filter: blur(10px) saturate(1.4);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
     font-size: 13px;
   }
-  .card.victory {
-    background: #fef9c3;
-  }
-  .card.results h4 {
+  .results h4 {
     margin: 0 0 6px;
     font-size: 13px;
   }
-  .card.results ul {
+  .results ul {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -207,7 +196,7 @@
     flex-direction: column;
     gap: 2px;
   }
-  .card.results li {
+  .results li {
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -225,7 +214,7 @@
     color: var(--text-secondary, #777);
     font-size: 12px;
   }
-  .card.results li.fail .r-code {
+  .results li.fail .r-code {
     color: #b45309;
   }
   .r-reason {

@@ -1,10 +1,11 @@
 // Adjacency / path primitives. The engine routes all map-graph queries through
 // here. Low-level reachability reuses the existing order-options helpers; the
-// multi-fleet convoy-path BFS is the one primitive options.ts lacks.
+// convoy chain search is shared with order entry via convoy.ts.
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import { reachable, reachableCoasts } from '../orders/options'
+import { convoyChain } from './convoy'
 
 /** Raw province adjacency (coast-collapsed), sorted. */
 export const adjacentProvinces = (map: MapDefinition, province: string): string[] => {
@@ -42,19 +43,7 @@ export const convoyPathExists = (
   lastHopOk: (sea: string) => boolean = () => true,
 ): boolean => {
   if (from === to) return false
-  const seasAdjTo = (p: string) => adjacentProvinces(map, p).includes(to) && lastHopOk(p)
-  const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s))
-  const visited = new Set<string>(frontier)
-  const queue = [...frontier].sort()
-  while (queue.length) {
-    const s = queue.shift()!
-    if (seasAdjTo(s)) return true
-    for (const n of adjacentProvinces(map, s)) {
-      if (convoyFleets.has(n) && !visited.has(n)) {
-        visited.add(n)
-        queue.push(n)
-      }
-    }
-  }
-  return false
+  return [...convoyChain(map, from, convoyFleets)].some(
+    (sea) => adjacentProvinces(map, sea).includes(to) && lastHopOk(sea),
+  )
 }

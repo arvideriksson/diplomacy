@@ -9,6 +9,7 @@ import type { Order } from '../orders/types'
 import type { BoardState, DislodgedUnit, OrderResult, ResultCode } from './types'
 import { sortIds, sortUnits, unitAt } from './state'
 import { canMoveDirect, convoyPathExists, landingCoasts } from './graph'
+import { convoyFleets } from './convoy'
 import { canConvoyFrom, isLongRoute } from './rules'
 
 type Kind = 'hold' | 'move' | 'support' | 'convoy'
@@ -442,12 +443,9 @@ function normalize(
       // physical chain of fleets (in sea provinces, any power) connects source and
       // destination. With neither, the order is illegal and treated as a hold, which
       // can receive support (DATC 6.D.32, "a missing fleet").
-      const seaFleets = new Set(
-        units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory),
-      )
       if (
         convoyIntents.has(`${unit.territory}->${o.target}`) ||
-        convoyPathExists(map, unit.territory, o.target, seaFleets)
+        convoyPathExists(map, unit.territory, o.target, convoyFleets(map, units))
       ) {
         return m
       }

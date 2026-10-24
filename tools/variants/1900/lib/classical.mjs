@@ -2,8 +2,8 @@
 // supply-center positions, unit anchors, named coasts and individually placed labels.
 import pc from 'polygon-clipping'
 import { pathRings } from './svgpath.mjs'
+import { attrs } from './xml.mjs'
 
-const attrs = (s) => Object.fromEntries([...s.matchAll(/([\w:-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]))
 const pointsRing = (points) => {
   const n = points.trim().split(/[\s,]+/).map(Number), ring = []
   for (let i = 0; i + 1 < n.length; i += 2) ring.push([n[i], n[i + 1]])

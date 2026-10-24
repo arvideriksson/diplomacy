@@ -82,6 +82,18 @@ export function resolveRetreat(
   return { units: sortUnits(survivors), results }
 }
 
+/**
+ * Whether `dest` is closed to a retreat regardless of reach: occupied, the province
+ * the dislodging attack came from, or a standoff (contested) square. `attackedFrom`
+ * may be empty when the unit was dislodged by a convoy. Shared with order entry.
+ */
+export const isRetreatBlocked = (
+  dest: string,
+  attackedFrom: string | undefined,
+  occupied: Set<string>,
+  contested: string[],
+): boolean => occupied.has(dest) || dest === attackedFrom || contested.includes(dest)
+
 function legalRetreat(
   map: MapDefinition,
   dis: BoardState['dislodged'][number],
@@ -90,9 +102,7 @@ function legalRetreat(
   occupied: Set<string>,
   contested: string[],
 ): boolean {
-  if (occupied.has(dest)) return false
-  if (dest === dis.attackedFrom) return false
-  if (contested.includes(dest)) return false
+  if (isRetreatBlocked(dest, dis.attackedFrom, occupied, contested)) return false
   if (!directReach(map, dis.unit).includes(dest)) return false
   const destT = map.territories[dest]
   if (dis.unit.type === 'fleet' && destT?.coasts) {

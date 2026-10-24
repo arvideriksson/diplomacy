@@ -1,6 +1,8 @@
 <script lang="ts">
   import { user, signOut } from '../lib/auth'
   import { fade, fly } from 'svelte/transition'
+  import Avatar from './Avatar.svelte'
+  import Icon from './Icon.svelte'
 
   let showMenu = false
 
@@ -18,13 +20,7 @@
       on:click|stopPropagation={() => (showMenu = !showMenu)}
       aria-expanded={showMenu}
     >
-      {#if $user.user_metadata?.avatar_url}
-        <img src={$user.user_metadata.avatar_url} alt="" class="avatar" />
-      {:else}
-        <div class="avatar placeholder">
-          {$user.email?.[0]?.toUpperCase() ?? '?'}
-        </div>
-      {/if}
+      <Avatar src={$user.user_metadata?.avatar_url} name={$user.email} />
     </button>
 
     {#if showMenu}
@@ -38,9 +34,7 @@
         </div>
         <div class="dropdown-divider"></div>
         <button class="dropdown-item sign-out" on:click={signOut}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-          </svg>
+          <Icon name="logout" size={16} />
           Sign out
         </button>
       </div>
@@ -64,24 +58,6 @@
 
   .avatar-btn:hover, .avatar-btn[aria-expanded="true"] {
     border-color: var(--border-strong);
-  }
-
-  .avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--accent);
-    color: var(--text-inverse);
-    font-weight: 600;
-    font-size: 13px;
   }
 
   .dropdown {

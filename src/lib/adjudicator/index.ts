@@ -3,9 +3,9 @@
 // Edge Function (Deno). Never import browser/Node-coupled modules here.
 
 export { adjudicate, victoryFor } from './resolve'
-export { idleNations } from './idle'
+export { idleNations, isIdle } from './idle'
 export { foldGame, replayLog, roundRank } from './fold'
-export type { LogRow, ReplayFrame, ResolvedRound, RoundKey } from './fold'
+export type { LogRow, ReplayFrame, ResolvedRound } from './fold'
 export type {
   AdjudicationResult,
   AnyOrder,
@@ -16,6 +16,7 @@ export type {
   Phase,
   ResultCode,
   RetreatOrder,
+  RoundKey,
   Season,
 } from './types'
 
@@ -56,22 +57,17 @@ export function boardFromUnits(
   }
 }
 
-/** Build the opening board for a map: starting units + home-center ownership. */
-export function initialBoard(map: MapDefinition): BoardState {
-  const units = map.startingUnits.map((u) => ({
+/** A map's starting units as board units. */
+export function startingUnits(map: MapDefinition): Unit[] {
+  return map.startingUnits.map((u) => ({
     type: u.type,
     nation: u.power,
     territory: u.territory,
     coast: u.coast,
   }))
-  return {
-    mapId: map.id,
-    year: map.startingYear ?? 1901,
-    season: 'Spring',
-    phase: 'movement',
-    units: sortUnits(units),
-    supplyCenters: seedOwnership(map, units),
-    dislodged: [],
-    contested: [],
-  }
+}
+
+/** Build the opening board for a map: starting units + home-center ownership. */
+export function initialBoard(map: MapDefinition): BoardState {
+  return boardFromUnits(map, startingUnits(map), map.startingYear ?? 1901, 'Spring', 'movement')
 }

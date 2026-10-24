@@ -1,23 +1,12 @@
 // Adapts this app's game types into the renderer's RenderState (with dSVG ids).
 import type { MapDefinition } from '../mapDefinition'
-import type { Unit } from '../game'
+import type { Unit } from '../types'
 import type { RenderState, UnitState, OrderState } from './mapRenderer'
 import type { UnitStyle } from './unitStyles'
 import type { MapTheme } from './theme'
 import { DEFAULT_THEME } from './theme'
 import { toDsvgId } from './idMap'
-
-const normalize = (nation: string): string => nation.toLowerCase()
-
-/** Resolve a nation token (power id or display name) to its colour. */
-const makeColorResolver = (mapDef: MapDefinition) => {
-  const byKey = new Map<string, string>()
-  for (const power of mapDef.powers) {
-    byKey.set(normalize(power.id), power.color)
-    byKey.set(normalize(power.name), power.color)
-  }
-  return (nation: string): string | undefined => byKey.get(normalize(nation))
-}
+import { powerColor } from '../powers'
 
 export type ToRenderStateInput = {
   mapDef: MapDefinition
@@ -54,7 +43,6 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     unitStyle,
     theme = DEFAULT_THEME,
   } = input
-  const resolveColor = makeColorResolver(mapDef)
 
   // Land + coast provinces (as dSVG ids) — what the renderer paints with the land
   // base colour and rings with the coastline shadow. Everything else is open sea.
@@ -64,29 +52,26 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
   const nationColors: Record<string, string> = {}
 
   const register = (nation: string): string => {
-    const color = resolveColor(nation)
+    const color = powerColor(mapDef.powers, nation)
     if (color) {
       nationColors[nation] = color
     }
     return nation
   }
 
-  const unitStates: UnitState[] = units.map((unit) => ({
+  const toUnitState = (unit: Unit, dislodged?: true): UnitState => ({
     province: toDsvgId(unit.territory, unit.coast),
     nation: register(unit.nation),
     type: unit.type === 'fleet' ? 'Fleet' : 'Army',
-  }))
+    ...(dislodged ? { dislodged } : {}),
+  })
 
   // Dislodged units sit at their old province alongside the occupier that pushed them
   // out; the renderer offsets them and adds a retreat flag so the two read as distinct.
-  for (const unit of dislodged) {
-    unitStates.push({
-      province: toDsvgId(unit.territory, unit.coast),
-      nation: register(unit.nation),
-      type: unit.type === 'fleet' ? 'Fleet' : 'Army',
-      dislodged: true,
-    })
-  }
+  const unitStates: UnitState[] = [
+    ...units.map((unit) => toUnitState(unit)),
+    ...dislodged.map((unit) => toUnitState(unit, true)),
+  ]
 
   const supplyCenters = Object.entries(ownership)
     .filter(([, power]) => Boolean(power))

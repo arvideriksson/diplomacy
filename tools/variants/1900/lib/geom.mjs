@@ -30,7 +30,8 @@ const inRing = ([x, y], r) => {
 }
 export const contains = (g, p) => g.some((pl) => inRing(p, pl[0]) && !pl.slice(1).some((h) => inRing(p, h)))
 
-const segDist = (p, a, b) => {
+/** Distance from point p to segment a–b. */
+export const segDist = (p, a, b) => {
   const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)))
   return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
 }

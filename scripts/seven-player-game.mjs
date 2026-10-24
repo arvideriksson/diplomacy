@@ -76,8 +76,7 @@ async function main() {
       players: {
         [host.id]: { role: 'host', display_name: host.label, joined_at: new Date().toISOString() },
       },
-      units: [],
-      settings: { turn_timer: '24h', gunboat: false, allow_spectators: true, random_nations: false },
+      // settings omitted: the column default is the server's canonical default
       is_private: false,
       created_by: host.id,
     })
@@ -101,27 +100,12 @@ async function main() {
     log(`  ✓ ${p.label} → ${p.nation}`)
   }
 
-  // ── host starts the game (mirrors startGame: seed units, open movement) ──────
+  // ── host starts the game (start_game RPC: deals powers, opens movement) ─────
   log('Host starts the game…')
-  const { data: lobby } = await host.client.from('games').select('players').eq('id', game.id).single()
-  const units = map.startingUnits.map((u) => ({
-    type: u.type,
-    nation: u.power,
-    territory: u.territory,
-    coast: u.coast,
-  }))
-  const { error: startErr } = await host.client
-    .from('games')
-    .update({
-      phase: 'movement',
-      year: 1901,
-      season: 'Spring',
-      units,
-      deadline: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      players: lobby.players, // already carry each player's claimed nation
-    })
-    .eq('id', game.id)
+  const { error: startErr } = await host.client.rpc('start_game', { p_game_id: game.id })
   if (startErr) throw new Error(`startGame failed: ${startErr.message}`)
+  // The server leaves the snapshot null, i.e. the map's opening position.
+  const units = map.startingUnits.map((u) => ({ nation: u.power, territory: u.territory, coast: u.coast }))
   log(`  ✓ movement phase, ${units.length} units on the board`)
 
   // ── each player submits Hold orders for its units and readies ────────────────
