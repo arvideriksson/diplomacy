@@ -8,7 +8,7 @@ import {
   curvedArrow,
   supportHoldArrow,
   convoyArrow,
-  swallowtailArrow,
+  ribbonArrow,
   bSplinePoints,
   quadraticPoints,
   routeLeg,
@@ -131,7 +131,7 @@ const GHOST_UNIT_OPACITY = 0.6
 
 const ORDER_LINE_WIDTH = 3
 const SUCCESS_COLOR = 'rgba(0,0,0,1)'
-// Move orders are drawn as swallowtail arrows: one solid shape, notched tail, broad head.
+// Move orders are drawn as solid ribbon arrows: one outlined shape with a broad head.
 const MOVE_SHAFT_WIDTH = 8
 const MOVE_HEAD_WIDTH = 9
 const MOVE_HEAD_LENGTH = 11
@@ -820,12 +820,11 @@ const moveArrow = (
   color: string,
   renderCenter: ((x: number, y: number, angle: number) => string) | undefined
 ): string =>
-  swallowtailArrow({
+  ribbonArrow({
     points,
     shaftWidth: MOVE_SHAFT_WIDTH,
     headWidth: MOVE_HEAD_WIDTH,
     headLength: MOVE_HEAD_LENGTH,
-    notch: 0,
     offset: UNIT_RADIUS,
     startOffset: 0,
     stroke: SUCCESS_COLOR,
@@ -930,7 +929,7 @@ const convoyOrderParts = (
   return parts
 }
 
-// Orders split into two z-layers: `behind` (move, convoy and joining support arrows, drawn under the units so a
+// Orders split into two z-layers: `behind` (move, support and convoy arrows, drawn under the units so a
 // triangular fleet's token cleanly covers the arrow's center-anchored tail) and
 // `front` (everything else, drawn over the units as before).
 const ordersLayer = (
@@ -945,6 +944,7 @@ const ordersLayer = (
   const routes = convoyRoutes(orders, unitPositions)
   const behind: string[] = [
     ...tributaryParts(orders, unitPositions, state, groups, headToHead, fixedRoutes),
+    ...supportOrderParts(orders, unitPositions, state, groups, headToHead),
     ...moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes),
   ]
   const front: string[] = []
@@ -955,7 +955,6 @@ const ordersLayer = (
       front.push(holdMarkup(order, position))
     }
   }
-  front.push(...supportOrderParts(orders, unitPositions, state, groups, headToHead))
   behind.push(...convoyOrderParts(orders, unitPositions, state, routes))
   for (const order of ofType('Build')) {
     const position = unitPositions.get(order.source)
