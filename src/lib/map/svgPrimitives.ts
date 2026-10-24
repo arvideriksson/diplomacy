@@ -140,14 +140,13 @@ export const curvedArrow = (o: CurvedArrowOptions): string => {
   const cp1 = { x: source.x + (o.x3 - source.x) * 0.5, y: source.y + (o.y3 - source.y) * 0.5 }
   const cp2 = { x: tip.x + (ecp.x - tip.x) * 0.5, y: tip.y + (ecp.y - tip.y) * 0.5 }
   const points = Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, source, cp1, cp2, tip))
-  return swallowtailArrow({
+  return ribbonArrow({
     points,
     shaftWidth: o.lineWidth,
     headWidth: o.arrowWidth,
     headLength: o.arrowLength,
-    notch: o.lineWidth / 2,
     offset: 0,
-    startOffset: o.offset,
+    startOffset: 0, // from the unit's centre; drawn beneath the unit
     fill: o.fill,
     stroke: o.stroke,
     strokeWidth: o.strokeWidth,
@@ -179,14 +178,13 @@ export const supportHoldArrow = (o: SupportHoldArrowOptions): string => {
   const endY = o.y2 - endOffset * Math.sin(angle)
   return (
     `<g>` +
-    swallowtailArrow({
+    ribbonArrow({
       points: [{ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }],
       shaftWidth: o.lineWidth,
       headWidth: 0,
       headLength: 0,
-      notch: o.lineWidth / 2,
       offset: endOffset,
-      startOffset: o.offset,
+      startOffset: 0, // from the unit's centre; drawn beneath the unit
       fill: o.fill,
       stroke: o.stroke,
       strokeWidth: o.strokeWidth,
@@ -265,12 +263,11 @@ export const convoyArrow = (o: ConvoyArrowOptions): string => {
   const end = { x: o.x1 + reach * ux, y: o.y1 + reach * uy }
   return (
     `<g>` +
-    swallowtailArrow({
+    ribbonArrow({
       points: wavyPoints(start, end),
       shaftWidth: o.lineWidth,
       headWidth: 0,
       headLength: 0,
-      notch: 0, // starts under the fleet, so it stays filled to the token's edge
       offset: 0,
       startOffset: 0,
       fill: o.fill,
@@ -400,7 +397,7 @@ const pointAlong = (points: Point[], fraction: number): { point: Point; angle: n
   return { point: b, angle: Math.atan2(b.y - a.y, b.x - a.x) }
 }
 
-export type SwallowtailArrowOptions = {
+export type RibbonArrowOptions = {
   /** The centre line from the unit to the target, straight or sampled from a curve. */
   points: Point[]
   /** Full width of the shaft. */
@@ -408,8 +405,6 @@ export type SwallowtailArrowOptions = {
   /** Half-width of the head at its base. */
   headWidth: number
   headLength: number
-  /** How far the tail's notch cuts back into the shaft (0 for a square tail). */
-  notch: number
   /** Trim at the head end (the target unit's radius). */
   offset: number
   /** Trim at the tail end. */
@@ -424,13 +419,13 @@ export type SwallowtailArrowOptions = {
   renderCenter?: (x: number, y: number, angle: number) => string
 }
 
-/** A move order drawn as one solid shape: a shaft with a notched tail and a broad head. */
-export const swallowtailArrow = (o: SwallowtailArrowOptions): string => {
+/** An order drawn as one solid outlined shape: a shaft along the points and, optionally, a broad head. */
+export const ribbonArrow = (o: RibbonArrowOptions): string => {
   if (o.points.length < 2) {
     return ''
   }
   const line = trimPolylineStart(trimPolylineEnd(o.points, o.offset), o.startOffset)
-  if (polylineLength(line) <= o.headLength + o.notch) {
+  if (polylineLength(line) <= o.headLength) {
     return ''
   }
   const tip = line[line.length - 1]
@@ -449,10 +444,8 @@ export const swallowtailArrow = (o: SwallowtailArrowOptions): string => {
   const base = shaft[shaft.length - 1]
   const headDir = unitVector(tip.x - base.x, tip.y - base.y)
   const wing = (sign: number): Point => ({ x: base.x - headDir.y * o.headWidth * sign, y: base.y + headDir.x * o.headWidth * sign })
-  const tailDir = unitVector(shaft[1].x - shaft[0].x, shaft[1].y - shaft[0].y)
-  const notch = !o.notch ? [] : [{ x: shaft[0].x + tailDir.x * o.notch, y: shaft[0].y + tailDir.y * o.notch }]
   const head = o.headLength ? [wing(1), tip, wing(-1)] : []
-  const outline = [...notch, ...left, ...head, ...right.reverse()]
+  const outline = [...left, ...head, ...right.reverse()]
   const center = pointAlong(line, o.centerAt ?? 0.5)
   return (
     `<g>` +
@@ -486,12 +479,11 @@ export const tributaryArrow = (o: TributaryArrowOptions): string => {
   const lead = Math.min(22, Math.hypot(end.x - o.source.x, end.y - o.source.y) / 2)
   const cp1 = { x: o.source.x + (end.x - o.source.x) * 0.45, y: o.source.y + (end.y - o.source.y) * 0.45 }
   const cp2 = { x: end.x - dir.x * lead, y: end.y - dir.y * lead }
-  return swallowtailArrow({
+  return ribbonArrow({
     points: Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, o.source, cp1, cp2, end)),
     shaftWidth: o.shaftWidth,
     headWidth: 0,
     headLength: 0,
-    notch: 0,
     offset: 0,
     startOffset: 0,
     fill: o.fill,
