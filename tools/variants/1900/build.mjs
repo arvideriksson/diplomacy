@@ -74,6 +74,10 @@ const leftover = union(fillSlivers(P, [...islands, kielCanal, suezCanal], width,
 const redSeaHead = intersect(union(...leftover.filter((pl) => pl[0].every(([x, y]) => x > 1300 && y > 1450))), poly([[1300, 1504], [1400, 1504], [1400, 1600], [1300, 1600]]))
 const sinaiTip = subtract(union(...leftover.filter((pl) => pl[0].every(([x, y]) => x > 1300 && y > 1450))), redSeaHead)
 P.mid = union(P.mid, redSeaHead); P.egy = union(P.egy, sinaiTip)
+// As on the original 1900 board, Hejaz reaches well north of the Gulf of Aqaba and meets Sinai,
+// so Palestine stays clear of the Red Sea.
+const aqabaHead = intersect(P.pal, poly([[1300, 1530], [1300, 1482], [1318, 1483], [1331, 1481], [1340, 1478], [1349, 1479], [1358, 1477], [1367, 1475], [1376, 1476], [1386, 1472], [1420, 1470], [1420, 1530]]))
+P.pal = subtract(P.pal, aqabaHead); P.hej = union(P.hej, aqabaHead)
 const lakes = subtract(leftover, redSeaHead, sinaiTip)
 finalTouches(P)
 // Drop zero-width remnants of merged borders, and hairline holes inside land
@@ -177,13 +181,14 @@ for (const l of kept) {
 }
 for (const m of COAST_MARKS) placer.blockLabel(m.at, 22, 10, m.angle)
 const labelArea = (id) => P[id]
-for (const [id, l] of Object.entries(LABELS).sort(([a], [b]) => area(labelArea(a)) - area(labelArea(b)))) {
+for (const [id, hint] of Object.entries(LABELS).sort(([a], [b]) => area(labelArea(a)) - area(labelArea(b)))) {
+  const l = { size: 16, ...hint }
   // `fixed` labels keep their hand position (they may overlap their supply center).
-  const spot = l.fixed ? (placer.blockLabel(l.at, labelBox({ size: 16, ...l }).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : (l.free ? new LabelPlacer() : placer).place(labelArea(id), { size: 16, ...l }, pole(labelArea(id)).point)
+  const spot = l.fixed ? (placer.blockLabel(l.at, labelBox(l).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : (l.free ? new LabelPlacer() : placer).place(labelArea(id), l, pole(labelArea(id)).point)
   if (!spot) layoutProblems.push(`no room for the ${l.text} label`)
   if (process.env.LABEL_DEBUG) console.log(id, spot && { at: spot.at, angle: spot.angle, size: spot.size })
   labels.push(label({ ...(spot ? { ...l, ...spot } : { ...l, at: l.at ?? pole(P[id]).point }), bold: BOLD_NAMES.has(l.text) }))
-  if (spot) rect(spot.at, labelBox({ size: 16, ...l, size: spot.size }).w, spot.size * 0.8, spot.angle)
+  if (spot) rect(spot.at, labelBox({ ...l, size: spot.size }).w, spot.size * 0.8, spot.angle)
 }
 for (const m of COAST_MARKS) rect(m.at, 22, 10, m.angle)
 
@@ -250,14 +255,17 @@ let longRoutes
   const coastLine = fit(coast)
   place(MOROCCO_NOTE, coastLine, [-1, 1])
   // The long route's two legs: down the Red Sea's centre line and off the bottom edge, then in
-  // from the west edge at the middle of the Mid-Atlantic's stretch of it.
+  // from the west edge, `LONG_ROUTE.fromBottom` of the way up the Mid-Atlantic's stretch of it.
   const down = redLine.dir[1] < 0 ? [-redLine.dir[0], -redLine.dir[1]] : redLine.dir
   const redExit = [redLine.c[0] + down[0] * (HEIGHT + 12 - redLine.c[1]) / down[1], HEIGHT + 12]
   const edge = P.mid.flatMap((pl) => pl[0]).filter(([x]) => x < 0.5).map(([, y]) => y)
-  const westY = (Math.min(...edge) + Math.max(...edge)) / 2
-  const westEntry = [-12, westY], inshore = [LONG_ROUTE.inshore, westY]
+  const westY = Math.max(...edge) - LONG_ROUTE.fromBottom * (Math.max(...edge) - Math.min(...edge))
+  // It starts well off the board on the line through that edge point and the Mid-Atlantic's
+  // unit, so the arrow comes in straight.
+  const westEdge = [0, westY], toward = [units.mid[0] - westEdge[0], units.mid[1] - westEdge[1]], len = Math.hypot(...toward)
+  const westEntry = [westEdge[0] - toward[0] / len * LONG_ROUTE.offBoard, westEdge[1] - toward[1] / len * LONG_ROUTE.offBoard]
   // Egypt joins the Red Sea's centre line first; Hejaz, already at the bottom edge, heads straight off.
-  longRoutes = { egy: [[redLine.c, redExit], [westEntry, inshore]], hej: [[redExit], [westEntry, inshore]] }
+  longRoutes = { egy: [[redLine.c, redExit], [westEntry, westEdge]], hej: [[redExit], [westEntry, westEdge]] }
 }
 
 for (const [id, pt] of Object.entries(centers)) if (!inside(id, pt)) layoutProblems.push(`supply center of ${id} lies outside it`)

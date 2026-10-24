@@ -2,7 +2,7 @@
 import { sharedEdges } from './edges.mjs'
 
 // Adjacencies the board shows as explicit crossings rather than shared borders.
-export const CROSSINGS = new Set(['cly|ire', 'den|swe', 'egy|hej'])
+export const CROSSINGS = new Set(['cly|ire', 'den|swe'])
 
 // The adjacency XML refers to these two seas by their judge aliases.
 const ALIASES = { mao: 'mid', nao: 'nat' }
