@@ -85,6 +85,7 @@ The design is sized to fit Supabase's free tier for ~100 games/month. Two constr
 
 - Supabase env vars are injected at build time via Vite (`import.meta.env.VITE_*`); production secrets come from GitHub Actions secrets.
 - Board-advancing logic lives only in the adjudicator Edge Function (service role); player writes go through RLS-guarded, own-nation order submissions. Never trust the client to mutate game state.
+- Functions in `public` are **not executable by default** (`20250101000128_lock_down_rpcs.sql`). A new client-facing RPC needs an explicit `grant execute … to authenticated` in its migration; internal/service-only functions get no grant.
 - Diplomacy province notation: **seas in ALL CAPS**, **land in Title Case**, **coasts as `Stp(sc)`**.
 
 ## References
