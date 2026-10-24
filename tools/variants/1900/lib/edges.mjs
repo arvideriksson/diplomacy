@@ -1,7 +1,8 @@
 // Recover the shared boundaries of a province partition. Every ring segment is
 // matched to the neighbouring province whose boundary it lies on; consecutive
 // segments with the same neighbour become one polyline. Segments with no
-// neighbour lie on the board frame or reveal a gap in the partition.
+// neighbour lie on the board frame or reveal a gap in the partition. Each chain records
+// its ring (`ring`, with `poly` and `hole` locating it in its province), in ring order.
 const CELL = 8
 
 const segDist = (p, a, b) => {
@@ -12,11 +13,11 @@ const segDist = (p, a, b) => {
 export function sharedEdges(provinces, { tolerance = 0.08, frame } = {}) {
   const segs = []
   const rings = []
-  for (const [id, g] of Object.entries(provinces)) for (const pl of g) for (const r of pl) {
+  for (const [id, g] of Object.entries(provinces)) for (const [pi, pl] of g.entries()) for (const [ri, r] of pl.entries()) {
     const ring = r.at(-1)[0] === r[0][0] && r.at(-1)[1] === r[0][1] ? r.slice(0, -1) : r
     const base = segs.length
     for (let i = 0; i < ring.length; i++) segs.push({ id, a: ring[i], b: ring[(i + 1) % ring.length] })
-    rings.push({ id, base, n: ring.length })
+    rings.push({ id, base, n: ring.length, poly: pi, hole: ri > 0 })
   }
   const grid = new Map()
   segs.forEach((s, k) => {
@@ -37,7 +38,7 @@ export function sharedEdges(provinces, { tolerance = 0.08, frame } = {}) {
     s.other = who ?? (onFrame(m) && onFrame(s.a) && onFrame(s.b) ? '#frame' : null)
   }
   const chains = [], lengths = new Map(), gaps = []
-  for (const { id, base, n } of rings) {
+  for (const [ringIndex, { id, base, n, poly, hole }] of rings.entries()) {
     // Start each walk at a neighbour change so chains do not wrap mid-run.
     let start = 0
     for (let i = 0; i < n; i++) if (segs[base + i].other !== segs[base + (i + n - 1) % n].other) { start = i; break }
@@ -47,7 +48,7 @@ export function sharedEdges(provinces, { tolerance = 0.08, frame } = {}) {
       const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1])
       if (s.other === null) gaps.push({ id, at: s.a, len })
       if (s.other && s.other !== '#frame') { const key = [id, s.other].sort().join('|'); lengths.set(key, (lengths.get(key) ?? 0) + len / 2) }
-      if (!cur || cur.other !== s.other) { cur = { id, other: s.other, points: [s.a] }; chains.push(cur) }
+      if (!cur || cur.other !== s.other) { cur = { id, other: s.other, points: [s.a], ring: ringIndex, poly, hole }; chains.push(cur) }
       cur.points.push(s.b)
     }
   }

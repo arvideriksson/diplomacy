@@ -33,7 +33,8 @@
   }
 
   // Collapsed → just the header bar, to reclaim the map corner when studying it.
-  let collapsed = false
+  // Start folded on phones, where the open card would cover much of the map.
+  let collapsed = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches
   function toggle() {
     collapsed = !collapsed
     if (collapsed) clearNow() // clear any spotlight when folding away

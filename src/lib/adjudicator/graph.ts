@@ -38,9 +38,11 @@ export const convoyPathExists = (
   from: string,
   to: string,
   convoyFleets: Set<string>,
+  /** Optional filter on the final hop (last convoying fleet -> destination). */
+  lastHopOk: (sea: string) => boolean = () => true,
 ): boolean => {
   if (from === to) return false
-  const seasAdjTo = (p: string) => adjacentProvinces(map, p).includes(to)
+  const seasAdjTo = (p: string) => adjacentProvinces(map, p).includes(to) && lastHopOk(p)
   const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s))
   const visited = new Set<string>(frontier)
   const queue = [...frontier].sort()

@@ -8,7 +8,7 @@
   import type { GameState } from '../lib/game'
   import { replayFrames, type HistoryFrame } from '../lib/history'
   import { getMap } from '../lib/maps'
-  import { initialBoard } from '../lib/adjudicator'
+  import { initialBoard, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
 
   export let game: GameState
@@ -22,6 +22,10 @@
   let showAdmin = false
   $: isCreator = !!($user && game.created_by === $user.id)
   $: isActive = ['movement', 'retreat', 'build'].includes(game.phase)
+  // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
+  $: isComplete = game.phase === 'complete'
+  $: winner = isComplete ? victoryFor(map, liveBoard().supplyCenters) : undefined
+  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   // Public games lock their options once started, so there's nothing to manage.
   $: canManage = isCreator && isActive && game.is_private
 
@@ -41,7 +45,7 @@
     try {
       // replayFrames' last frame is the reconstructed current board — drop it and
       // use the authoritative live board for the frontier instead.
-      past = replayFrames(map, await fetchResolvedLog(game.id)).slice(0, -1)
+      past = replayFrames(map, await fetchResolvedLog(game.id), { year: game.year, season: game.season, phase: game.phase }).slice(0, -1)
     } catch {
       past = []
     }
@@ -113,7 +117,7 @@
     gameId={game.id}
     units={frame.board.units}
     ownership={frame.board.supplyCenters}
-    nation={isFrontier ? nation : ''}
+    nation={isFrontier && !isComplete ? nation : ''}
     phase={frame.board.phase}
     season={frame.board.season}
     year={frame.board.year}
@@ -121,8 +125,8 @@
     dislodged={frame.board.dislodged}
     contested={frame.board.contested}
     supplyCenters={frame.board.supplyCenters}
-    readOnly={!isFrontier}
-    deadline={isFrontier ? game.deadline ?? null : null}
+    readOnly={!isFrontier || isComplete}
+    deadline={isFrontier && !isComplete ? game.deadline ?? null : null}
     historyOrders={frame.orders}
     onPhaseBack={() => canBack && (cursor -= 1)}
     onPhaseForward={() => canForward && (cursor += 1)}
@@ -141,6 +145,13 @@
       {/if}
     </svelte:fragment>
 
+    <svelte:fragment slot="results">
+      {#if isComplete}
+        <div class="game-over">
+          {#if winner}🏆 {winnerName} wins with {winner.centers} supply centers.{:else}This game is over.{/if}
+        </div>
+      {/if}
+    </svelte:fragment>
     <svelte:fragment slot="left">
       {#if nation && game.phase !== 'lobby' && !game.settings?.gunboat}
         <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} />
@@ -158,6 +169,14 @@
 {/if}
 
 <style>
+  .game-over {
+    margin: 0 14px 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--amber, #f59e0b) 16%, var(--bg-card, #fff));
+    border: 1px solid color-mix(in srgb, var(--amber, #f59e0b) 45%, transparent);
+    font-weight: 600;
+  }
   /* Frosted floating button, mirrored to the supply-center card. */
   .cog-btn {
     display: inline-flex;

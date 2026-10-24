@@ -19,8 +19,7 @@
   import { retreatTargets, buildSituation } from '../lib/orders/adjustments'
   import { formatAnyOrder } from '../lib/orders/notation'
   import type { OrderState } from '../lib/map/mapRenderer'
-  import { unitTokenSvg } from '../lib/map/unitStyles'
-  import { unitStyle } from '../lib/unitStyle'
+  import { unitTokenSvg, DEFAULT_UNIT_STYLE } from '../lib/map/unitStyles'
   import SupplyCenterCard from './SupplyCenterCard.svelte'
 
   export let mapDef: MapDefinition
@@ -122,6 +121,19 @@
   // Build type-picker popup: anchored at the clicked point within the map area.
   let mapArea: HTMLDivElement | undefined
   let lastPointer = { x: 0, y: 0 } // staged on pointerdown
+  // Group destinations that carry a note ("via convoy", "long route…") so the panel
+  // can explain them; plain destinations are just highlighted on the map.
+  function choiceNotes(choices: { label: string }[]): [string, string][] {
+    const groups = new Map<string, string[]>()
+    for (const c of choices) {
+      const m = c.label.match(/^(.*) \((via convoy|long route, half strength)\)$/)
+      if (m) groups.set(m[2], [...(groups.get(m[2]) ?? []), m[1]])
+    }
+    return [...groups].map(([note, names]) => [note[0].toUpperCase() + note.slice(1), names.join(', ')])
+  }
+
+  // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
+  let leftOpen = false
   let popupPos = { x: 0, y: 0 } // committed only when the selection changes (avoids flicker)
   let buildJustOpened = false
 
@@ -311,7 +323,14 @@
   function commit(ctx: WizardContext) {
     if (!draft) return
     const order = finalize(draft, ctx)
-    orders = [...orders.filter((o) => o.source !== order.source), order]
+    // A convoy route picked fleet by fleet: order the fleets this player controls to
+    // convoy it (other powers' fleets must be arranged through diplomacy).
+    const convoys: Order[] = (draft.convoyPath ?? [])
+      .map((p) => units.find((u) => u.territory === p))
+      .filter((f): f is Unit => Boolean(f) && (controlAll || f!.nation === nation))
+      .map((f) => ({ type: 'Convoy', nation: f.nation, source: f.territory, aux: order.source, target: order.target }))
+    const touched = new Set([order.source, ...convoys.map((c) => c.source)])
+    orders = [...orders.filter((o) => !touched.has(o.source)), order, ...convoys]
     draft = null
     currentStep = null
     notifyOrders()
@@ -351,7 +370,8 @@
     const choice = currentStep.choices.find((c) => toDsvgId(c.id, c.coast) === dsvgId)
     if (!choice) return
     // A target choice may carry a coast (multi-coast destinations), completing the move.
-    if (currentStep.field === 'target') draft = { ...draft, target: choice.id, targetCoast: choice.coast }
+    if (choice.chain) draft = { ...draft, convoyPath: [...(draft.convoyPath ?? []), choice.id] }
+    else if (currentStep.field === 'target') draft = { ...draft, target: choice.id, targetCoast: choice.coast }
     else if (currentStep.field === 'coast') draft = { ...draft, targetCoast: choice.coast }
     else if (currentStep.field === 'aux') draft = { ...draft, aux: choice.id }
     recompute()
@@ -577,6 +597,8 @@
   $: moveSelectable = !draft
     ? ownUnits.map((u) => toDsvgId(u.territory))
     : [...moveHighlighted, toDsvgId(draft.source)]
+  // Fleets already chosen for a convoy route stay marked while the route is built.
+  $: convoyChain = (draft?.convoyPath ?? []).map((p) => toDsvgId(p))
 
   // Retreat: idle highlights the dislodged units still awaiting an order; once one is
   // picked, its targets. A dislodged unit that's already been routed/disbanded drops its
@@ -664,9 +686,12 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="game">
+<div class="game" class:left-open={leftOpen}>
   {#if title || onExit || $$slots.left}
-    <aside class="left-rail" style="width: {leftWidth}">
+    <!-- On narrow screens the left rail is a drawer; the scrim closes it. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div class="rail-scrim" on:click={() => (leftOpen = false)}></div>
+    <aside class="left-rail" style="--rail-width: {leftWidth}">
       {#if title || onExit}
         <div class="side-title">
           {#if onExit}
@@ -694,6 +719,7 @@
       {ownership}
       orders={renderOrders}
       {highlighted}
+      selectedTerritory={convoyChain.at(-1) ?? null}
       {selectable}
       buildSlots={mapBuildSlots}
       removeSlots={mapRemoveSlots}
@@ -729,7 +755,7 @@
         {#if buildSpotChoice.types.includes('army')}
           <button class="build-card" on:click={() => placeBuild('army')}>
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Army', color, 13, $unitStyle)}</svg>
+            <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Army', color, 13, DEFAULT_UNIT_STYLE)}</svg>
             <span class="bc-label">Army</span>
           </button>
         {/if}
@@ -738,14 +764,14 @@
             {#each buildSpotChoice.coasts as c}
               <button class="build-card" on:click={() => placeBuild('fleet', c)}>
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, $unitStyle)}</svg>
+                <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, DEFAULT_UNIT_STYLE)}</svg>
                 <span class="bc-label">Fleet ({coastName(c)})</span>
               </button>
             {/each}
           {:else}
             <button class="build-card" on:click={() => placeBuild('fleet')}>
               <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-              <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, $unitStyle)}</svg>
+              <svg class="bc-token" viewBox="0 0 32 32" aria-hidden="true">{@html unitTokenSvg(16, 16, 'Fleet', color, 13, DEFAULT_UNIT_STYLE)}</svg>
               <span class="bc-label">Fleet</span>
             </button>
           {/if}
@@ -757,6 +783,9 @@
   <aside class="sidebar">
 
     <div class="side-head">
+      {#if title || onExit || $$slots.left}
+        <button class="rail-toggle" on:click={() => (leftOpen = !leftOpen)} title={leftOpen ? 'Close menu' : 'Menu'} aria-expanded={leftOpen}>☰</button>
+      {/if}
       {#if onPhaseBack}
         <!-- Sandbox: step back/forward through the phase chain. -->
         <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase">←</button>
@@ -817,6 +846,9 @@
               </div>
               {#if currentStep?.kind === 'province'}
                 <p class="prompt">{currentStep.prompt} — click a highlighted region (or this unit to hold)</p>
+                {#each choiceNotes(currentStep.choices) as [note, names]}
+                  <p class="choice-note"><strong>{note}:</strong> {names}</p>
+                {/each}
               {/if}
             {:else}
               <p class="prompt">
@@ -923,6 +955,71 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    position: relative;
+  }
+  .choice-note {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    color: var(--text-secondary, #555);
+  }
+  .rail-toggle,
+  .rail-scrim {
+    display: none;
+  }
+  .rail-toggle {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    background: var(--bg-card, #fff);
+    color: var(--text, #1a1a1a);
+    font-size: 15px;
+    cursor: pointer;
+  }
+  /* Tablets and phones: the left rail slides over the map instead of taking a column. */
+  @media (max-width: 1100px) {
+    .rail-toggle {
+      display: inline-flex;
+    }
+    .left-rail {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 40;
+      width: min(var(--rail-width, 320px), 86vw);
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      box-shadow: 0 0 32px rgba(0, 0, 0, 0.25);
+    }
+    .game.left-open .left-rail {
+      transform: none;
+    }
+    .game.left-open .rail-scrim {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 39;
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+  /* Phones and portrait tablets: map on top, orders below in a scrollable sheet. */
+  @media (max-width: 760px), (orientation: portrait) and (max-width: 1100px) {
+    .game {
+      flex-direction: column;
+    }
+    .map-area {
+      flex: 1 1 auto;
+      min-height: 52vh;
+    }
+    .sidebar {
+      width: auto !important;
+      flex: 0 1 auto;
+      max-height: 46vh;
+      border-left: none;
+      border-top: 1px solid var(--border, #e5e7eb);
+    }
   }
   .map-area {
     flex: 1;
@@ -933,6 +1030,7 @@
      styles (sandbox) below. Mirror of the right order sidebar. */
   .left-rail {
     flex: none;
+    width: var(--rail-width, 320px);
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--border, #e5e7eb);

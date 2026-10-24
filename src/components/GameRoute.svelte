@@ -4,7 +4,7 @@
   import { fetchGame } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { user } from '../lib/auth'
-  import { immersive, crumb } from '../lib/layout'
+  import { immersive } from '../lib/layout'
   import GameLobby from './GameLobby.svelte'
   import GameView from './GameView.svelte'
 
@@ -30,12 +30,10 @@
     }
   }
 
-  // Active games go full-screen; the lobby keeps the header + breadcrumb.
+  // Active games go full-screen; the lobby keeps the floating back button and user menu.
   $: immersive.set(!!game && game.phase !== 'lobby')
-  $: crumb.set(game && game.phase === 'lobby' ? game.name : '')
   onDestroy(() => {
     immersive.set(false)
-    crumb.set('')
   })
 
   $: viewerNation = game && $user ? game.players[$user.id]?.nation ?? '' : ''

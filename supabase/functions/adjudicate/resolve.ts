@@ -64,9 +64,12 @@ export async function resolveGame(
   // unsubmitted draft row is present but inert — its units hold.
   const ready = game.ready ?? {}
   const orderRows = await getRoundOrders(db, gameId, game.year, game.season, game.phase)
+  // A row may only order its own nation's units: the `nation` inside each order is
+  // client-supplied, so it is overwritten with the row's (RLS-verified) nation. An
+  // order naming another power's unit then voids instead of commanding it.
   const orders: AnyOrder[] = orderRows
     .filter((r) => ready[r.nation] === true)
-    .flatMap((r) => (r.orders as AnyOrder[]) ?? [])
+    .flatMap((r) => ((r.orders as AnyOrder[]) ?? []).map((o) => ({ ...o, nation: r.nation })))
 
   const { newBoardState, victory } = adjudicate(map, board, orders)
 

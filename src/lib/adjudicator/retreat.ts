@@ -6,6 +6,7 @@ import type { Unit } from '../types'
 import type { BoardState, OrderResult, RetreatOrder } from './types'
 import { sortUnits } from './state'
 import { directReach, landingCoasts } from './graph'
+import { isLongRoute } from './rules'
 
 export interface RetreatOutcome {
   units: Unit[]
@@ -20,14 +21,18 @@ export function resolveRetreat(
   const results: OrderResult[] = []
   const survivors: Unit[] = board.units.map((u) => ({ ...u }))
   const occupied = new Set(survivors.map((u) => u.territory))
+  // Only the dislodged unit's own power may order it.
+  const ownerOf = new Map(board.dislodged.map((d) => [d.unit.territory, d.unit.nation]))
   const byProvince = new Map<string, RetreatOrder>()
-  for (const o of orders) byProvince.set(o.source, o)
+  for (const o of orders) if (o.nation === ownerOf.get(o.source)) byProvince.set(o.source, o)
   const dislodgedSet = new Set(board.dislodged.map((d) => d.unit.territory))
 
   // orders for units that weren't dislodged are illegal during a retreat phase
   for (const o of orders) {
     if (!dislodgedSet.has(o.source)) {
       results.push({ order: o, code: 'void', reason: 'no dislodged unit to retreat' })
+    } else if (o.nation !== ownerOf.get(o.source)) {
+      results.push({ order: o, code: 'void', reason: "ordering another power's unit" })
     }
   }
 
@@ -56,12 +61,17 @@ export function resolveRetreat(
     intents.push({ dis, dest: o.target, coast: o.targetCoast, order: o })
   }
 
-  // bounces: >=2 retreats to the same province => all disband
-  const destCount = new Map<string, number>()
-  for (const it of intents) destCount.set(it.dest, (destCount.get(it.dest) ?? 0) + 1)
+  // bounces: >=2 retreats to the same province => all disband, except that a single
+  // ordinary retreat beats competitors arriving along a long route (1900 Suez rule 8).
+  const byDest = new Map<string, Intent[]>()
+  for (const it of intents) byDest.set(it.dest, [...(byDest.get(it.dest) ?? []), it])
+  const longRetreat = (it: Intent) => isLongRoute(map, it.dis.unit.territory, it.dest)
 
   for (const it of intents) {
-    if ((destCount.get(it.dest) ?? 0) >= 2) {
+    const rivals = byDest.get(it.dest) ?? []
+    const ordinary = rivals.filter((r) => !longRetreat(r))
+    const wins = rivals.length === 1 || (ordinary.length === 1 && ordinary[0] === it)
+    if (!wins) {
       results.push({ order: it.order, code: 'disbanded', reason: 'retreats bounced' })
       continue
     }

@@ -5,6 +5,7 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import { reachable, reachableCoasts, type MoveTarget } from './options'
+import { buildSites, unitAllowance } from '../adjudicator/rules'
 
 /**
  * Legal retreat destinations for a dislodged unit: reachable provinces that are
@@ -60,22 +61,16 @@ export function buildSituation(
   owners: Record<string, string>,
   units: Unit[],
 ): BuildSituation {
-  const scCount = Object.values(owners).filter((n) => n === nation).length
   const myUnits = units.filter((u) => u.nation === nation)
-  const occupied = new Set(units.map((u) => u.territory))
 
   const spots: BuildSpot[] = []
-  const homes = Object.entries(map.territories)
-    .filter(([, t]) => t.supplyCenter && t.homePower === nation)
-    .map(([id]) => id)
-    .sort()
-  for (const sc of homes) {
-    if (owners[sc] !== nation || occupied.has(sc)) continue
+  // Owned, unoccupied home centers plus any variant build site (1900: Siberia).
+  for (const sc of buildSites(map, nation, owners, units)) {
     const t = map.territories[sc]
     const types: Array<'army' | 'fleet'> = ['army']
     if (t.type === 'coast') types.push('fleet')
     spots.push({ province: sc, types, coasts: t.coasts ? Object.keys(t.coasts) : undefined })
   }
 
-  return { delta: scCount - myUnits.length, spots, removable: myUnits }
+  return { delta: unitAllowance(map, nation, owners) - myUnits.length, spots, removable: myUnits }
 }

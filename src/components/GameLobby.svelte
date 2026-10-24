@@ -8,6 +8,7 @@
   } from '../lib/game'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
   import { getMap, maps } from '../lib/maps'
+  import { initialBoard } from '../lib/adjudicator'
   import { errorMessage } from '../lib/errors'
   import PhaseTimerSettings from './PhaseTimerSettings.svelte'
 
@@ -56,8 +57,9 @@
         {} as Record<string, { uid: string; info: PlayerInfo }>,
       )
     : {}
-  const homeCenters = (id: string): number =>
-    Object.values(map.territories).filter((t) => t.supplyCenter && t.homePower === id).length
+  // Centers each power starts with (home centers plus any variant extras, e.g. 1900 Egypt).
+  $: startCenters = Object.values(initialBoard(map).supplyCenters)
+  $: homeCenters = (id: string): number => startCenters.filter((n) => n === id).length
   const powerName = (id: string): string => powers.find((p) => p.id === id)?.name ?? id
   const powerColor = (id: string): string | undefined => powers.find((p) => p.id === id)?.color
 

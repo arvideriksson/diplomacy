@@ -1,7 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Without a configured project (e.g. a local checkout with no .env) the app still
+// loads: sandboxes run entirely in the browser, and network calls simply fail.
+export const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'unconfigured'
+if (!supabaseConfigured) console.warn('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY); only sandboxes will work.')
 
 // In dev, isolate the auth session to a single tab so you can drive a multi-player game
 // from several tabs at once (the point of the anonymous dev sign-in). Two things are

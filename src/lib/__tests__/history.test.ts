@@ -31,4 +31,20 @@ describe('replayFrames', () => {
     expect(frames[0].board.season).toBe('Spring')
     expect(frames[1].board.season).toBe('Fall')
   })
+
+  it('replays a phase that left no rows in the log (nobody had orders)', () => {
+    // Spring 1901 has rows; Fall 1901 movement had none (everyone held by deadline);
+    // Spring 1902 has rows again. The Fall phase must still be resolved in between.
+    const log: ResolvedOrderRow[] = [
+      { year: 1901, season: 'Spring', phase: 'movement', nation: 'germany',
+        orders: [{ type: 'Move', nation: 'germany', source: 'MUN', target: 'BUR' }] },
+      { year: 1902, season: 'Spring', phase: 'movement', nation: 'germany',
+        orders: [{ type: 'Move', nation: 'germany', source: 'BUR', target: 'PIC' }] },
+    ]
+    const frames = replayFrames(classicalMap, log)
+    const labels = frames.map((f) => `${f.board.season} ${f.board.year} ${f.board.phase}`)
+    expect(labels).toEqual(['Spring 1901 movement', 'Fall 1901 movement', 'Spring 1902 movement', 'Fall 1902 movement'])
+    // the 1902 move is applied to a unit that is really in Burgundy
+    expect(frames.at(-1)!.board.units.find((u) => u.territory === 'PIC')?.nation).toBe('germany')
+  })
 })

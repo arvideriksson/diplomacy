@@ -33,6 +33,27 @@ function canFleetEnter(t) {
   return t.type === "sea" || t.type === "coast";
 }
 
+// src/lib/adjudicator/rules.ts
+var isLongRoute = (map, a, b) => (map.rules?.longRoutes ?? []).some(([x, y]) => x === a && y === b || x === b && y === a);
+var canConvoyFrom = (map, province) => map.territories[province]?.type === "sea" || (map.rules?.convoyCoasts ?? []).includes(province);
+var emergencyActive = (map, nation, owners) => {
+  const e = map.rules?.emergency;
+  if (!e || e.nation !== nation) return false;
+  const homes = homeCenters(map, nation);
+  const held = homes.filter((h) => owners[h] === nation).length;
+  return held >= 1 && held < homes.length;
+};
+var unitAllowance = (map, nation, owners) => (scCountByNation(owners)[nation] ?? 0) + (emergencyActive(map, nation, owners) ? 1 : 0);
+var nationsOf = (owners, units) => sortIds([.../* @__PURE__ */ new Set([...Object.values(owners), ...units.map((u) => u.nation)])]);
+var buildSites = (map, nation, owners, units) => {
+  const occupied = new Set(units.map((u) => u.territory));
+  const sites = homeCenters(map, nation).filter((h) => owners[h] === nation && !occupied.has(h));
+  const e = map.rules?.emergency;
+  if (e && emergencyActive(map, nation, owners) && !occupied.has(e.buildSite)) sites.push(e.buildSite);
+  return sortIds(sites);
+};
+var disorderHomes = (map, nation) => sortIds([...homeCenters(map, nation), ...map.rules?.disorderHomes?.[nation] ?? []]);
+
 // src/lib/orders/options.ts
 var territory = (map, id) => map.territories[id];
 var reachable = (map, unit) => {
@@ -67,10 +88,9 @@ var adjacentProvinces = (map, province) => {
 var directReach = (map, unit) => reachable(map, unit);
 var canMoveDirect = (map, unit, dest) => reachable(map, unit).includes(dest);
 var landingCoasts = (map, target, from) => reachableCoasts(map, target, from);
-var isSea = (map, province) => map.territories[province]?.type === "sea";
-var convoyPathExists = (map, from, to, convoyFleets) => {
+var convoyPathExists = (map, from, to, convoyFleets, lastHopOk = () => true) => {
   if (from === to) return false;
-  const seasAdjTo = (p) => adjacentProvinces(map, p).includes(to);
+  const seasAdjTo = (p) => adjacentProvinces(map, p).includes(to) && lastHopOk(p);
   const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s));
   const visited = new Set(frontier);
   const queue = [...frontier].sort();
@@ -93,7 +113,12 @@ function resolveMovement(map, board, orders) {
   const mo = [];
   const byProvince = /* @__PURE__ */ new Map();
   const submitted = /* @__PURE__ */ new Map();
-  for (const o of orders) submitted.set(o.source, o);
+  const ownerOf = new Map(units.map((u) => [u.territory, u.nation]));
+  for (const o of orders) {
+    const prev = submitted.get(o.source);
+    if (prev && prev.nation === ownerOf.get(o.source) && o.nation !== ownerOf.get(o.source)) continue;
+    submitted.set(o.source, o);
+  }
   const convoyIntents = /* @__PURE__ */ new Set();
   for (const o of orders) {
     if (o.type === "Convoy" && o.aux && o.target) convoyIntents.add(`${o.aux}->${o.target}`);
@@ -130,6 +155,13 @@ function resolveMovement(map, board, orders) {
     if (matchingConvoys(m).length === 0) return false;
     return convoyRouteExists(m);
   };
+  const baseStrength = (m) => {
+    if (isConvoyedMove(m)) {
+      const fleets = new Set(matchingConvoys(m).filter((c) => resolve(c.idx)).map((c) => c.src));
+      return convoyPathExists(map, m.src, m.dst, fleets, (sea) => !isLongRoute(map, sea, m.dst)) ? 1 : 0.5;
+    }
+    return isLongRoute(map, m.src, m.dst) ? 0.5 : 1;
+  };
   const headToHeadOpponent = (m) => {
     if (m.kind !== "move" || m.void) return void 0;
     const o = byProvince.get(m.dst);
@@ -142,6 +174,7 @@ function resolveMovement(map, board, orders) {
     if (moveOrdersInto(s.src).some((m) => resolve(m.idx))) return true;
     for (const m of moveOrdersInto(s.src)) {
       if (m.src === s.dst) continue;
+      if (isLongRoute(map, m.src, s.src)) continue;
       if (m.unit.nation === s.unit.nation) continue;
       if (hasPath(m)) return true;
     }
@@ -168,16 +201,16 @@ function resolveMovement(map, board, orders) {
       const h2h = headToHeadOpponent(m);
       if (!(h2h && h2h.idx === occ.idx)) vacated = resolve(occ.idx);
     }
-    if (vacated) return 1 + supportCount(m);
+    if (vacated) return baseStrength(m) + supportCount(m);
     if (occ.unit.nation === m.unit.nation) return 0;
-    return 1 + supportCount(m, occ.unit.nation);
+    return baseStrength(m) + supportCount(m, occ.unit.nation);
   };
-  const defendStrength = (m) => 1 + supportCount(m);
+  const defendStrength = (m) => baseStrength(m) + supportCount(m);
   const preventStrength = (m) => {
     if (!hasPath(m)) return 0;
     const h2h = headToHeadOpponent(m);
     if (h2h && resolve(h2h.idx)) return 0;
-    return 1 + supportCount(m);
+    return baseStrength(m) + supportCount(m);
   };
   const moveSucceeds = (m) => {
     if (!hasPath(m)) return false;
@@ -366,7 +399,7 @@ function normalize(map, unit, o, units, convoyIntents) {
       if (canMoveDirect(map, unit, o.target) && !o.viaConvoy) return m;
       if (o.viaConvoy) return m;
       const seaFleets = new Set(
-        units.filter((u) => u.type === "fleet" && isSea(map, u.territory)).map((u) => u.territory)
+        units.filter((u) => u.type === "fleet" && canConvoyFrom(map, u.territory)).map((u) => u.territory)
       );
       if (convoyIntents.has(`${unit.territory}->${o.target}`) || convoyPathExists(map, unit.territory, o.target, seaFleets)) {
         return m;
@@ -384,11 +417,14 @@ function normalize(map, unit, o, units, convoyIntents) {
     if (!canMoveDirect(map, unit, s.dst) && s.dst !== unit.territory) {
       return voidify(s, "support of unreachable province");
     }
+    if (isLongRoute(map, unit.territory, s.dst)) {
+      return voidify(s, "cannot support along a long route");
+    }
     return s;
   }
   if (o.type === "Convoy") {
     const c = base("convoy", { aux: o.aux, dst: o.target });
-    if (unit.type !== "fleet" || map.territories[unit.territory]?.type !== "sea") {
+    if (unit.type !== "fleet" || !canConvoyFrom(map, unit.territory)) {
       return voidify(c, "only a fleet at sea may convoy");
     }
     if (!o.aux || !o.target) return voidify(c, "convoy without army/destination");
@@ -422,12 +458,15 @@ function resolveRetreat(map, board, orders) {
   const results = [];
   const survivors = board.units.map((u) => ({ ...u }));
   const occupied = new Set(survivors.map((u) => u.territory));
+  const ownerOf = new Map(board.dislodged.map((d) => [d.unit.territory, d.unit.nation]));
   const byProvince = /* @__PURE__ */ new Map();
-  for (const o of orders) byProvince.set(o.source, o);
+  for (const o of orders) if (o.nation === ownerOf.get(o.source)) byProvince.set(o.source, o);
   const dislodgedSet = new Set(board.dislodged.map((d) => d.unit.territory));
   for (const o of orders) {
     if (!dislodgedSet.has(o.source)) {
       results.push({ order: o, code: "void", reason: "no dislodged unit to retreat" });
+    } else if (o.nation !== ownerOf.get(o.source)) {
+      results.push({ order: o, code: "void", reason: "ordering another power's unit" });
     }
   }
   const intents = [];
@@ -447,10 +486,14 @@ function resolveRetreat(map, board, orders) {
     }
     intents.push({ dis, dest: o.target, coast: o.targetCoast, order: o });
   }
-  const destCount = /* @__PURE__ */ new Map();
-  for (const it of intents) destCount.set(it.dest, (destCount.get(it.dest) ?? 0) + 1);
+  const byDest = /* @__PURE__ */ new Map();
+  for (const it of intents) byDest.set(it.dest, [...byDest.get(it.dest) ?? [], it]);
+  const longRetreat = (it) => isLongRoute(map, it.dis.unit.territory, it.dest);
   for (const it of intents) {
-    if ((destCount.get(it.dest) ?? 0) >= 2) {
+    const rivals = byDest.get(it.dest) ?? [];
+    const ordinary = rivals.filter((r) => !longRetreat(r));
+    const wins = rivals.length === 1 || ordinary.length === 1 && ordinary[0] === it;
+    if (!wins) {
       results.push({ order: it.order, code: "disbanded", reason: "retreats bounced" });
       continue;
     }
@@ -482,12 +525,11 @@ var disbandOrder = (u) => ({
 // src/lib/adjudicator/build.ts
 function resolveBuild(map, board, orders) {
   const owners = board.supplyCenters;
-  const scCount = scCountByNation(owners);
   const unitCount = unitCountByNation(board.units);
   const units = board.units.map((u) => ({ ...u }));
   const results = [];
   const occupied = new Set(units.map((u) => u.territory));
-  const nations = sortIds([.../* @__PURE__ */ new Set([...Object.keys(scCount), ...Object.keys(unitCount)])]);
+  const nations = nationsOf(owners, board.units);
   const ordersByNation = /* @__PURE__ */ new Map();
   for (const o of orders) {
     const list = ordersByNation.get(o.nation) ?? [];
@@ -495,12 +537,10 @@ function resolveBuild(map, board, orders) {
     ordersByNation.set(o.nation, list);
   }
   for (const nation of nations) {
-    const delta = (scCount[nation] ?? 0) - (unitCount[nation] ?? 0);
+    const delta = unitAllowance(map, nation, owners) - (unitCount[nation] ?? 0);
     const nationOrders = ordersByNation.get(nation) ?? [];
     if (delta > 0) {
-      const homes = homeCenters(map, nation).filter(
-        (sc) => owners[sc] === nation && !occupied.has(sc)
-      );
+      const homes = buildSites(map, nation, owners, units);
       let built = 0;
       for (const o of nationOrders) {
         if (o.type !== "Build") {
@@ -573,7 +613,7 @@ function resolveBuild(map, board, orders) {
   return { units: sortUnits(units), results };
 }
 function civilDisorderOrder(map, nation) {
-  const homes = homeCenters(map, nation);
+  const homes = disorderHomes(map, nation);
   const dist = (u) => distanceToNearest(map, u, homes);
   return (a, b) => {
     const da = dist(a);
@@ -647,17 +687,18 @@ function advanceAfterRetreats(map, season, year, units, owners) {
     return { phase: "movement", season: "Fall", year, units, supplyCenters: owners, dislodged: [], contested: [] };
   }
   const newOwners = recomputeSupplyCenters(map, units, owners);
-  const sc = scCountByNation(newOwners);
   const uc = unitCountByNation(units);
-  const nations = /* @__PURE__ */ new Set([...Object.keys(sc), ...Object.keys(uc)]);
-  const needsAdjustment = [...nations].some((n) => (sc[n] ?? 0) !== (uc[n] ?? 0));
+  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0));
   if (needsAdjustment) {
     return { phase: "build", season: "Fall", year, units, supplyCenters: newOwners, dislodged: [], contested: [] };
   }
   return { phase: "movement", season: "Spring", year: year + 1, units, supplyCenters: newOwners, dislodged: [], contested: [] };
 }
 function finalize(map, next, results) {
-  const sc = scCountByNation(next.supplyCenters);
+  return { newBoardState: next, results, victory: victoryFor(map, next.supplyCenters) };
+}
+function victoryFor(map, owners) {
+  const sc = scCountByNation(owners);
   const threshold = map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1;
   let victory;
   for (const [nation, centers] of Object.entries(sc)) {
@@ -665,7 +706,11 @@ function finalize(map, next, results) {
       victory = { nation, centers };
     }
   }
-  return { newBoardState: next, results, victory };
+  if (victory && map.rules?.strictVictory) {
+    const lead = victory;
+    if (Object.entries(sc).some(([n, c]) => n !== lead.nation && c >= lead.centers)) victory = void 0;
+  }
+  return victory;
 }
 
 // src/lib/adjudicator/idle.ts
@@ -681,13 +726,11 @@ function idleNations(map, board) {
     return idle;
   }
   if (board.phase === "build") {
-    const sc = scCountByNation(board.supplyCenters);
     const un = unitCountByNation(board.units);
-    const occupied = new Set(board.units.map((u) => u.territory));
     for (const n of present) {
-      const delta = (sc[n] ?? 0) - (un[n] ?? 0);
+      const delta = unitAllowance(map, n, board.supplyCenters) - (un[n] ?? 0);
       if (delta < 0) continue;
-      if (delta > 0 && homeCenters(map, n).some((c) => board.supplyCenters[c] === n && !occupied.has(c))) {
+      if (delta > 0 && buildSites(map, n, board.supplyCenters, board.units).length > 0) {
         continue;
       }
       idle.push(n);
@@ -1429,7 +1472,6 @@ var map1900 = {
     "COL": "germany",
     "CON": "turkey",
     "DAM": "turkey",
-    "DUM": "russia",
     "EDI": "britain",
     "EGY": "britain",
     "KIE": "germany",
@@ -1563,8 +1605,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          538,
-          870
+          531.1,
+          898.8
         ]
       }
     },
@@ -1610,8 +1652,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          765.6,
-          1115.9
+          794.8,
+          1142
         ]
       }
     },
@@ -1626,8 +1668,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1453,
-          1428
+          1452.6,
+          1452.8
         ]
       }
     },
@@ -1711,8 +1753,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          527.1,
-          778.9
+          534.2,
+          800.3
         ]
       }
     },
@@ -1795,8 +1837,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          849.2,
-          1055.2
+          856.4,
+          1039.6
         ]
       }
     },
@@ -1883,8 +1925,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          470,
-          930
+          482.2,
+          936.7
         ]
       }
     },
@@ -1908,8 +1950,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          354.7,
-          548.2
+          367,
+          572.6
         ]
       }
     },
@@ -1927,8 +1969,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          556,
-          812
+          565.4,
+          814.4
         ]
       }
     },
@@ -2029,22 +2071,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          637.8,
-          603.4
-        ]
-      }
-    },
-    "DUM": {
-      "name": "Dummy",
-      "type": "land",
-      "supplyCenter": true,
-      "adjacent": [
-        "DUM"
-      ],
-      "render": {
-        "center": [
-          -100,
-          -100
+          624.1,
+          609.9
         ]
       }
     },
@@ -2088,8 +2116,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          400.6,
-          534.7
+          381.1,
+          537.8
         ]
       }
     },
@@ -2240,8 +2268,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          200,
-          1200
+          231.6,
+          1199.2
         ]
       }
     },
@@ -2280,8 +2308,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          925,
-          1215
+          928,
+          1206.6
         ]
       }
     },
@@ -2301,8 +2329,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1462.4,
-          1576.6
+          1477.6,
+          1557.2
         ]
       }
     },
@@ -2318,8 +2346,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          581.4,
-          626.9
+          596.9,
+          616.7
         ]
       }
     },
@@ -2385,8 +2413,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          262,
-          640
+          274,
+          639.8
         ]
       }
     },
@@ -2432,8 +2460,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          629.1,
-          706.4
+          626.2,
+          756.7
         ]
       }
     },
@@ -2457,8 +2485,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1240,
-          1240
+          1245.3,
+          1236.4
         ]
       }
     },
@@ -2481,8 +2509,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          417.9,
-          724.4
+          446.1,
+          690.6
         ]
       }
     },
@@ -2532,8 +2560,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          386.5,
-          621
+          386.4,
+          598.2
         ]
       }
     },
@@ -2584,8 +2612,8 @@ var map1900 = {
       },
       "render": {
         "center": [
-          905,
-          1140
+          1008.8,
+          1109.2
         ]
       }
     },
@@ -2653,8 +2681,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          643.6,
-          1011.9
+          620.2,
+          957.2
         ]
       }
     },
@@ -2678,7 +2706,7 @@ var map1900 = {
       "render": {
         "center": [
           110,
-          1380
+          1370
         ]
       }
     },
@@ -2743,8 +2771,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          778.1,
-          1177.6
+          723.6,
+          1131
         ]
       }
     },
@@ -2787,8 +2815,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          534.8,
-          726
+          553.6,
+          739.7
         ]
       }
     },
@@ -2882,8 +2910,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1352,
-          1460
+          1365.2,
+          1469.8
         ]
       }
     },
@@ -2946,8 +2974,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          564.2,
-          982.2
+          553.4,
+          996.1
         ]
       }
     },
@@ -2965,8 +2993,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          123.3,
-          1075.1
+          109,
+          1126
         ]
       }
     },
@@ -3015,8 +3043,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          690,
-          1110
+          707.1,
+          1109
         ]
       }
     },
@@ -3059,8 +3087,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          901.4,
-          1068.8
+          919.4,
+          1020.6
         ]
       }
     },
@@ -3100,8 +3128,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1460.2,
-          352.3
+          1470,
+          430
         ]
       }
     },
@@ -3136,8 +3164,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          660.8,
-          527.9
+          678.1,
+          563.6
         ]
       }
     },
@@ -3315,8 +3343,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          553,
-          935
+          593.8,
+          900.9
         ]
       }
     },
@@ -3341,8 +3369,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          800,
-          1030
+          748,
+          971.5
         ]
       }
     },
@@ -3363,8 +3391,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          689.6,
-          1511.6
+          690.3,
+          1523.4
         ]
       }
     },
@@ -3387,8 +3415,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          600,
-          1330
+          594.2,
+          1349
         ]
       }
     },
@@ -3469,8 +3497,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          700,
-          960
+          692.3,
+          1046.8
         ]
       }
     },
@@ -3511,8 +3539,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          352.3,
-          686.2
+          354.8,
+          657.7
         ]
       }
     },
@@ -3573,11 +3601,39 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          425.4,
-          663.6
+          414.7,
+          651.9
         ]
       }
     }
+  },
+  "rules": {
+    "longRoutes": [
+      [
+        "EGY",
+        "MAO"
+      ],
+      [
+        "HEJ",
+        "MAO"
+      ]
+    ],
+    "convoyCoasts": [
+      "GIB"
+    ],
+    "disorderHomes": {
+      "britain": [
+        "EGY"
+      ],
+      "france": [
+        "ALG"
+      ]
+    },
+    "emergency": {
+      "nation": "russia",
+      "buildSite": "SIB"
+    },
+    "strictVictory": true
   },
   "startingUnits": [
     {

@@ -7,9 +7,12 @@ import { simplify, boundaryDistance, wiggle } from './lib/geom.mjs'
 
 const SEA = '#d4d0ad', LAND = '#f4d7b5'
 const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, serif"
-const r2 = (n) => Math.round(n * 100) / 100
+// As on the classical board: regular italic province names and regular upright centre names.
+// stroke:none opts out of the renderer's label halo, which the classical labels also do.
+const NAME_FONT = "font-family:LibreBaskerville-Italic, 'Libre Baskerville', Georgia, serif"
+const r2 = (n) => Math.round(n * 10) / 10
 const polyline = (pts) => 'M' + pts.map((p) => `${r2(p[0])} ${r2(p[1])}`).join('L')
-export const geomPath = (g) => ringsPath(g.flatMap((p) => p), 2)
+export const geomPath = (g) => ringsPath(g.flatMap((p) => p), 1)
 
 const bullseye = ([x, y]) => {
   const c = 'mix-blend-mode:normal;fill:none;fill-opacity:0.7;stroke-linecap:round;stroke-opacity:0.7'
@@ -17,30 +20,19 @@ const bullseye = ([x, y]) => {
 }
 
 export function label({ text, at: [x, y], angle = 0, size = 16, kind = 'land' }) {
-  const weight = kind === 'sc' ? 'font-weight:bold;' : 'font-style:italic;'
+  const face = kind === 'sc' ? `font-weight:normal;${FONT}` : `font-style:italic;font-weight:normal;${NAME_FONT}`
   const spacing = kind === 'sea' ? 'letter-spacing:2px;' : ''
-  return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${weight}${spacing}font-size:${size}px;${FONT};fill:#000000">${kind === 'sea' ? text.toUpperCase() : text}</text>`
+  return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${kind === 'sea' ? text.toUpperCase() : text}</text>`
 }
 
 export const coastMark = ({ text, at: [x, y], angle = 0 }) =>
-  `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="font-weight:bold;font-size:12px;${FONT};fill:#000000">${text}</text>`
+  `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="font-weight:bold;font-size:12px;${FONT};fill:#000000;stroke:none">${text}</text>`
 
 // chains: shared-edge polylines; isSea(id) classifies provinces; ids starting '#' are drawn holes.
 // Libre Baskerville (OFL), embedded so labels render the same everywhere.
 const fontFace = () => {
   const data = (f) => readFileSync(new URL(`fonts/${f}`, import.meta.url)).toString('base64')
   return `<style>@font-face{font-family:'Libre Baskerville';font-style:normal;font-weight:400 700;src:url(data:font/woff2;base64,${data('LibreBaskerville-latin.woff2')}) format('woff2')}@font-face{font-family:'Libre Baskerville';font-style:italic;font-weight:400;src:url(data:font/woff2;base64,${data('LibreBaskerville-Italic-latin.woff2')}) format('woff2')}</style>`
-}
-
-// Compass rose: eight points, alternating ink and land halves, with a north mark.
-const compass = ([x, y], r) => {
-  const pts = []
-  for (let k = 0; k < 8; k++) {
-    const a = k * Math.PI / 4 - Math.PI / 2, len = k % 2 ? r * 0.55 : r, w = k % 2 ? r * 0.11 : r * 0.16
-    const tip = [x + len * Math.cos(a), y + len * Math.sin(a)], l = [x + w * Math.cos(a - Math.PI / 2), y + w * Math.sin(a - Math.PI / 2)], rr = [x + w * Math.cos(a + Math.PI / 2), y + w * Math.sin(a + Math.PI / 2)]
-    pts.push(`<path d="M${r2(x)} ${r2(y)}L${r2(l[0])} ${r2(l[1])}L${r2(tip[0])} ${r2(tip[1])}Z" style="fill:${LAND};stroke:#000;stroke-width:.8;stroke-linejoin:round"/><path d="M${r2(x)} ${r2(y)}L${r2(rr[0])} ${r2(rr[1])}L${r2(tip[0])} ${r2(tip[1])}Z" style="fill:#3a372b;stroke:#000;stroke-width:.8;stroke-linejoin:round"/>`)
-  }
-  return `<g><circle cx="${x}" cy="${y}" r="${r * 0.72}" style="fill:none;stroke:#000;stroke-width:.8"/><circle cx="${x}" cy="${y}" r="${r * 0.78}" style="fill:none;stroke:#000;stroke-width:.5"/>${pts.reverse().join('')}<text x="${x}" y="${y - r - 7}" text-anchor="middle" style="font-size:15px;font-weight:bold;${FONT}">N</text></g>`
 }
 
 // Drop short out-and-back zigzags (a vertex where the line reverses within a few units).
@@ -98,34 +90,89 @@ const crossing = ([a, b]) => `<path d="M${r2(a[0])} ${r2(a[1])}L${r2(b[0])} ${r2
 export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, isClassical = () => true, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
   const land = Object.entries(provinces).filter(([id]) => !isSea(id))
   const kind = (id) => (id === null || id === '#frame' ? 'frame' : id.startsWith('#') ? 'hole' : isSea(id) ? 'sea' : 'land')
-  const onWater = (pts) => waterParts.some((g) => pts.every((p) => boundaryDistance(g, p) < 0.2))
-  const borders = [], coasts = [], seaLines = []
-  for (const c of chains) {
+  // Segments lying on the board edge are never drawn: the board simply ends there.
+  const onEdge = ([x, y]) => x < 2 || y < 2 || x > width - 2 || y > height - 2
+  const offEdge = (pts) => {
+    const runs = []
+    let run = [pts[0]]
+    for (let i = 1; i < pts.length; i++) {
+      if (onEdge(pts[i - 1]) && onEdge(pts[i])) { if (run.length > 1) runs.push(run); run = [pts[i]] } else run.push(pts[i])
+    }
+    if (run.length > 1) runs.push(run)
+    return runs
+  }
+  // Each shared edge is processed once, on its owner side (land before sea, then by id), and
+  // the neighbour reuses that line reversed, so the province fills follow the drawn lines.
+  const rank = { land: 0, sea: 1, hole: 2, frame: 3 }
+  const owns = (c) => { const a = kind(c.id), b = kind(c.other); return c.other === null || c.other === '#frame' || rank[a] < rank[b] || (rank[a] === rank[b] && c.id < c.other) }
+  const pair = (c) => [c.id, c.other].sort().join('|')
+  const borders = [], coasts = [], seaLines = [], processed = new Map(), shaped = new Map()
+  for (const c of chains.filter(owns)) {
     const a = kind(c.id), b = kind(c.other)
     const pts = unzig(simplify(c.points, 0.15))
+    let line = pts
     if (a === 'land' && b === 'sea' && waterParts.length) {
       // Split land–sea chains into runs along drawn water (the strait: dashed) and real coast.
       const wet = (p) => waterParts.some((g) => boundaryDistance(g, p) < 0.3)
       let run = [pts[0]], state = wet(pts[0])
-      const flush = () => { if (run.length > 1) (state ? seaLines : coasts).push(run) }
+      const flush = () => { if (run.length > 1) for (const r of offEdge(run)) (state ? seaLines : coasts).push(r) }
       for (const p of pts.slice(1)) { const w = wet(p); run.push(p); if (w !== state) { flush(); run = [p]; state = w } }
       flush()
-      continue
     }
-    else if (a === 'land' && b === 'land' && c.id < c.other) borders.push(smoothNew(pts, isClassical, (r) => ([c.id, c.other].sort().join('|') === 'alg|tun' ? 3 : r.every(([x, y]) => y > 1250 || x > 1330) ? 1.2 : 0.5)))
-    else if (a === 'land' && (b === 'sea' || b === 'hole')) coasts.push(pts)
-    else if (a === 'sea' && b === 'sea' && c.id < c.other) seaLines.push(chaikin(simplify(pts, 2.5), 2))
+    // Neighbours that only meet along the board edge keep that edge straight and undrawn.
+    else if (a === 'land' && b === 'land' && pts.filter(onEdge).length > pts.length / 2) line = pts
+    else if (a === 'land' && b === 'land') { line = smoothNew(pts, isClassical, (r) => ([c.id, c.other].sort().join('|') === 'alg|tun' ? 3 : r.every(([x, y]) => y > 1250 || x > 1330) ? 1.2 : 0.5)); borders.push(...offEdge(line)) }
+    // A gap in the partition (no neighbour) is open water too.
+    else if (a === 'land' && (b === 'sea' || b === 'hole' || c.other === null)) coasts.push(...offEdge(pts))
+    else if (a === 'sea' && b === 'sea') { line = chaikin(simplify(pts, 2.5), 2); seaLines.push(...offEdge(line)) }
+    else line = c.points
+    shaped.set(c, line)
+    ;(processed.get(pair(c)) ?? processed.set(pair(c), []).get(pair(c))).push({ from: c.points[0], to: c.points.at(-1), line })
   }
+  // The two sides of an edge can break at slightly different vertices; take the closest
+  // owner line and pin its ends to this side's own corners.
+  const gap = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1])
+  // An owner side may be split into several pieces (around tiny third neighbours); follow them.
+  const follow = (pieces, from, to) => {
+    let at = pieces.filter((e) => gap(e.from, from) < 8).sort((x, y) => gap(x.from, from) - gap(y.from, from))[0]
+    const out = []
+    for (let n = 0; at && n < pieces.length; n++) {
+      out.push(...(out.length ? at.line.slice(1) : at.line))
+      if (gap(at.to, to) < 8) return out
+      const end = at.to
+      at = pieces.filter((e) => e !== at && gap(e.from, end) < 8).sort((x, y) => gap(x.from, end) - gap(y.from, end))[0]
+    }
+    return null
+  }
+  for (const c of chains) if (!shaped.has(c)) {
+    const start = c.points[0], end = c.points.at(-1)
+    const line = follow(processed.get(pair(c)) ?? [], end, start)
+    shaped.set(c, line && line.length > 2 ? [start, ...line.slice(1, -1).reverse(), end] : c.points)
+  }
+  // Province outlines rebuilt from the drawn lines, ring by ring.
+  const outlines = {}
+  for (const c of chains) {
+    if (c.id.startsWith('#')) continue
+    const polys = (outlines[c.id] ??= [])
+    const rings = (polys[c.poly] ??= [])
+    if (rings.lastRing !== c.ring) { rings.push([]); rings.lastRing = c.ring }
+    const ring = rings.at(-1), line = shaped.get(c)
+    ring.push(...(ring.length ? line.slice(1) : line))
+  }
+  const outlinePath = (id) => (outlines[id] ?? []).filter(Boolean).map((rings) => rings.map((r) => polyline(r) + 'Z').join('')).join('')
   const islandOutline = islands.map(geomPath).join('')
   const coastD = coasts.map(polyline).join('') + islandOutline
   // Water-lining: fine lines following the coast at increasing distance, fading outward.
+  // The coastline is defined once (in defs) and reused by the shadow and water-lining.
+  const coastUse = (style) => `<use href="#coast-line" style="${style}"/>`
   const waterLines = [[3, 0.42], [7, 0.3], [11.5, 0.2], [16.5, 0.12]].reverse().map(([d, o]) =>
-    `<path d="${coastD}" style="fill:none;stroke:#7d7a5c;stroke-opacity:${o};stroke-width:${2 * d + 1.1};stroke-linejoin:round"/><path d="${coastD}" style="fill:none;stroke:${SEA};stroke-width:${2 * d - 0.1};stroke-linejoin:round"/>`).join('')
+    coastUse(`fill:none;stroke:#7d7a5c;stroke-opacity:${o};stroke-width:${2 * d + 1.1};stroke-linejoin:round`) + coastUse(`fill:none;stroke:${SEA};stroke-width:${2 * d - 0.1};stroke-linejoin:round`)).join('')
   const background = [
-    `<rect width="${width}" height="${height}" style="fill:${SEA};stroke:#979797"/>`,
+    `<rect width="${width}" height="${height}" style="fill:${SEA}"/>`,
     waterLines,
-    `<path d="${coastD}" style="fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;filter:url(#filter848)"/>`,
-    ...land.map(([, g]) => `<path d="${geomPath(g)}" style="fill:${LAND};fill-rule:evenodd;stroke:${LAND};stroke-width:0.6"/>`),
+    coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;filter:url(#filter848)'),
+    // All land as one shape (the province outlines live in the provinces layer).
+    `<path d="${land.map(([id]) => outlinePath(id)).join('')}" style="fill:${LAND};stroke:${LAND};stroke-width:0.6"/>`,
     `<path d="${islandOutline}" style="fill:${LAND};fill-rule:evenodd"/>`,
     ...waterParts.map((g) => `<path d="${geomPath(g)}" style="fill:${SEA};fill-rule:evenodd"/>`),
     ...canals.map((c) => `<path d="${polyline(c)}" style="fill:none;stroke:#000000;stroke-width:3.4;stroke-linejoin:round;stroke-linecap:round"/><path d="${polyline(c)}" style="fill:none;stroke:${SEA};stroke-width:2;stroke-linejoin:round;stroke-linecap:round"/>`),
@@ -138,11 +185,8 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ...islandMarkup,
     ...crossings.map(crossing),
     ...centers.map(bullseye),
-    style.compass ? compass(style.compass, 34) : '',
-    style.neatline
-      ? `<rect x="1.5" y="1.5" width="${width - 3}" height="${height - 3}" style="fill:none;stroke:#000000;stroke-width:3"/><rect x="7" y="7" width="${width - 14}" height="${height - 14}" style="fill:none;stroke:#000000;stroke-width:0.8"/>`
-      : `<rect width="${width}" height="${height}" style="fill:none;stroke:#000000;stroke-width:2"/>`,
   ].join('\n')
+  defs = defs.replace('</defs>', `<path id="coast-line" d="${coastD}"/></defs>`)
   defs = defs.replace('</defs>', '<marker id="crossing-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#000000"/></marker></defs>')
-  return { defs: style.font ? defs.replace('</defs>', `${fontFace()}</defs>`) : defs, background, foreground, names: labels.join('\n') }
+  return { defs: style.font ? defs.replace('</defs>', `${fontFace()}</defs>`) : defs, background, foreground, names: labels.join('\n'), outlinePath }
 }

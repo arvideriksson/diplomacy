@@ -22,6 +22,7 @@ import {
   supplyCenterProvinces,
   unitCountByNation,
 } from './state'
+import { nationsOf, unitAllowance } from './rules'
 
 export function adjudicate(
   map: MapDefinition,
@@ -80,10 +81,8 @@ function advanceAfterRetreats(
   }
   // Fall complete — supply centers change hands now.
   const newOwners = recomputeSupplyCenters(map, units, owners)
-  const sc = scCountByNation(newOwners)
   const uc = unitCountByNation(units)
-  const nations = new Set([...Object.keys(sc), ...Object.keys(uc)])
-  const needsAdjustment = [...nations].some((n) => (sc[n] ?? 0) !== (uc[n] ?? 0))
+  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0))
   if (needsAdjustment) {
     return { phase: 'build', season: 'Fall', year, units, supplyCenters: newOwners, dislodged: [], contested: [] }
   }
@@ -95,7 +94,12 @@ function finalize(
   next: BoardState,
   results: AdjudicationResult['results'],
 ): AdjudicationResult {
-  const sc = scCountByNation(next.supplyCenters)
+  return { newBoardState: next, results, victory: victoryFor(map, next.supplyCenters) }
+}
+
+/** The winner, if any, given supply-center ownership and the map's victory rule. */
+export function victoryFor(map: MapDefinition, owners: Record<string, string>): AdjudicationResult['victory'] {
+  const sc = scCountByNation(owners)
   const threshold = map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1
   let victory: AdjudicationResult['victory']
   for (const [nation, centers] of Object.entries(sc)) {
@@ -103,5 +107,10 @@ function finalize(
       victory = { nation, centers }
     }
   }
-  return { newBoardState: next, results, victory }
+  // Strict victory (1900): the leader must hold more centers than every other power.
+  if (victory && map.rules?.strictVictory) {
+    const lead = victory
+    if (Object.entries(sc).some(([n, c]) => n !== lead.nation && c >= lead.centers)) victory = undefined
+  }
+  return victory
 }

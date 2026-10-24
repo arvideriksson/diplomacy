@@ -4,7 +4,8 @@
 
 import type { MapDefinition } from '../mapDefinition'
 import type { BoardState } from './types'
-import { homeCenters, scCountByNation, unitCountByNation } from './state'
+import { unitCountByNation } from './state'
+import { buildSites, unitAllowance } from './rules'
 
 /**
  * Nations with nothing to do in `board.phase`, computed over every nation present on the
@@ -30,13 +31,12 @@ export function idleNations(map: MapDefinition, board: BoardState): string[] {
   }
 
   if (board.phase === 'build') {
-    const sc = scCountByNation(board.supplyCenters)
     const un = unitCountByNation(board.units)
-    const occupied = new Set(board.units.map((u) => u.territory))
     for (const n of present) {
-      const delta = (sc[n] ?? 0) - (un[n] ?? 0)
+      // Allowance includes variant extras (1900 Russian emergency measures).
+      const delta = unitAllowance(map, n, board.supplyCenters) - (un[n] ?? 0)
       if (delta < 0) continue // must disband — a choice to make
-      if (delta > 0 && homeCenters(map, n).some((c) => board.supplyCenters[c] === n && !occupied.has(c))) {
+      if (delta > 0 && buildSites(map, n, board.supplyCenters, board.units).length > 0) {
         continue // can build — a choice to make
       }
       idle.push(n) // balanced, or a surplus with nowhere to build
