@@ -4,7 +4,7 @@
   import ChatPanel from './ChatPanel.svelte'
   import GameAdminPanel from './GameAdminPanel.svelte'
   import { user } from '../lib/auth'
-  import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
+  import { fetchGame, fetchResolvedLog, subscribeToGame, graceMinutes } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { replayFrames, type HistoryFrame } from '../lib/history'
   import { getMap } from '../lib/maps'
@@ -26,8 +26,13 @@
   $: isComplete = game.phase === 'complete'
   $: winner = isComplete ? victoryFor(map, liveBoard().supplyCenters) : undefined
   $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
-  // Public games lock their options once started, so there's nothing to manage.
-  $: canManage = isCreator && isActive && game.is_private
+  // Only games created with host controls get the in-game admin menu. A finished game
+  // keeps it so the host can still revert out of the ending.
+  $: canManage = isCreator && (isActive || isComplete) && !!game.settings?.host_controls
+  // Played powers that haven't submitted this round — who a grace period waits on.
+  $: awaiting = [...new Set(Object.values(game.players).map((p) => p.nation).filter((n): n is string => !!n))]
+    .filter((n) => !game.ready?.[n])
+    .map((n) => map.powers.find((p) => p.id === n)?.name ?? n)
 
   let frames: HistoryFrame[] = []
   let cursor = 0
@@ -127,6 +132,8 @@
     supplyCenters={frame.board.supplyCenters}
     readOnly={!isFrontier || isComplete}
     deadline={isFrontier && !isComplete ? game.deadline ?? null : null}
+    {awaiting}
+    graceMinutes={graceMinutes(game.settings)}
     historyOrders={frame.orders}
     onPhaseBack={() => canBack && (cursor -= 1)}
     onPhaseForward={() => canForward && (cursor += 1)}
@@ -163,6 +170,7 @@
 {#if showAdmin}
   <GameAdminPanel
     {game}
+    pastRounds={frames.slice(0, -1).map((f) => ({ year: f.board.year, season: f.board.season, phase: f.board.phase }))}
     onClose={() => (showAdmin = false)}
     onGameUpdate={(g) => (game = g)}
   />

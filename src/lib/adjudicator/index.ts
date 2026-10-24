@@ -4,8 +4,8 @@
 
 export { adjudicate, victoryFor } from './resolve'
 export { idleNations } from './idle'
-export { foldGame } from './fold'
-export type { ResolvedRound } from './fold'
+export { foldGame, replayLog, roundRank } from './fold'
+export type { LogRow, ReplayFrame, ResolvedRound, RoundKey } from './fold'
 export type {
   AdjudicationResult,
   AnyOrder,

@@ -3,7 +3,7 @@
 // state; the actual rules live in the pure engine under src/lib/adjudicator.
 
 import { clearResolving, serviceClient } from './db.ts'
-import { resolveGame } from './resolve.ts'
+import { resolveGame, revertGame, type RoundKey } from './resolve.ts'
 
 Deno.serve(async (req: Request): Promise<Response> => {
   // Gate on a DEDICATED shared secret (config has verify_jwt = false), set via
@@ -16,9 +16,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response('forbidden', { status: 403 })
   }
 
+  // { game_id } resolves the current round; { game_id, action: 'revert', target } rolls
+  // the game back to an earlier round (requested by the host via host_revert_to).
   let gameId: string
+  let action: string | undefined
+  let target: RoundKey | undefined
   try {
-    gameId = (await req.json()).game_id
+    const body = await req.json()
+    gameId = body.game_id
+    action = body.action
+    target = body.target
   } catch {
     return new Response('bad request', { status: 400 })
   }
@@ -26,7 +33,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const db = serviceClient()
   try {
-    const out = await resolveGame(db, gameId, Date.now())
+    const out = action === 'revert'
+      ? await revertGame(db, gameId, target!, Date.now())
+      : await resolveGame(db, gameId, Date.now())
     return Response.json(out)
   } catch (e) {
     // Release the lock so the next tick retries this game exactly once.

@@ -68,6 +68,10 @@
   export let leftWidth: string = '320px'
   /** ISO time the current phase auto-resolves. Null in lobby/history/sandbox. */
   export let deadline: string | null = null
+  /** Powers yet to submit this round; once the deadline passes the phase waits on them. */
+  export let awaiting: string[] = []
+  /** How long past the deadline the phase waits on `awaiting` before resolving anyway. */
+  export let graceMinutes: number = 0
 
   let orders: AnyOrder[] = []
   let spotlightNation = '' // nation whose SCs are spotlit (hovering the SC card)
@@ -159,6 +163,10 @@
   $: deadlineMs = deadline ? new Date(deadline).getTime() : null
   $: msLeft = deadlineMs == null ? null : deadlineMs - now
   $: deadlineUrgent = msLeft != null && msLeft <= 60 * 60 * 1000 // ≤ 1h
+  // Grace period: the deadline passed with powers unready, so the phase waits until the
+  // last of them submits or the grace runs out. Derived, not stored server-side.
+  $: graceMsLeft = msLeft == null ? null : msLeft + graceMinutes * 60_000
+  $: inGrace = msLeft != null && msLeft <= 0 && graceMsLeft! > 0 && awaiting.length > 0
   $: deadlineAbs = deadlineMs == null ? '' : deadlineFmt.format(deadlineMs)
 
   function formatCountdown(ms: number): string {
@@ -804,7 +812,14 @@
       {phaseMeta.label} Phase
     </div>
 
-    {#if msLeft != null}
+    {#if inGrace && msLeft != null}
+      <div class="deadline grace" role="status">
+        <span class="grace-label">Grace period</span>
+        <span class="grace-detail">Waiting on {awaiting.join(', ')}</span>
+        <span class="countdown">{formatCountdown(graceMsLeft ?? 0)}</span>
+        <span class="deadline-abs">Resolves early once all orders are in</span>
+      </div>
+    {:else if msLeft != null}
       <div class="deadline" class:urgent={deadlineUrgent}>
         <span class="countdown">{formatCountdown(msLeft)}</span>
         <span class="deadline-abs">{deadlineAbs}</span>
@@ -1228,6 +1243,23 @@
   }
   .deadline.urgent .countdown {
     color: var(--red, #dc2626);
+  }
+  .deadline.grace {
+    background: var(--amber-subtle);
+    box-shadow: inset 3px 0 0 var(--amber);
+    text-align: center;
+  }
+  .deadline.grace .grace-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+  .deadline.grace .grace-detail {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text, #1a1a1a);
   }
   .side-toolbar {
     display: flex;

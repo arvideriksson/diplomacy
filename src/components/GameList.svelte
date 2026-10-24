@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition'
   import { games, createGame, gamesLoaded } from '../lib/game'
+  import InfoTip from './InfoTip.svelte'
   import { user } from '../lib/auth'
   import { sandboxes } from '../lib/sandbox'
   import { maps } from '../lib/maps'
@@ -12,6 +13,7 @@
   export let onCreateSandbox: (name: string, mapId: string) => void = () => {}
 
   let newGameName = ''
+  let newGameHostControls = false
   let creating = false
 
   // Maps available for sandboxes, e.g. [['classical', 'Classical'], ['1900', '1900']].
@@ -40,8 +42,10 @@
     if (!newGameName.trim() || !$user) return
     creating = true
     try {
-      const game = await createGame(newGameName.trim(), $user.id)
+      // New games start private, so host controls can be switched on right away.
+      const game = await createGame(newGameName.trim(), $user.id, true, 'classical', newGameHostControls)
       newGameName = ''
+      newGameHostControls = false
       onSelectGame(game)
     } finally {
       creating = false
@@ -150,7 +154,10 @@
           {creating ? 'Creating...' : 'Create'}
         </button>
       </div>
-      <p class="action-hint">Got an invite link from a friend? Just open it to join.</p>
+      <label class="host-controls-opt">
+        <input type="checkbox" bind:checked={newGameHostControls} />
+        <span>Host controls<InfoTip text="Lets you revert turns, resolve phases early and change the deadline and timers mid-game. Can be changed in the lobby until the game starts; the game stays private." /></span>
+      </label>
     </div>
   </div>
 
@@ -266,7 +273,6 @@
           </svg>
         </button>
       </div>
-      <p class="modal-desc">A local game where you control every power and resolve turns instantly.</p>
       <label class="field-label" for="sandbox-name">Name</label>
       <input
         id="sandbox-name"
@@ -330,10 +336,22 @@
     gap: 8px;
   }
 
-  .action-hint {
+  .host-controls-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 12px;
     font-size: 13px;
-    color: var(--text-tertiary);
-    margin: 12px 0 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .host-controls-opt input {
+    flex: none;
+    padding: 0;
+    margin: 2px 0 0;
+    box-shadow: none;
+    accent-color: var(--accent);
   }
 
   input {
@@ -645,12 +663,6 @@
   .close:hover {
     background: var(--bg-input);
     color: var(--text);
-  }
-
-  .modal-desc {
-    margin: 0 0 16px;
-    font-size: 13px;
-    color: var(--text-tertiary);
   }
 
   .name-input {

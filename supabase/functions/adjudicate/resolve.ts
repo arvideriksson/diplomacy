@@ -5,12 +5,13 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 // Values come from the pre-bundled engine (run `npm run build:edge`); the bundle
 // is self-contained so there is no cross-boundary or extensionless resolution.
-import { adjudicate, initialBoard, getMap, idleNations } from './_engine.mjs'
-import { getGame, getRoundOrders, type GameRow } from './db.ts'
+import { adjudicate, initialBoard, getMap, idleNations, replayLog, roundRank } from './_engine.mjs'
+import { getGame, getResolvedLog, getRoundOrders, type GameRow } from './db.ts'
 
 // The engine's BoardState/AnyOrder, kept loose here — this file only threads them.
 type BoardState = { phase: string; season: string; year: number; units: unknown[] }
 type AnyOrder = unknown
+export type RoundKey = { year: number; season: string; phase: string }
 
 const ORDER_PHASES = ['movement', 'retreat', 'build']
 
@@ -95,4 +96,51 @@ export async function resolveGame(
   if (error) throw error
 
   return { status: 'resolved', next }
+}
+
+/**
+ * Roll a game back to the start of an earlier round: replay the resolved log up to
+ * `target` and commit that board via apply_revert, which erases the later rounds and
+ * reopens the target round's orders as drafts. Requested by the host (host_revert_to),
+ * which validated the request and claimed the game.
+ */
+export async function revertGame(
+  db: SupabaseClient,
+  gameId: string,
+  target: RoundKey,
+  nowMs: number,
+): Promise<{ status: string; round?: RoundKey }> {
+  const game = await getGame(db, gameId)
+  if (!game) return { status: 'game-not-found' }
+  if (!game.resolving_at || !target) return { status: 'skipped' }
+
+  const map = getMap(game.map_id)
+  // Replay up to the live round so trailing phases that left no log rows (everyone
+  // held) are reconstructed too — the client's history list includes them.
+  const until = ORDER_PHASES.includes(game.phase)
+    ? { year: game.year, season: game.season, phase: game.phase }
+    : undefined
+  const frames = replayLog(map, initialBoard(map), await getResolvedLog(db, gameId), until) as {
+    board: BoardState
+  }[]
+  // Only a frame strictly before the last one is a past round (the last is the board
+  // after the final resolution, i.e. the live phase).
+  const frame = frames
+    .slice(0, -1)
+    .find((f) => roundRank(f.board) === roundRank(target))
+  if (!frame) throw new Error(`no resolved round ${target.season} ${target.year} ${target.phase}`)
+
+  const readyInit: Record<string, boolean> = {}
+  for (const n of idleNations(map, frame.board)) readyInit[n] = true
+
+  const { error } = await db.rpc('apply_revert', {
+    p_game_id: gameId,
+    p_round: { year: target.year, season: target.season, phase: target.phase },
+    p_snapshot: frame.board,
+    p_deadline: deadlineFor(game, target.phase, nowMs),
+    p_ready_init: readyInit,
+  })
+  if (error) throw error
+
+  return { status: 'reverted', round: target }
 }

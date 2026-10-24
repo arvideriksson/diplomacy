@@ -1,20 +1,25 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition'
-  import { updateGame, updateGameSettings, setDeadline, DEFAULT_SETTINGS } from '../lib/game'
+  import { updateGame, updateGameSettings, setDeadline, forceResolve, revertTo, DEFAULT_SETTINGS } from '../lib/game'
   import type { GameState, PhaseTimers } from '../lib/game'
   import { errorMessage } from '../lib/errors'
   import PhaseTimerSettings from './PhaseTimerSettings.svelte'
+  import GracePeriodSetting from './GracePeriodSetting.svelte'
+  import InfoTip from './InfoTip.svelte'
 
   export let game: GameState
   export let onClose: () => void = () => {}
   /** Bubble the updated game row up so the board/deadline reflect changes at once. */
   export let onGameUpdate: (g: GameState) => void = () => {}
+  /** Rounds already resolved, oldest first — the targets a revert can roll back to. */
+  export let pastRounds: { year: number; season: string; phase: string }[] = []
 
   let error = ''
   let saving = false
 
-  $: locked = !game.is_private
+  $: isActive = ['movement', 'retreat', 'build'].includes(game.phase)
   $: phaseTimers = game.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
+  $: gracePeriod = game.settings?.grace_period ?? null
   $: earlyResolution = game.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
   $: spectators = game.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   let nameField = game.name
@@ -33,12 +38,52 @@
   }
 
   const saveTimers = (t: PhaseTimers) => run(() => updateGameSettings(game.id, { phase_timers: t }))
+  const saveGrace = (v: number | null) => run(() => updateGameSettings(game.id, { grace_period: v }))
   const toggleEarly = (e: Event) =>
     run(() => updateGameSettings(game.id, { early_resolution: (e.target as HTMLInputElement).checked }))
   const toggleSpectators = (e: Event) =>
     run(() => updateGameSettings(game.id, { allow_spectators: (e.target as HTMLInputElement).checked }))
   const saveName = () => {
     if (nameField.trim() && nameField !== game.name) run(() => updateGame(game.id, { name: nameField.trim() }))
+  }
+
+  // ── Turn actions ─────────────────────────────────────────────────────────────
+  // Both run through the adjudicator; the new board arrives via the Realtime push, so
+  // the panel closes once the request is accepted.
+  const PHASE_LABEL: Record<string, string> = { movement: 'Movement', retreat: 'Retreats', build: 'Adjustments' }
+  const roundLabel = (r: { year: number; season: string; phase: string }) =>
+    `${r.season} ${r.year} · ${PHASE_LABEL[r.phase] ?? r.phase}`
+
+  // Newest first: the usual revert is "undo the last phase".
+  $: revertOptions = [...pastRounds].reverse()
+  let revertIndex = 0
+
+  async function act(fn: () => Promise<void>) {
+    error = ''
+    saving = true
+    try {
+      await fn()
+      onClose()
+    } catch (e) {
+      error = errorMessage(e)
+    } finally {
+      saving = false
+    }
+  }
+
+  function resolveNow() {
+    if (!confirm('Resolve this phase now? Powers that haven’t submitted will hold.')) return
+    act(() => forceResolve(game.id))
+  }
+
+  function revert() {
+    const target = revertOptions[revertIndex]
+    if (!target) return
+    const msg =
+      `Revert the game to ${roundLabel(target)}? Every later phase is erased and ` +
+      `players’ orders for that phase reopen as unsubmitted drafts. This can’t be undone.`
+    if (!confirm(msg)) return
+    act(() => revertTo(game.id, target))
   }
 
   // ── Deadline override ────────────────────────────────────────────────────────
@@ -76,12 +121,24 @@
 
     {#if error}<p class="error">{error}</p>{/if}
 
-    {#if locked}
-      <p class="locked-note">
-        Settings and the deadline are locked for public games once they start, to keep play fair.
-        Make a game private to manage it in progress.
-      </p>
-    {:else}
+    <div class="group">
+      <span class="label">Turn<InfoTip text="Revert rolls the game back to the start of the chosen phase, erasing later phases. Resolve now ends the current phase immediately; powers that have not submitted hold." /></span>
+      <div class="action-row">
+        {#if revertOptions.length}
+          <select class="round-select" bind:value={revertIndex} disabled={saving}>
+            {#each revertOptions as r, i (i)}
+              <option value={i}>{roundLabel(r)}</option>
+            {/each}
+          </select>
+          <button class="btn btn-danger" on:click={revert} disabled={saving}>Revert</button>
+        {/if}
+        {#if isActive}
+          <button class="btn" on:click={resolveNow} disabled={saving}>Resolve now</button>
+        {/if}
+      </div>
+    </div>
+
+    {#if isActive}
       <div class="group">
         <span class="label">Game name</span>
         <input
@@ -94,8 +151,7 @@
       </div>
 
       <div class="group">
-        <span class="label">Override deadline</span>
-        <p class="desc">Set when the current phase auto-resolves (your local time).</p>
+        <span class="label">Override deadline<InfoTip text="When the current phase is due, in your local time. If anyone still hasn't submitted by then, the phase waits for them (grace period)." /></span>
         <div class="deadline-row">
           <input
             type="datetime-local"
@@ -112,15 +168,18 @@
       </div>
 
       <div class="group">
-        <span class="label">Phase timers</span>
-        <p class="desc">Applies to phases opened from the next resolution onward.</p>
+        <span class="label">Phase timers<InfoTip text="Applies to phases opened from the next resolution onward." /></span>
         <PhaseTimerSettings timers={phaseTimers} disabled={saving} onChange={saveTimers} />
+      </div>
+
+      <div class="group">
+        <span class="label">Grace period<InfoTip text="If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold). Applies to the current phase too." /></span>
+        <GracePeriodSetting value={gracePeriod} movement={phaseTimers.movement} disabled={saving} onChange={saveGrace} />
       </div>
 
       <div class="group toggle-group">
         <div>
-          <span class="label">Early resolution</span>
-          <p class="desc">Resolve as soon as every power has submitted</p>
+          <span class="label">Early resolution<InfoTip text="Resolve as soon as every power has submitted, instead of waiting for the deadline." /></span>
         </div>
         <label class="toggle">
           <input type="checkbox" checked={earlyResolution} on:change={toggleEarly} disabled={saving} />
@@ -131,7 +190,6 @@
       <div class="group toggle-group">
         <div>
           <span class="label">Allow spectators</span>
-          <p class="desc">Non-players can watch the game</p>
         </div>
         <label class="toggle">
           <input type="checkbox" checked={spectators} on:change={toggleSpectators} disabled={saving} />
@@ -202,14 +260,57 @@
     margin: 4px 0 0;
   }
 
-  .locked-note {
+  .action-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .round-select {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
     font-size: 14px;
-    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     background: var(--bg-elevated);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-md);
-    padding: 14px;
-    margin: 12px 0 0;
+    color: var(--text);
+    font-family: var(--font);
+  }
+  .round-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    cursor: pointer;
+    font-family: var(--font);
+    white-space: nowrap;
+    transition: border-color 0.12s, opacity 0.12s;
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+  .btn-danger {
+    border-color: var(--red);
+    color: var(--red);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--red-subtle);
+    border-color: var(--red);
+  }
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   .group {
@@ -225,12 +326,6 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--text);
-  }
-
-  .desc {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin: 2px 0 0;
   }
 
   .name-input {

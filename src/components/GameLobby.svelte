@@ -11,6 +11,8 @@
   import { initialBoard } from '../lib/adjudicator'
   import { errorMessage } from '../lib/errors'
   import PhaseTimerSettings from './PhaseTimerSettings.svelte'
+  import GracePeriodSetting from './GracePeriodSetting.svelte'
+  import InfoTip from './InfoTip.svelte'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -34,11 +36,15 @@
 
   $: settingsName = game?.name ?? ''
   $: settingsPhaseTimers = game?.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
+  $: settingsGracePeriod = game?.settings?.grace_period ?? null
   $: settingsEarlyResolution = game?.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
   $: settingsMapId = game?.map_id ?? 'classical'
   $: settingsGunboat = game?.settings?.gunboat ?? DEFAULT_SETTINGS.gunboat
   $: settingsSpectators = game?.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   $: settingsRandomNations = game?.settings?.random_nations ?? DEFAULT_SETTINGS.random_nations
+  $: settingsHostControls = !!game?.settings?.host_controls
+  // Host-controlled games must stay private (server-enforced).
+  $: hostControls = !!game?.settings?.host_controls
 
   // The map can only be chosen before the game starts; it's fixed once units are on the board.
   $: canChooseMap = isAdmin && game?.phase === 'lobby'
@@ -108,8 +114,11 @@
         gunboat: settingsGunboat,
         allow_spectators: settingsSpectators,
         random_nations: settingsRandomNations,
+        host_controls: settingsHostControls && game.is_private,
         early_resolution: settingsEarlyResolution,
         phase_timers: settingsPhaseTimers,
+        // null, not undefined: the server merges settings, so an omitted key wouldn't clear.
+        grace_period: settingsGracePeriod,
       }
       // The map is a top-level column, not a setting; only mutable in the lobby.
       const updates: Parameters<typeof updateGame>[1] = { name: settingsName, settings }
@@ -173,12 +182,16 @@
     saveSettings()
   }
 
+  function onGraceChange(v: number | null) {
+    settingsGracePeriod = v
+    saveSettings()
+  }
+
   // Variant = which board to play. Derived from the map registry, so adding a map
   // here makes it selectable automatically.
   const MAP_OPTIONS = Object.values(maps).map((m) => ({
     value: m.id,
     label: m.name,
-    desc: m.description,
   }))
 </script>
 
@@ -203,9 +216,6 @@
         {/if}
         <span class="phase-badge">{game.phase}</span>
       </div>
-      {#if !isAdmin}
-        <p class="admin-note">Only the game creator can change settings.</p>
-      {/if}
     </div>
 
     <div class="lobby-grid">
@@ -221,8 +231,7 @@
           </div>
 
           <div class="setting-group">
-            <span class="setting-label">Phase Timers</span>
-            <p class="setting-desc">How long each phase runs before it auto-resolves.</p>
+            <span class="setting-label">Phase Timers<InfoTip text="How long each phase runs before its deadline." /></span>
             <PhaseTimerSettings
               timers={settingsPhaseTimers}
               disabled={!isAdmin}
@@ -231,10 +240,19 @@
           </div>
 
           <div class="setting-group">
+            <span class="setting-label">Grace Period<InfoTip text="If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold)." /></span>
+            <GracePeriodSetting
+              value={settingsGracePeriod}
+              movement={settingsPhaseTimers.movement}
+              disabled={!isAdmin}
+              onChange={onGraceChange}
+            />
+          </div>
+
+          <div class="setting-group">
             <div class="toggle-row">
               <div>
-                <span class="setting-label">Early Resolution</span>
-                <p class="setting-desc">Resolve as soon as every power has submitted</p>
+                <span class="setting-label">Early Resolution<InfoTip text="Resolve as soon as every power has submitted, instead of waiting for the deadline." /></span>
               </div>
               <label class="toggle">
                 <input type="checkbox" bind:checked={settingsEarlyResolution} disabled={!isAdmin}
@@ -246,7 +264,6 @@
 
           <div class="setting-group">
             <span class="setting-label">Variant</span>
-            <p class="setting-desc">Which board everyone plays on.</p>
             <div class="variant-options">
               {#each MAP_OPTIONS as opt}
                 <button
@@ -256,7 +273,6 @@
                   on:click={() => { settingsMapId = opt.value; saveSettings() }}
                 >
                   <span class="variant-name">{opt.label}</span>
-                  <span class="variant-desc">{opt.desc}</span>
                 </button>
               {/each}
             </div>
@@ -265,8 +281,7 @@
           <div class="setting-group">
             <div class="toggle-row">
               <div>
-                <span class="setting-label">Gunboat</span>
-                <p class="setting-desc">No press — players cannot negotiate or chat</p>
+                <span class="setting-label">Gunboat<InfoTip text="No press: players cannot chat or negotiate." /></span>
               </div>
               <label class="toggle">
                 <input type="checkbox" bind:checked={settingsGunboat} disabled={!isAdmin}
@@ -280,7 +295,6 @@
             <div class="toggle-row">
               <div>
                 <span class="setting-label">Allow Spectators</span>
-                <p class="setting-desc">Non-players can watch the game</p>
               </div>
               <label class="toggle">
                 <input type="checkbox" bind:checked={settingsSpectators} disabled={!isAdmin}
@@ -293,8 +307,7 @@
           <div class="setting-group">
             <div class="toggle-row">
               <div>
-                <span class="setting-label">Random Nation Assignment</span>
-                <p class="setting-desc">Nations assigned randomly at game start</p>
+                <span class="setting-label">Random Nation Assignment<InfoTip text="Powers are dealt at random when the game starts." /></span>
               </div>
               <label class="toggle">
                 <input type="checkbox" bind:checked={settingsRandomNations} disabled={!isAdmin}
@@ -307,12 +320,22 @@
           <div class="setting-group">
             <div class="toggle-row">
               <div>
-                <span class="setting-label">Public</span>
-                <p class="setting-desc">{game.is_private ? 'Only invited players can find this game' : 'Anyone can find and join this game'}</p>
+                <span class="setting-label">Public{#if hostControls}<InfoTip text="Turn off host controls to make the game public." />{/if}</span>
               </div>
               <label class="toggle">
-                <input type="checkbox" checked={!game.is_private} disabled={!isAdmin}
+                <input type="checkbox" checked={!game.is_private} disabled={!isAdmin || hostControls}
                   on:change={togglePrivate} />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="toggle-row">
+              <span class="setting-label">Host Controls<InfoTip text="The host can revert turns, resolve phases early and change the deadline and timers mid-game. Fixed once the game starts. Private games only." /></span>
+              <label class="toggle">
+                <input type="checkbox" bind:checked={settingsHostControls} disabled={!isAdmin || !game.is_private}
+                  on:change={saveSettings} />
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
               </label>
             </div>
@@ -337,7 +360,6 @@
                   on:click={() => claimPower(power.id)}
                 >
                   <span class="power-name">{power.name}</span>
-                  <span class="power-centers">{homeCenters(power.id)} centers</span>
                   <span class="power-holder">
                     {#if mine}✓ You
                     {:else if holder}{holder.info.display_name ?? 'Player'}
@@ -361,7 +383,6 @@
               </svg>
               <h2>Invite Players</h2>
             </div>
-            <p class="invite-hint">Share this link with friends — anyone who opens it joins the game.</p>
             <button class="invite-link-display" on:click={copyInviteLink} class:copied>
               <span class="link-text">{inviteLink}</span>
               {#if copied}
@@ -572,10 +593,6 @@
     font-weight: 600;
     font-size: 14px;
   }
-  .power-centers {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
   .power-holder {
     font-size: 12px;
     font-weight: 500;
@@ -635,12 +652,6 @@
     background: var(--accent-subtle);
     color: var(--accent);
     flex-shrink: 0;
-  }
-
-  .admin-note {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin: 6px 0 0;
   }
 
   .lobby-grid {
@@ -711,12 +722,6 @@
     margin-bottom: 4px;
   }
 
-  .setting-desc {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin: 0;
-  }
-
   .variant-options {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -760,11 +765,6 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--text);
-  }
-
-  .variant-desc {
-    font-size: 12px;
-    color: var(--text-tertiary);
   }
 
   .toggle-row {
@@ -823,12 +823,6 @@
   .invite-card {
     background: var(--accent-subtle);
     border-color: var(--accent-muted);
-  }
-
-  .invite-hint {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin: 0 0 14px;
   }
 
   .invite-link-display {

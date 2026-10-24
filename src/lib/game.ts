@@ -23,8 +23,18 @@ export interface GameSettings {
   random_nations: boolean
   /** Resolve as soon as every power has submitted, rather than only at the deadline. */
   early_resolution: boolean
-  /** How long each phase lasts before the cron backstop auto-resolves it (minutes). */
+  /** How long each phase lasts before its deadline (minutes); unready powers then get a grace period. */
   phase_timers: PhaseTimers
+  /**
+   * The creator gets an in-game admin menu (revert, force-resolve, deadline and pacing
+   * changes). Private games only; editable in the lobby, fixed once the game starts.
+   */
+  host_controls?: boolean
+  /**
+   * How long (minutes) a phase waits past its deadline for unsubmitted powers before
+   * resolving without them (0 = no grace). Absent/null = one movement timer.
+   */
+  grace_period?: number | null
   /** Legacy single-timer enum; read only as a fallback when phase_timers is absent. */
   turn_timer?: '12h' | '24h' | '48h' | '72h' | '1w'
 }
@@ -35,6 +45,11 @@ export const DEFAULT_SETTINGS: GameSettings = {
   random_nations: false,
   early_resolution: true,
   phase_timers: { movement: 1440, retreat: 720, build: 720 }, // 24h / 12h / 12h
+}
+
+/** Grace period length in minutes. Mirrors public.grace_minutes() (130_grace_period.sql). */
+export function graceMinutes(settings: Partial<GameSettings> | null | undefined): number {
+  return Math.max(0, settings?.grace_period ?? settings?.phase_timers?.movement ?? 1440)
 }
 
 export interface GameState {
@@ -103,7 +118,13 @@ export async function fetchGame(id: string) {
   return data as GameState
 }
 
-export async function createGame(name: string, userId: string, isPrivate: boolean = true, mapId: string = 'classical') {
+export async function createGame(
+  name: string,
+  userId: string,
+  isPrivate: boolean = true,
+  mapId: string = 'classical',
+  hostControls: boolean = false,
+) {
   const map = getMap(mapId)
   const { data: userData } = await supabase.auth.getUser()
   const meta = userData?.user?.user_metadata ?? {}
@@ -124,7 +145,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
       season: 'Spring',
       map_id: mapId,
       players: { [userId]: playerInfo },
-      settings: DEFAULT_SETTINGS,
+      settings: { ...DEFAULT_SETTINGS, host_controls: isPrivate && hostControls },
       is_private: isPrivate,
       created_by: userId,
     })
@@ -154,7 +175,7 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
 
 /**
  * Update game settings through the guarded RPC (creator-only; mid-game edits are
- * private-games-only and limited to mutable keys). Merges into existing settings
+ * host-controlled-games-only and limited to mutable keys). Merges into existing settings
  * server-side. Use this instead of a raw games update so the rules are enforced.
  */
 export async function updateGameSettings(gameId: string, settings: Partial<GameSettings>) {
@@ -167,7 +188,7 @@ export async function updateGameSettings(gameId: string, settings: Partial<GameS
 }
 
 /**
- * Override the current phase deadline (creator-only, private games only). Pass an
+ * Override the current phase deadline (creator-only, host-controlled games only). Pass an
  * ISO string to set it, or null to clear (no backstop until the next resolution).
  */
 export async function setDeadline(gameId: string, deadline: string | null) {
@@ -177,6 +198,30 @@ export async function setDeadline(gameId: string, deadline: string | null) {
   })
   if (error) throw error
   return fetchGame(gameId)
+}
+
+/**
+ * Resolve the current phase right now (host controls), ending any grace period:
+ * nations that haven't submitted hold. The board arrives via the Realtime push.
+ */
+export async function forceResolve(gameId: string) {
+  const { error } = await supabase.rpc('host_force_resolve', { p_game_id: gameId })
+  if (error) throw error
+}
+
+/**
+ * Roll the game back to the start of an earlier phase (host controls). Every later
+ * phase is erased and that phase's orders reopen as unsubmitted drafts. Like a
+ * resolution, the new board arrives via the Realtime push.
+ */
+export async function revertTo(gameId: string, round: { year: number; season: string; phase: string }) {
+  const { error } = await supabase.rpc('host_revert_to', {
+    p_game_id: gameId,
+    p_year: round.year,
+    p_season: round.season,
+    p_phase: round.phase,
+  })
+  if (error) throw error
 }
 
 /** Claim a power in the lobby (atomic, server-checked). Pass null to release. */
