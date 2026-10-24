@@ -5,12 +5,14 @@ import {
   cross,
   minus,
   octagon,
-  arrow,
   curvedArrow,
   supportHoldArrow,
   convoyArrow,
-  moveViaConvoyArrow,
+  swallowtailArrow,
+  bSplinePoints,
+  quadraticPoints,
   routeLeg,
+  tributaryArrow,
 } from './svgPrimitives'
 import {
   headToHeadControlPoint,
@@ -128,11 +130,18 @@ const SUPPLY_CENTER_INNER_RADIUS = 4
 const GHOST_UNIT_OPACITY = 0.6
 
 const ORDER_LINE_WIDTH = 3
-const ORDER_ARROW_WIDTH = 6
-const ORDER_ARROW_LENGTH = 8
-const ORDER_STROKE_WIDTH = 2.5
-const ORDER_DASH = { length: 4, spacing: 2 }
 const SUCCESS_COLOR = 'rgba(0,0,0,1)'
+// Move orders are drawn as swallowtail arrows: one solid shape, notched tail, broad head.
+const MOVE_SHAFT_WIDTH = 8
+const MOVE_HEAD_WIDTH = 9
+const MOVE_HEAD_LENGTH = 11
+const MOVE_OUTLINE_WIDTH = 1.5
+// Supports and convoys share the shape, slimmer; supports have a dashed outline.
+const SUPPORT_SHAFT_WIDTH = 6
+const SUPPORT_HEAD_WIDTH = 7
+const SUPPORT_HEAD_LENGTH = 9
+const SUPPORT_DASH = { length: 3, spacing: 2 }
+const CONVOY_STUB_LENGTH = 28
 const HOLD_OCTAGON_SIZE = 24
 const FAILED_CROSS_WIDTH = 3
 const FAILED_CROSS_LENGTH = 16
@@ -681,6 +690,58 @@ const convoyRoutes = (
   return routes
 }
 
+// A support for a move that is actually ordered (and drawn as a plain move) joins that move's
+// arrow as a tributary; any other support for a move points at the target on its own.
+const joinsMove = (support: OrderState, orders: OrderState[]): boolean =>
+  support.aux !== support.target &&
+  orders.some((o) => o.type === 'Move' && o.source === support.aux && o.target === support.target)
+
+// Tributary supports, drawn beneath the move arrows so each join tucks under the shaft.
+// Several supports for one move join it at staggered points.
+const tributaryParts = (
+  orders: OrderState[],
+  unitPositions: Map<string, Point>,
+  state: RenderState,
+  groups: Map<string, OrderState[]>,
+  headToHead: Map<string, Point>,
+  fixedRoutes: Map<string, Point[][]>
+): string[] => {
+  const parts: string[] = []
+  for (const order of orders) {
+    if (order.type !== 'Support' || !order.target || !order.aux || !joinsMove(order, orders)) {
+      continue
+    }
+    const source = unitPositions.get(order.source)
+    const target = unitPositions.get(order.target)
+    const aux = unitPositions.get(order.aux)
+    if (!source || !target || !aux) {
+      continue
+    }
+    const fixed = fixedRoutes.get(`${order.aux}~${order.target}`) ??
+      fixedRoutes.get(`${order.target}~${order.aux}`)?.slice().reverse().map((leg) => leg.slice().reverse())
+    const controlPoint = headToHead.get(`${order.aux}->${order.target}`)
+    // The move's centre line (an off-board route joins on its final, on-board leg).
+    const move = fixed
+      ? bSplinePoints(fixed.length > 1 ? [...fixed[fixed.length - 1], target] : [aux, ...fixed[0], target])
+      : controlPoint ? quadraticPoints(aux, controlPoint, target) : [aux, target]
+    const group = groups.get(`${order.aux}->${order.target}`) ?? []
+    parts.push(
+      tributaryArrow({
+        source,
+        move,
+        joinAt: Math.min(0.5 + 0.15 * group.indexOf(order), 0.8),
+        shaftWidth: SUPPORT_SHAFT_WIDTH,
+        stroke: SUCCESS_COLOR,
+        strokeWidth: MOVE_OUTLINE_WIDTH,
+        fill: nationColor(state, order.nation),
+        dash: SUPPORT_DASH,
+        renderCenter: order.failed ? failureCross : undefined,
+      })
+    )
+  }
+  return parts
+}
+
 const supportOrderParts = (
   orders: OrderState[],
   unitPositions: Map<string, Point>,
@@ -711,17 +772,20 @@ const supportOrderParts = (
           y2: target.y,
           offset: UNIT_RADIUS,
           endOffset: UNIT_RADIUS + UNIT_OFFSET_RADIUS,
-          lineWidth: ORDER_LINE_WIDTH,
+          lineWidth: SUPPORT_SHAFT_WIDTH,
           fill: color,
           stroke: SUCCESS_COLOR,
-          strokeWidth: ORDER_STROKE_WIDTH,
-          dash: ORDER_DASH,
+          strokeWidth: MOVE_OUTLINE_WIDTH,
+          dash: SUPPORT_DASH,
           renderCenter,
         })
       )
       continue
     }
 
+    if (joinsMove(order, orders)) {
+      continue
+    }
     const moveControlPoint = headToHead.get(`${order.aux}->${order.target}`)
     const group = groups.get(`${order.aux}->${order.target}`) ?? []
     const end = staggeredSupportEnd(aux, target, group.indexOf(order), moveControlPoint)
@@ -734,13 +798,13 @@ const supportOrderParts = (
         x3: aux.x,
         y3: aux.y,
         offset: UNIT_RADIUS,
-        lineWidth: ORDER_LINE_WIDTH,
-        arrowWidth: ORDER_ARROW_WIDTH,
-        arrowLength: ORDER_ARROW_LENGTH,
-        strokeWidth: ORDER_STROKE_WIDTH,
+        lineWidth: SUPPORT_SHAFT_WIDTH,
+        arrowWidth: SUPPORT_HEAD_WIDTH,
+        arrowLength: SUPPORT_HEAD_LENGTH,
+        strokeWidth: MOVE_OUTLINE_WIDTH,
         stroke: SUCCESS_COLOR,
         fill: color,
-        dash: ORDER_DASH,
+        dash: SUPPORT_DASH,
         endControlPoint: moveControlPoint,
         renderCenter,
       })
@@ -748,6 +812,27 @@ const supportOrderParts = (
   }
   return parts
 }
+
+// The tail starts at the unit's centre, square, so the arrow is filled right up to any token
+// shape (a fleet's triangle leaves more of it showing than an army's disc).
+const moveArrow = (
+  points: Point[],
+  color: string,
+  renderCenter: ((x: number, y: number, angle: number) => string) | undefined
+): string =>
+  swallowtailArrow({
+    points,
+    shaftWidth: MOVE_SHAFT_WIDTH,
+    headWidth: MOVE_HEAD_WIDTH,
+    headLength: MOVE_HEAD_LENGTH,
+    notch: 0,
+    offset: UNIT_RADIUS,
+    startOffset: 0,
+    stroke: SUCCESS_COLOR,
+    strokeWidth: MOVE_OUTLINE_WIDTH,
+    fill: color,
+    renderCenter,
+  })
 
 const moveOrderParts = (
   orders: OrderState[],
@@ -784,62 +869,21 @@ const moveOrderParts = (
     if (fixed && order.type === 'Move') {
       const offBoard = fixed.length > 1
       if (offBoard) {
-        parts.push(routeLeg({ waypoints: [source, ...fixed[0]], lineWidth: ORDER_LINE_WIDTH, strokeWidth: ORDER_STROKE_WIDTH, stroke: SUCCESS_COLOR, fill: color }))
+        parts.push(routeLeg({ waypoints: [source, ...fixed[0]], lineWidth: MOVE_SHAFT_WIDTH - MOVE_OUTLINE_WIDTH, strokeWidth: MOVE_OUTLINE_WIDTH, stroke: SUCCESS_COLOR, fill: color }))
       }
-      parts.push(
-        moveViaConvoyArrow({
-          waypoints: offBoard ? [...fixed[fixed.length - 1], target] : [source, ...fixed[0], target],
-          startOffset: 0,
-          lineWidth: ORDER_LINE_WIDTH,
-          arrowWidth: ORDER_ARROW_WIDTH,
-          arrowLength: ORDER_ARROW_LENGTH,
-          strokeWidth: ORDER_STROKE_WIDTH,
-          offset: UNIT_RADIUS,
-          stroke: SUCCESS_COLOR,
-          fill: color,
-          renderCenter,
-        })
-      )
+      const waypoints = offBoard ? [...fixed[fixed.length - 1], target] : [source, ...fixed[0], target]
+      parts.push(moveArrow(bSplinePoints(waypoints), color, renderCenter))
       continue
     }
     if (order.type === 'MoveViaConvoy') {
       const route = routes.get(`${order.source}->${order.target}`)
       if (route) {
-        parts.push(
-          moveViaConvoyArrow({
-            waypoints: route.waypoints,
-            startOffset: 0,
-            lineWidth: ORDER_LINE_WIDTH,
-            arrowWidth: ORDER_ARROW_WIDTH,
-            arrowLength: ORDER_ARROW_LENGTH,
-            strokeWidth: ORDER_STROKE_WIDTH,
-            offset: UNIT_RADIUS,
-            stroke: SUCCESS_COLOR,
-            fill: color,
-            renderCenter,
-          })
-        )
+        parts.push(moveArrow(bSplinePoints(route.waypoints), color, renderCenter))
         continue
       }
     }
-    parts.push(
-      arrow({
-        x1: source.x,
-        y1: source.y,
-        x2: target.x,
-        y2: target.y,
-        lineWidth: ORDER_LINE_WIDTH,
-        arrowWidth: ORDER_ARROW_WIDTH,
-        arrowLength: ORDER_ARROW_LENGTH,
-        strokeWidth: ORDER_STROKE_WIDTH,
-        offset: UNIT_RADIUS,
-        startOffset: 0, // tail begins at the unit center; the unit (drawn on top) covers it
-        stroke: SUCCESS_COLOR,
-        fill: color,
-        controlPoint: headToHead.get(`${order.source}->${order.target}`),
-        renderCenter,
-      })
-    )
+    const controlPoint = headToHead.get(`${order.source}->${order.target}`)
+    parts.push(moveArrow(controlPoint ? quadraticPoints(source, controlPoint, target) : [source, target], color, renderCenter))
   }
   return parts
 }
@@ -870,12 +914,15 @@ const convoyOrderParts = (
         y2: target.y,
         x3: aux.x,
         y3: aux.y,
-        lineWidth: ORDER_LINE_WIDTH,
-        offset: UNIT_RADIUS,
+        lineWidth: SUPPORT_SHAFT_WIDTH,
+        offset: 0, // from the fleet's centre; drawn behind the unit like a move
         stroke: SUCCESS_COLOR,
-        strokeWidth: ORDER_STROKE_WIDTH,
+        strokeWidth: MOVE_OUTLINE_WIDTH,
         fill: nationColor(state, order.nation),
         attachmentPoint: route?.attachments.get(order.source),
+        // With no convoyed move to join, the wave only hints at the direction and stays
+        // within the fleet's own sea.
+        maxLength: route ? undefined : CONVOY_STUB_LENGTH,
         renderCenter: order.failed ? failureCross : undefined,
       })
     )
@@ -883,7 +930,7 @@ const convoyOrderParts = (
   return parts
 }
 
-// Orders split into two z-layers: `behind` (move arrows, drawn under the units so a
+// Orders split into two z-layers: `behind` (move, convoy and joining support arrows, drawn under the units so a
 // triangular fleet's token cleanly covers the arrow's center-anchored tail) and
 // `front` (everything else, drawn over the units as before).
 const ordersLayer = (
@@ -896,7 +943,10 @@ const ordersLayer = (
   const headToHead = headToHeadControlPoints(orders, unitPositions)
   const groups = supportMoveGroups(orders)
   const routes = convoyRoutes(orders, unitPositions)
-  const behind: string[] = moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes)
+  const behind: string[] = [
+    ...tributaryParts(orders, unitPositions, state, groups, headToHead, fixedRoutes),
+    ...moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes),
+  ]
   const front: string[] = []
 
   for (const order of ofType('Hold')) {
@@ -906,7 +956,7 @@ const ordersLayer = (
     }
   }
   front.push(...supportOrderParts(orders, unitPositions, state, groups, headToHead))
-  front.push(...convoyOrderParts(orders, unitPositions, state, routes))
+  behind.push(...convoyOrderParts(orders, unitPositions, state, routes))
   for (const order of ofType('Build')) {
     const position = unitPositions.get(order.source)
     if (position) {
