@@ -49,6 +49,23 @@ export interface PowerDefinition {
   color: string
 }
 
+/** The power a nation token refers to, by id or display name, ignoring case. */
+export function findPower(powers: PowerDefinition[], token: string | null | undefined): PowerDefinition | undefined {
+  const t = token?.toLowerCase()
+  return t ? powers.find((p) => p.id.toLowerCase() === t || p.name.toLowerCase() === t) : undefined
+}
+
+/** A nation token's display name (the token itself if it names no power). */
+export const powerName = (powers: PowerDefinition[], token: string): string => findPower(powers, token)?.name ?? token
+
+/** Whether two nation tokens name the same power, ignoring case. */
+export const sameNation = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  !!a && !!b && a.toLowerCase() === b.toLowerCase()
+
+/** The end-of-game line for a winner. */
+export const victoryMessage = (powers: PowerDefinition[], winner: { nation: string; centers: number }): string =>
+  `🏆 ${powerName(powers, winner.nation)} wins with ${winner.centers} supply centers.`
+
 export interface TerritoryDefinition {
   name: string
   type: 'land' | 'sea' | 'coast'

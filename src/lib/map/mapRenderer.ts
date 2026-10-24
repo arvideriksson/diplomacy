@@ -1,5 +1,6 @@
 // Ported from diplicity-react — builds a fresh SVG string from parsed dSVG + render state.
 import { parseDsvg, type ParsedDsvg, type Point } from './dsvgParser'
+import { sameNation } from '../mapDefinition'
 import {
   formatCoord,
   cross,
@@ -224,7 +225,6 @@ const proceduralBackground = (
 const proceduralCoastline = (
   provincePaths: Map<string, string>,
   landIds: Set<string>,
-  theme: MapTheme,
 ): string => {
   const land: string[] = []
   // Geometry is already grown to tile in the converter, so the land silhouette here
@@ -245,8 +245,6 @@ const themedLabels = (markup: string, theme: MapTheme): string => {
     `paint-order="stroke" stroke="${halo}" stroke-width="${haloWidth}" stroke-linejoin="round">${markup}</g>`
   )
 }
-
-const sameNation = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
 const nationColor = (state: RenderState, nation: string): string => {
   const color = state.nationColors?.[nation]
@@ -690,6 +688,11 @@ const convoyRoutes = (
   return routes
 }
 
+// The drawn route (legs of waypoints) between two provinces, in travel order: routes are
+// stored once per pair, so the reverse trip reverses both the legs and each leg.
+const fixedRoute = (fixedRoutes: Map<string, Point[][]>, from: string, to: string): Point[][] | undefined =>
+  fixedRoutes.get(`${from}~${to}`) ?? fixedRoutes.get(`${to}~${from}`)?.slice().reverse().map((leg) => leg.slice().reverse())
+
 // A support for a move that is actually ordered (and drawn as a plain move) joins that move's
 // arrow as a tributary; any other support for a move points at the target on its own.
 const joinsMove = (support: OrderState, orders: OrderState[]): boolean =>
@@ -717,8 +720,7 @@ const tributaryParts = (
     if (!source || !target || !aux) {
       continue
     }
-    const fixed = fixedRoutes.get(`${order.aux}~${order.target}`) ??
-      fixedRoutes.get(`${order.target}~${order.aux}`)?.slice().reverse().map((leg) => leg.slice().reverse())
+    const fixed = fixedRoute(fixedRoutes, order.aux, order.target)
     const controlPoint = headToHead.get(`${order.aux}->${order.target}`)
     // The move's centre line (an off-board route joins on its final, on-board leg).
     const move = fixed
@@ -863,8 +865,7 @@ const moveOrderParts = (
 
     // A move along a drawn route (1900: around Africa) follows its waypoints. A route with two
     // legs leaves the board after the first (a headless line) and re-enters for the second.
-    const fixed = fixedRoutes.get(`${order.source}~${order.target}`) ??
-      fixedRoutes.get(`${order.target}~${order.source}`)?.slice().reverse().map((leg) => leg.slice().reverse())
+    const fixed = fixedRoute(fixedRoutes, order.source, order.target)
     if (fixed && order.type === 'Move') {
       const offBoard = fixed.length > 1
       if (offBoard) {
@@ -1012,7 +1013,7 @@ export class DiplicityMap {
     // proceduralBackground); only baked dsvgs carry an explicit borders layer.
     const borderLayer = procedural ? '' : borders
     const foregroundLayer = procedural
-      ? proceduralCoastline(this.parsed.provincePaths, landIds, theme)
+      ? proceduralCoastline(this.parsed.provincePaths, landIds)
       : foreground
 
     const parts = [

@@ -13,4 +13,3 @@ export function getMap(id: string): MapDefinition {
   return map
 }
 
-export { classicalMap }

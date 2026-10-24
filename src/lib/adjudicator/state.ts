@@ -3,7 +3,6 @@
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import type { BoardState } from './types'
 
 export const sortIds = (ids: string[]): string[] => [...ids].sort()
 
@@ -13,17 +12,6 @@ export const sortUnits = (units: Unit[]): Unit[] =>
 /** The unit standing in a province (coast-agnostic — one unit per province). */
 export const unitAt = (units: Unit[], province: string): Unit | undefined =>
   units.find((u) => u.territory === province)
-
-export const cloneBoard = (s: BoardState): BoardState => ({
-  mapId: s.mapId,
-  year: s.year,
-  season: s.season,
-  phase: s.phase,
-  units: s.units.map((u) => ({ ...u })),
-  supplyCenters: { ...s.supplyCenters },
-  dislodged: s.dislodged.map((d) => ({ unit: { ...d.unit }, attackedFrom: d.attackedFrom })),
-  contested: [...s.contested],
-})
 
 /** All supply-center province ids on the map, sorted. */
 export const supplyCenterProvinces = (map: MapDefinition): string[] =>

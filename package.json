@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:7p": "node --experimental-strip-types scripts/seven-player-game.mjs",
     "build:edge": "esbuild src/lib/adjudicator/edge-entry.ts --bundle --format=esm --platform=neutral --outfile=supabase/functions/adjudicate/_engine.mjs",
-    "map:1900": "node tools/variants/1900/build.mjs"
+    "map:1900": "node tools/variants/1900/build.mjs",
+    "check:map": "node --experimental-strip-types scripts/check-adjacency.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

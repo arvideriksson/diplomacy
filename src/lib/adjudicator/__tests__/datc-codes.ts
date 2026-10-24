@@ -4,12 +4,12 @@
 
 import type { MapDefinition } from '../../mapDefinition'
 
-export const PROVINCE_OVERRIDES: Record<string, string> = {
+const PROVINCE_OVERRIDES: Record<string, string> = {
   lyo: 'GOL', // Gulf of Lyon
   nwy: 'NOR', // Norway
 }
 
-export const NATION_CODES: Record<string, string> = {
+const NATION_CODES: Record<string, string> = {
   ENG: 'england',
   FRA: 'france',
   GER: 'germany',

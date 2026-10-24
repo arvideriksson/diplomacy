@@ -14,7 +14,7 @@ export const canConvoyFrom = (map: MapDefinition, province: string): boolean =>
   map.territories[province]?.type === 'sea' || (map.rules?.convoyCoasts ?? []).includes(province)
 
 /** Whether emergency measures are active for `nation` given current center ownership. */
-export const emergencyActive = (map: MapDefinition, nation: string, owners: Record<string, string>): boolean => {
+const emergencyActive = (map: MapDefinition, nation: string, owners: Record<string, string>): boolean => {
   const e = map.rules?.emergency
   if (!e || e.nation !== nation) return false
   const homes = homeCenters(map, nation)

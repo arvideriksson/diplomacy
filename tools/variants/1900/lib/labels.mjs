@@ -2,14 +2,14 @@
 // symbols and labels already placed, and compute a distance field; then search
 // positions, angles and sizes for the label box with the most clearance,
 // preferring the hinted position and angle.
+import { bbox } from './geom.mjs'
 
 // Approximate advance width per character, as a fraction of the font size.
 const ADVANCE = { sc: 0.64, land: 0.52, sea: 0.74 }
 export const labelBox = ({ text, size, kind }) => ({ w: text.length * size * ADVANCE[kind] + (kind === 'sea' ? 2 * text.length : 0), h: size * 0.78 })
 
 const bboxOf = (g) => {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const p of g) for (const [x, y] of p[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
+  const [x0, y0, x1, y1] = bbox(g)
   return [Math.floor(x0) - 2, Math.floor(y0) - 2, Math.ceil(x1) + 2, Math.ceil(y1) + 2]
 }
 

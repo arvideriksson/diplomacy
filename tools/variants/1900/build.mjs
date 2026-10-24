@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path'
 import { readClassical } from './lib/classical.mjs'
 import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
+import { attrs, refTarget } from './lib/source.mjs'
 import { drawBoard, geomPath, label, coastMark, offBoardNote } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
@@ -15,7 +16,6 @@ import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, LABELS, COAST_MARKS, CENTERS
 const HEIGHT = 1620
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const src = (name) => readFileSync(resolve(root, 'tools/variants/1900/source', name), 'utf8')
-const attrs = (s) => Object.fromEntries([...s.matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]))
 const xml = src('1900_adjacency.xml')
 const rules = src('variants.xml')
 const provinces = [...xml.matchAll(/<PROVINCE\s+([^>]+)>([\s\S]*?)<\/PROVINCE>/g)].map((m) => {
@@ -35,11 +35,8 @@ if (!Number.isInteger(startingYear) || !Number.isInteger(victoryCenters) || vict
   throw new Error('Invalid starting year or victory target in variants.xml')
 }
 const sourceIds = new Set(provinces.map((p) => p.id))
-// The source adjacency XML uses judge aliases for these two sea provinces.
-const sourceAliases = { mao: 'mid', nao: 'nat' }
 for (const p of provinces) for (const ref of Object.values(p.edges).flat()) {
-  const target = ref.split('-')[0]
-  if (!sourceIds.has(sourceAliases[target] ?? target)) throw new Error(`Unknown adjacency ${p.id} -> ${ref}`)
+  if (!sourceIds.has(refTarget(ref))) throw new Error(`Unknown adjacency ${p.id} -> ${ref}`)
 }
 for (const s of starts) if (!sourceIds.has(s.province)) throw new Error(`Unknown starting province ${s.province}`)
 
@@ -82,8 +79,8 @@ const lakes = subtract(leftover, redSeaHead, sinaiTip)
 finalTouches(P)
 // Drop zero-width remnants of merged borders, and hairline holes inside land
 // provinces where source regions did not quite meet (seas keep their island holes).
-const isSeaId = (id) => !provinces.find((p) => p.id === id)?.edges.mv?.length
-for (const id of Object.keys(P)) P[id] = P[id].filter((p) => area([p]) > 1).map((p) => [p[0], ...p.slice(1).filter((h) => area([[h]]) > (isSeaId(id) ? 1 : 60))])
+const isSea = (id) => !provinces.find((p) => p.id === id)?.edges.mv?.length
+for (const id of Object.keys(P)) P[id] = P[id].filter((p) => area([p]) > 1).map((p) => [p[0], ...p.slice(1).filter((h) => area([[h]]) > (isSea(id) ? 1 : 60))])
 
 // Remove zero-width spikes: a vertex where the ring goes out and comes straight back.
 const despike = (ring) => {
@@ -97,12 +94,12 @@ const despike = (ring) => {
 for (const id of Object.keys(P)) P[id] = P[id].map((p) => p.map(despike))
 // Small stray pieces of a land province join the neighbour they share most border with.
 for (const id of Object.keys(P)) {
-  if (isSeaId(id) || id === 'gib' || P[id].length < 2) continue
+  if (isSea(id) || id === 'gib' || P[id].length < 2) continue
   const pieces = P[id].slice().sort((a, b) => area([b]) - area([a]))
   for (const piece of pieces.slice(1)) {
     if (area([piece]) > 800) continue
     const touch = (o) => piece[0].filter((p) => boundaryDistance(P[o], p) < 0.6).length
-    const best = Object.keys(P).filter((o) => o !== id && !isSeaId(o)).reduce((a, b) => (touch(b) > touch(a) ? b : a))
+    const best = Object.keys(P).filter((o) => o !== id && !isSea(o)).reduce((a, b) => (touch(b) > touch(a) ? b : a))
     if (!touch(best)) continue
     P[id] = subtract(P[id], [piece]); P[best] = union(P[best], [piece])
   }
@@ -115,7 +112,6 @@ for (const id of Object.keys(P)) {
 const visible = provinces.filter((p) => p.id !== 'dum')
 for (const p of visible) if (!P[p.id]?.length) throw new Error(`No geometry for ${p.id}`)
 for (const id of Object.keys(P)) if (!sourceIds.has(id)) throw new Error(`Leftover classical province ${id}`)
-const isSea = (id) => !provinces.find((p) => p.id === id)?.edges.mv?.length
 const { problems, warnings, chains } = audit(P, provinces, { frame: [0, 0, width, HEIGHT], holes: [...islands, lakes] })
 for (const w of warnings) console.warn(`warning: ${w}`)
 if (problems.length) (process.env.AUDIT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Board does not match the 1900 movement graph:\n  ${problems.join('\n  ')}`)
@@ -301,7 +297,7 @@ writeFileSync(resolve(root, 'public/maps/1900.dsvg'), dsvg)
 
 // --- Map definition. ---
 const toGame = (id) => ({ nws: 'NWG', nwy: 'NOR', nat: 'NAO', mid: 'MAO' }[id] ?? id.toUpperCase())
-const normalize = (refs) => [...new Set((refs ?? []).map((r) => toGame(sourceAliases[r.split('-')[0]] ?? r.split('-')[0])))]
+const normalize = (refs) => [...new Set((refs ?? []).map((r) => toGame(refTarget(r))))]
 const powerColors = { britain: '#4b85fe', france: '#00bdd5', germany: '#8c929f', italy: '#4aa961', austria: '#f0574e', russia: '#9975fa', turkey: '#f5af20' }
 const round = (p) => p.map(r1)
 const territories = {}

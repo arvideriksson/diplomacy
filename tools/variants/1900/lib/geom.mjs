@@ -17,7 +17,7 @@ export const intersect = (a, b) => (a?.length && b?.length ? pcIntersection(a, b
 export const subtract = (a, ...bs) => { const live = bs.filter((g) => g?.length); return !a?.length ? [] : live.length ? pcDifference(a, ...live) : a }
 export const poly = (points) => [[points]]
 
-export const ringArea = (r) => { let a = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; a += p[0] * q[1] - q[0] * p[1] } return a / 2 }
+const ringArea = (r) => { let a = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; a += p[0] * q[1] - q[0] * p[1] } return a / 2 }
 export const area = (g) => g.reduce((s, p) => s + Math.abs(ringArea(p[0])) - p.slice(1).reduce((h, r) => h + Math.abs(ringArea(r)), 0), 0)
 
 const inRing = ([x, y], r) => {
@@ -28,9 +28,14 @@ const inRing = ([x, y], r) => {
   }
   return inside
 }
+export const bbox = (g) => {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const p of g) for (const [x, y] of p[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
+  return [x0, y0, x1, y1]
+}
 export const contains = (g, p) => g.some((pl) => inRing(p, pl[0]) && !pl.slice(1).some((h) => inRing(p, h)))
 
-const segDist = (p, a, b) => {
+export const segDist = (p, a, b) => {
   const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)))
   return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
 }

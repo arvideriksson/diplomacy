@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { victoryMessage } from '../lib/mapDefinition'
   import { classicalMap } from '../lib/maps/classical'
   import { getMap } from '../lib/maps'
   import GameBoard from './GameBoard.svelte'
@@ -32,7 +33,6 @@
   $: board = frame?.board
   // The game is over once the board shows a winner; the sandbox then becomes read-only.
   $: winner = board ? victoryFor(map, board.supplyCenters) : undefined
-  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   $: canBack = sb ? sb.cursor > 0 : false
   $: canForward = sb ? sb.cursor < sb.frames.length - 1 : false
 
@@ -121,7 +121,7 @@
       {#if winner || lastResults.length}
         <div class="results-stack">
           {#if winner}
-            <div class="card victory">🏆 {winnerName} wins with {winner.centers} supply centers.</div>
+            <div class="card victory">{victoryMessage(map.powers, winner)}</div>
           {/if}
           {#if lastResults.length}
             <div class="card results">

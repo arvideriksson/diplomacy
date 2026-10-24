@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { victoryMessage } from '../lib/mapDefinition'
   import { onMount, onDestroy } from 'svelte'
   import GameBoard from './GameBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
@@ -25,7 +26,6 @@
   // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
   $: isComplete = game.phase === 'complete'
   $: winner = isComplete ? victoryFor(map, liveBoard().supplyCenters) : undefined
-  $: winnerName = winner ? (map.powers.find((p) => p.id === winner!.nation)?.name ?? winner.nation) : ''
   // Public games lock their options once started, so there's nothing to manage.
   $: canManage = isCreator && isActive && game.is_private
 
@@ -148,7 +148,7 @@
     <svelte:fragment slot="results">
       {#if isComplete}
         <div class="game-over">
-          {#if winner}🏆 {winnerName} wins with {winner.centers} supply centers.{:else}This game is over.{/if}
+          {#if winner}{victoryMessage(map.powers, winner)}{:else}This game is over.{/if}
         </div>
       {/if}
     </svelte:fragment>
@@ -186,12 +186,12 @@
     height: 38px;
     padding: 0;
     color: var(--text-secondary);
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: var(--glass-border);
     border-radius: 12px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+    box-shadow: var(--glass-shadow);
     cursor: pointer;
     transition: color 0.12s, border-color 0.12s;
   }

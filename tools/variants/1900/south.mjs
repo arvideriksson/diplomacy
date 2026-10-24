@@ -16,7 +16,7 @@ const LANDMARKS = [
   ['wal', (p) => -p[0], [-5.7, 50.07]], ['edi', (p) => -p[1], [-3.37, 58.67]],
 ]
 
-export function fitProjection(classical) {
+function fitProjection(classical) {
   const conic = geoConicEquidistant().parallels([30, 55]).rotate([-20, 0]).scale(1000).translate([0, 0])
   const squash = 1.05
   const rows = [], bx = [], by = []

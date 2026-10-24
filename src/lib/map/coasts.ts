@@ -4,9 +4,7 @@
 // The map normally shows only main (parent) provinces; the individual coasts are
 // revealed — and the parent hidden — only while they are the active choice.
 
-export const isCoast = (id: string): boolean => id.includes('/')
-
-export const parentOf = (id: string): string => id.split('/')[0]
+const parentOf = (id: string): string => id.split('/')[0]
 
 /**
  * Given every region id on the map and the currently-highlighted ids, decide which

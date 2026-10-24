@@ -52,24 +52,38 @@ export interface MoveTarget {
   coasts: string[]
 }
 
+/** Provinces holding a fleet that can carry a convoy (in a sea, or a convoy coast). */
+const convoyFleetProvinces = (map: Def, units: Unit[]): Set<string> =>
+  new Set(units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory))
+
+/**
+ * The convoy chain from `from`: every province in `fleets` reachable by hopping from one
+ * fleet to an adjacent one, starting beside `from`. Shared by order entry and adjudication
+ * so both agree on which convoys can reach where.
+ */
+export const convoyChain = (map: Def, from: string, fleets: Set<string>): Set<string> => {
+  const seen = new Set<string>()
+  const queue = (territory(map, from)?.adjacent ?? []).filter((p) => fleets.has(p))
+  queue.forEach((p) => seen.add(p))
+  while (queue.length) {
+    const p = queue.shift()!
+    for (const n of territory(map, p)?.adjacent ?? []) {
+      if (fleets.has(n) && !seen.has(n)) { seen.add(n); queue.push(n) }
+    }
+  }
+  return seen
+}
+
 /**
  * Coastal provinces an army in `from` could be convoyed to through chains of
  * fleets currently standing in convoy-capable provinces (seas, plus variant
  * convoy coasts such as 1900 Gibraltar). `through`, if given, must be on the chain.
  */
 export const convoyReach = (map: Def, from: string, units: Unit[], through?: string): string[] => {
-  const fleetAt = new Set(units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory))
+  const fleetAt = convoyFleetProvinces(map, units)
   const start = territory(map, from)
   if (!start || start.type !== 'coast') return []
-  const seen = new Set<string>()
-  const queue = start.adjacent.filter((p) => fleetAt.has(p))
-  queue.forEach((p) => seen.add(p))
-  while (queue.length) {
-    const p = queue.shift()!
-    for (const n of territory(map, p)?.adjacent ?? []) {
-      if (fleetAt.has(n) && !seen.has(n)) { seen.add(n); queue.push(n) }
-    }
-  }
+  const seen = convoyChain(map, from, fleetAt)
   if (through && !seen.has(through)) return []
   const out = new Set<string>()
   for (const sea of seen) {
@@ -93,7 +107,7 @@ export const convoyNext = (
   path: string[],
   units: Unit[],
 ): { fleets: string[]; destinations: string[] } => {
-  const fleetAt = new Set(units.filter((u) => u.type === 'fleet' && canConvoyFrom(map, u.territory)).map((u) => u.territory))
+  const fleetAt = convoyFleetProvinces(map, units)
   if (territory(map, army)?.type !== 'coast') return { fleets: [], destinations: [] }
   const last = path.at(-1) ?? army
   const around = territory(map, last)?.adjacent ?? []
@@ -121,8 +135,6 @@ export const moveTargets = (map: Def, unit: Unit): MoveTarget[] => {
   }
   return out
 }
-
-const reachableSet = (map: Def, unit: Unit): Set<string> => new Set(reachable(map, unit))
 
 /** Where a unit can give support: its reach, minus long routes (1900 Suez rules 4–5). */
 const supportReach = (map: Def, unit: Unit): Set<string> =>

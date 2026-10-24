@@ -54,5 +54,3 @@ export interface OrderableUnit {
   source: string
   sourceCoast?: string
 }
-
-export const unitKey = (u: Pick<Unit, 'territory'>): string => u.territory

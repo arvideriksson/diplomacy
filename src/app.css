@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  /* Frosted panels floating over the map (cog button, supply-center card, build popup). */
+  --glass-bg: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
+  --glass-blur: blur(12px) saturate(1.4);
+  --glass-border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  --glass-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
   --font: 'Inter', system-ui, -apple-system, sans-serif;
   --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 
@@ -100,4 +105,18 @@ button {
 
 input {
   font-family: var(--font);
+}
+
+/* Loading spinner, shared by the app shell, routes and the lobby. */
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

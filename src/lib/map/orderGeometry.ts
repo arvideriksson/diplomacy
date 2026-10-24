@@ -1,12 +1,24 @@
 // Ported from diplicity-react — pure geometry helpers for order rendering.
 import type { Point } from './dsvgParser'
 
-export const ROUTE_TENSION = 0.6
-export const MOVE_CURVE_OFFSET = 20
-export const SUPPORT_STAGGER_DISTANCE = 4.375
+const ROUTE_TENSION = 0.6
+const MOVE_CURVE_OFFSET = 20
+const SUPPORT_STAGGER_DISTANCE = 4.375
 
-export const euclidean = (a: Point, b: Point): number =>
+const euclidean = (a: Point, b: Point): number =>
   Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2)
+
+/** Unit vector along (dx, dy); zero for a zero-length vector. */
+export const unitVector = (dx: number, dy: number): Point => {
+  const length = Math.sqrt(dx * dx + dy * dy)
+  return length === 0 ? { x: 0, y: 0 } : { x: dx / length, y: dy / length }
+}
+
+/** The point `distance` from `from` in the direction of `toward`. */
+export const offsetToward = (from: Point, toward: Point, distance: number): Point => {
+  const u = unitVector(toward.x - from.x, toward.y - from.y)
+  return { x: from.x + u.x * distance, y: from.y + u.y * distance }
+}
 
 export const closestPointOnLine = (p: Point, a: Point, b: Point): Point => {
   const lineX = b.x - a.x
@@ -18,20 +30,36 @@ export const closestPointOnLine = (p: Point, a: Point, b: Point): Point => {
   return { x: a.x + t * lineX, y: a.y + t * lineY }
 }
 
-export const bSplineAttachmentPoint = (points: Point[], i: number): Point => {
-  const previous = points[i - 1]
-  const current = points[i]
-  const next = points[i + 1]
-  const mid0 = { x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2 }
-  const mid1 = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 }
-  const midOfMids = { x: (mid0.x + mid1.x) / 2, y: (mid0.y + mid1.y) / 2 }
-  const control = {
-    x: midOfMids.x + ROUTE_TENSION * (current.x - midOfMids.x),
-    y: midOfMids.y + ROUTE_TENSION * (current.y - midOfMids.y),
+
+export type QuadSegment = { start: Point; control: Point; end: Point }
+
+/**
+ * The route curve through `points`: a straight lead-in to the first midpoint, one quadratic
+ * segment per inner point (midpoint to midpoint, pulled toward the point by ROUTE_TENSION),
+ * and a straight lead-out. Segment i - 1 belongs to inner point i.
+ */
+export const bSplineSegments = (points: Point[]): QuadSegment[] => {
+  const mid = (i: number): Point => ({ x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 })
+  const segments: QuadSegment[] = []
+  for (let i = 1; i < points.length - 1; i++) {
+    const start = mid(i - 1)
+    const end = mid(i)
+    const midOfMids = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    const control = {
+      x: midOfMids.x + ROUTE_TENSION * (points[i].x - midOfMids.x),
+      y: midOfMids.y + ROUTE_TENSION * (points[i].y - midOfMids.y),
+    }
+    segments.push({ start, control, end })
   }
+  return segments
+}
+
+/** Where the route curve passes inner point `i` (its segment's midpoint). */
+const bSplineAttachmentPoint = (points: Point[], i: number): Point => {
+  const { start, control, end } = bSplineSegments(points)[i - 1]
   return {
-    x: 0.25 * mid0.x + 0.5 * control.x + 0.25 * mid1.x,
-    y: 0.25 * mid0.y + 0.5 * control.y + 0.25 * mid1.y,
+    x: 0.25 * start.x + 0.5 * control.x + 0.25 * end.x,
+    y: 0.25 * start.y + 0.5 * control.y + 0.25 * end.y,
   }
 }
 
@@ -44,7 +72,7 @@ const permutations = <T>(items: T[]): T[][] => {
   )
 }
 
-export const shortestWaypointOrder = <T>(
+const shortestWaypointOrder = <T>(
   items: T[],
   pointOf: (item: T) => Point,
   source: Point,
@@ -68,13 +96,8 @@ export const shortestWaypointOrder = <T>(
 export const headToHeadControlPoint = (p1: Point, p2: Point): Point => {
   const midX = (p1.x + p2.x) / 2
   const midY = (p1.y + p2.y) / 2
-  const dx = p2.x - p1.x
-  const dy = p2.y - p1.y
-  const length = Math.sqrt(dx * dx + dy * dy)
-  return {
-    x: midX + (-dy / length) * MOVE_CURVE_OFFSET,
-    y: midY + (dx / length) * MOVE_CURVE_OFFSET,
-  }
+  const u = unitVector(p2.x - p1.x, p2.y - p1.y)
+  return { x: midX - u.y * MOVE_CURVE_OFFSET, y: midY + u.x * MOVE_CURVE_OFFSET }
 }
 
 export const staggeredSupportEnd = (
@@ -83,26 +106,12 @@ export const staggeredSupportEnd = (
   staggerIndex: number,
   moveControlPoint?: Point
 ): Point => {
-  const staggerDistance = (staggerIndex + 1) * SUPPORT_STAGGER_DISTANCE
-  if (moveControlPoint) {
-    const dx = target.x - moveControlPoint.x
-    const dy = target.y - moveControlPoint.y
-    const length = Math.sqrt(dx * dx + dy * dy)
-    return {
-      x: target.x - (dx / length) * staggerDistance,
-      y: target.y - (dy / length) * staggerDistance,
-    }
-  }
-  const dx = aux.x - target.x
-  const dy = aux.y - target.y
-  const length = Math.sqrt(dx * dx + dy * dy)
-  return {
-    x: target.x + (dx / length) * staggerDistance,
-    y: target.y + (dy / length) * staggerDistance,
-  }
+  // Back from the target along the move's final direction (toward its control point when
+  // the move is bowed, else toward the moving unit).
+  return offsetToward(target, moveControlPoint ?? aux, (staggerIndex + 1) * SUPPORT_STAGGER_DISTANCE)
 }
 
-export type ConvoyFleet = { id: string; point: Point }
+type ConvoyFleet = { id: string; point: Point }
 
 export type ConvoyRoute = {
   waypoints: Point[]

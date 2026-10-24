@@ -21,7 +21,7 @@ const letterFrom = (lists: Unit[][], province: string): string => {
 }
 
 /** Format a province id (+ optional coast) per the casing convention. */
-export function fmtProvince(map: MapDefinition, id: string, coast?: string): string {
+function fmtProvince(map: MapDefinition, id: string, coast?: string): string {
   const t = map.territories[id]
   const base = t?.type === 'sea' ? id.toUpperCase() : id.charAt(0).toUpperCase() + id.slice(1).toLowerCase()
   return coast ? `${base}(${coast.toLowerCase()})` : base
@@ -33,7 +33,7 @@ const unitLetter = (units: Unit[], province: string): string => {
 }
 
 /** A movement-phase order in standard notation. */
-export function formatOrder(map: MapDefinition, units: Unit[], o: Order): string {
+function formatOrder(map: MapDefinition, units: Unit[], o: Order): string {
   const a = unitLetter(units, o.source)
   const src = fmtProvince(map, o.source, o.sourceCoast)
   switch (o.type) {

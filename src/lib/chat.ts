@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, rpc } from './supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 /**
@@ -69,54 +69,44 @@ export async function upsertDraft(
   name: string | null,
   body: string,
 ): Promise<ChatDraft> {
-  const { data, error } = await supabase.rpc('upsert_chat_draft', {
+  return rpc<ChatDraft>('upsert_chat_draft', {
     p_game_id: gameId,
     p_members: members,
     p_name: name,
     p_body: body,
   })
-  if (error) throw error
-  return data as ChatDraft
 }
 
 /** Rename one of the caller's drafts (by id; recipient set unchanged). */
 export async function renameDraft(draftId: number, name: string): Promise<ChatDraft> {
-  const { data, error } = await supabase.rpc('rename_chat_draft', { p_draft_id: draftId, p_name: name })
-  if (error) throw error
-  return data as ChatDraft
+  return rpc<ChatDraft>('rename_chat_draft', { p_draft_id: draftId, p_name: name })
 }
 
 /** Delete one of the caller's drafts (on send, or explicit discard). Idempotent. */
 export async function deleteDraft(draftId: number): Promise<void> {
-  const { error } = await supabase.rpc('delete_chat_draft', { p_draft_id: draftId })
-  if (error) throw error
+  await rpc('delete_chat_draft', { p_draft_id: draftId })
 }
 
 /** Open or reuse the UNNAMED channel for exactly {caller} ∪ members (the auto-reuse path). */
 export async function getOrCreateChannel(gameId: string, members: string[]): Promise<ChatChannel> {
-  const { data, error } = await supabase.rpc('get_or_create_channel', {
+  return rpc<ChatChannel>('get_or_create_channel', {
     p_game_id: gameId,
     p_members: members,
   })
-  if (error) throw error
-  return data as ChatChannel
 }
 
 /** Create a NAMED group for {caller} ∪ members. Always a fresh channel (names can repeat members). */
 export async function createNamedChannel(gameId: string, members: string[], name: string): Promise<ChatChannel> {
-  const { data, error } = await supabase.rpc('create_named_channel', {
+  return rpc<ChatChannel>('create_named_channel', {
     p_game_id: gameId,
     p_members: members,
     p_name: name,
   })
-  if (error) throw error
-  return data as ChatChannel
 }
 
 /** Rename a channel. Any member may do this; the public channel cannot be renamed. */
 export async function renameChannel(channelId: number, name: string): Promise<void> {
-  const { error } = await supabase.rpc('rename_channel', { p_channel_id: channelId, p_name: name })
-  if (error) throw error
+  await rpc('rename_channel', { p_channel_id: channelId, p_name: name })
 }
 
 /** Delta history: messages in a channel, optionally only those after `sinceIso`. */
@@ -138,17 +128,14 @@ export async function unreadCount(channelId: number, sinceIso?: string): Promise
 }
 
 export async function sendMessage(channelId: number, body: string): Promise<ChatMessage> {
-  const { data, error } = await supabase.rpc('send_chat_message', {
+  return rpc<ChatMessage>('send_chat_message', {
     p_channel_id: channelId,
     p_body: body,
   })
-  if (error) throw error
-  return data as ChatMessage
 }
 
 export async function markRead(channelId: number): Promise<void> {
-  const { error } = await supabase.rpc('mark_chat_read', { p_channel_id: channelId })
-  if (error) throw error
+  await rpc('mark_chat_read', { p_channel_id: channelId })
 }
 
 /** The caller's read cursor per channel, for the given channels. Scoped by channel id
