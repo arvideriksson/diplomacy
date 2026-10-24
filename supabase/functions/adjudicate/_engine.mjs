@@ -742,6 +742,37 @@ function idleNations(map, board) {
   return idle;
 }
 
+// src/lib/adjudicator/fold.ts
+var SEASON_ORDER = { Spring: 0, Fall: 1 };
+var PHASE_ORDER = { movement: 0, retreat: 1, build: 2 };
+var roundRank = (r) => r.year * 100 + (SEASON_ORDER[r.season] ?? 0) * 10 + (PHASE_ORDER[r.phase] ?? 0);
+function replayLog(map, initial, rows, until) {
+  const rounds = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const key = `${r.year}|${r.season}|${r.phase}`;
+    const round = rounds.get(key) ?? { year: r.year, season: r.season, phase: r.phase, orders: [] };
+    round.orders.push(...(r.orders ?? []).map((o) => ({ ...o, nation: r.nation })));
+    rounds.set(key, round);
+  }
+  const ordered = [...rounds.values()].sort((a, b) => roundRank(a) - roundRank(b));
+  const frames = [];
+  let state = initial;
+  for (const round of ordered) {
+    for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1e3; guard++) {
+      frames.push({ board: state, orders: [] });
+      state = adjudicate(map, state, []).newBoardState;
+    }
+    frames.push({ board: state, orders: round.orders });
+    state = adjudicate(map, state, round.orders).newBoardState;
+  }
+  for (let guard = 0; until && PHASE_ORDER[until.phase] !== void 0 && roundRank(state) < roundRank(until) && guard < 1e3; guard++) {
+    frames.push({ board: state, orders: [] });
+    state = adjudicate(map, state, []).newBoardState;
+  }
+  frames.push({ board: state, orders: [] });
+  return frames;
+}
+
 // src/lib/adjudicator/index.ts
 function seedOwnership(map, units) {
   const owners = { ...map.initialOwnership };
@@ -2268,8 +2299,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          235.6,
-          1203.2
+          158,
+          1205
         ]
       }
     },
@@ -2329,8 +2360,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1437.6,
-          1589.2
+          1435.5,
+          1589.1
         ]
       }
     },
@@ -2706,7 +2737,7 @@ var map1900 = {
       "render": {
         "center": [
           110,
-          1370
+          1369
         ]
       }
     },
@@ -2910,8 +2941,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1365.2,
-          1469.8
+          1347.2,
+          1405.8
         ]
       }
     },
@@ -3780,5 +3811,7 @@ export {
   boardFromUnits,
   getMap,
   idleNations,
-  initialBoard
+  initialBoard,
+  replayLog,
+  roundRank
 };

@@ -15,6 +15,14 @@ export interface GameRow {
   ready: Record<string, boolean> | null
 }
 
+export interface LogRow {
+  year: number
+  season: string
+  phase: string
+  nation: string
+  orders: unknown[]
+}
+
 export interface OrderRow {
   nation: string
   orders: unknown[]
@@ -49,6 +57,17 @@ export async function getRoundOrders(
     .eq('resolved', false)
   if (error) throw error
   return (data ?? []) as OrderRow[]
+}
+
+/** Every resolved order row for a game — the replay log. */
+export async function getResolvedLog(db: SupabaseClient, gameId: string): Promise<LogRow[]> {
+  const { data, error } = await db
+    .from('orders')
+    .select('year, season, phase, nation, orders')
+    .eq('game_id', gameId)
+    .eq('resolved', true)
+  if (error) throw error
+  return (data ?? []) as LogRow[]
 }
 
 export async function clearResolving(db: SupabaseClient, gameId: string): Promise<void> {

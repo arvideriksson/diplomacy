@@ -47,4 +47,15 @@ describe('replayFrames', () => {
     // the 1902 move is applied to a unit that is really in Burgundy
     expect(frames.at(-1)!.board.units.find((u) => u.territory === 'PIC')?.nation).toBe('germany')
   })
+
+  it('forces each order to its row’s nation, as the adjudicator does', () => {
+    // A France row naming Germany's army must not move it — it voids, like at resolution.
+    const log: ResolvedOrderRow[] = [
+      { year: 1901, season: 'Spring', phase: 'movement', nation: 'france',
+        orders: [{ type: 'Move', nation: 'germany', source: 'MUN', target: 'TYR' }] },
+    ]
+    const frames = replayFrames(classicalMap, log)
+    expect(frames.at(-1)!.board.units.some((u) => u.territory === 'MUN')).toBe(true)
+    expect(frames.at(-1)!.board.units.some((u) => u.territory === 'TYR')).toBe(false)
+  })
 })

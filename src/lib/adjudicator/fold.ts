@@ -26,3 +26,74 @@ export function foldGame(
   }
   return state
 }
+
+/** A resolved-orders row as stored in the `orders` table (one per nation per round). */
+export interface LogRow {
+  year: number
+  season: string
+  phase: string
+  nation: string
+  orders: AnyOrder[]
+}
+
+/** One replayed phase: the board going into it plus the orders resolved there. */
+export interface ReplayFrame {
+  board: BoardState
+  orders: AnyOrder[]
+}
+
+export interface RoundKey {
+  year: number
+  season: string
+  phase: string
+}
+
+const SEASON_ORDER: Record<string, number> = { Spring: 0, Fall: 1 }
+const PHASE_ORDER: Record<string, number> = { movement: 0, retreat: 1, build: 2 }
+
+/** Chronological sort key for a round. Mirrors round_rank() in the host-controls migration. */
+export const roundRank = (r: RoundKey): number =>
+  r.year * 100 + (SEASON_ORDER[r.season] ?? 0) * 10 + (PHASE_ORDER[r.phase] ?? 0)
+
+/**
+ * Fold the per-nation log rows into one frame per phase, the last being the board
+ * after the final round. Each order's `nation` is forced to its row's nation, exactly
+ * as the adjudicator does at resolution, so a replay matches what was adjudicated.
+ */
+export function replayLog(
+  map: MapDefinition,
+  initial: BoardState,
+  rows: LogRow[],
+  /** The live round, if known: trailing phases nobody ordered in are resolved up to it. */
+  until?: RoundKey,
+): ReplayFrame[] {
+  const rounds = new Map<string, RoundKey & { orders: AnyOrder[] }>()
+  for (const r of rows) {
+    const key = `${r.year}|${r.season}|${r.phase}`
+    const round = rounds.get(key) ?? { year: r.year, season: r.season, phase: r.phase, orders: [] }
+    round.orders.push(...(r.orders ?? []).map((o) => ({ ...o, nation: r.nation })))
+    rounds.set(key, round)
+  }
+  const ordered = [...rounds.values()].sort((a, b) => roundRank(a) - roundRank(b))
+
+  const frames: ReplayFrame[] = []
+  let state = initial
+  for (const round of ordered) {
+    // A phase in which nobody had an order row (everyone idle, or nobody submitted
+    // before the deadline) leaves no rows in the log, but the server still resolved
+    // it — with no orders. Resolve such phases the same way until the board reaches
+    // this round, so every later round replays against the right board.
+    for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1000; guard++) {
+      frames.push({ board: state, orders: [] })
+      state = adjudicate(map, state, []).newBoardState
+    }
+    frames.push({ board: state, orders: round.orders })
+    state = adjudicate(map, state, round.orders).newBoardState
+  }
+  for (let guard = 0; until && PHASE_ORDER[until.phase] !== undefined && roundRank(state) < roundRank(until) && guard < 1000; guard++) {
+    frames.push({ board: state, orders: [] })
+    state = adjudicate(map, state, []).newBoardState
+  }
+  frames.push({ board: state, orders: [] })
+  return frames
+}
