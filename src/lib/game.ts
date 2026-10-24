@@ -1,7 +1,6 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
 import { getMap } from './maps'
-import { initialBoard } from './adjudicator'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
 import type { ResolvedOrderRow } from './history'
@@ -136,7 +135,11 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   return data as GameState
 }
 
-export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'phase' | 'players' | 'year' | 'season' | 'snapshot' | 'deadline' | 'map_id'>>) {
+/**
+ * Direct update of the creator-editable columns. RLS + column grants allow only these;
+ * is_private / map_id / settings are further locked to the lobby by a trigger.
+ */
+export async function updateGame(id: string, updates: Partial<Pick<GameState, 'name' | 'settings' | 'is_private' | 'map_id'>>) {
   const { data, error } = await supabase
     .from('games')
     .update(updates)
@@ -176,76 +179,6 @@ export async function setDeadline(gameId: string, deadline: string | null) {
   return fetchGame(gameId)
 }
 
-/** Legacy turn_timer enum → minutes, for games created before per-phase timers. */
-const LEGACY_TIMER_MIN: Record<string, number> = {
-  '12h': 720,
-  '24h': 1440,
-  '48h': 2880,
-  '72h': 4320,
-  '1w': 10080,
-}
-
-/**
- * Duration of a phase in minutes. Prefers the structured per-phase timers; falls
- * back to the legacy single turn_timer (movement) or a 24h default for old rows.
- */
-export function phaseTimerMinutes(
-  settings: Partial<GameSettings> | null | undefined,
-  phase: OrderPhase,
-): number {
-  const perPhase = settings?.phase_timers?.[phase]
-  if (typeof perPhase === 'number' && perPhase > 0) return perPhase
-  const legacy = settings?.turn_timer && LEGACY_TIMER_MIN[settings.turn_timer]
-  return legacy ?? LEGACY_TIMER_MIN['24h']
-}
-
-/** ISO deadline one phase-timer from now (the cron's backstop trigger). */
-export function nextDeadline(
-  settings: Partial<GameSettings> | null | undefined,
-  phase: OrderPhase,
-): string {
-  return new Date(Date.now() + phaseTimerMinutes(settings, phase) * 60_000).toISOString()
-}
-
-/** Fisher–Yates shuffle (app-side; not the deterministic engine). */
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
-/**
- * Resolve final nation assignments at start. Random mode assigns everyone a fresh
- * distinct power; otherwise players keep the power they claimed in the lobby and any
- * who didn't pick are filled from the remaining free powers at random.
- */
-export function assignNations(
-  players: Record<string, PlayerInfo>,
-  powerIds: string[],
-  random: boolean,
-): Record<string, PlayerInfo> {
-  const uids = Object.keys(players)
-  const next: Record<string, PlayerInfo> = {}
-
-  if (random) {
-    const pool = shuffle(powerIds)
-    uids.forEach((uid, i) => (next[uid] = { ...players[uid], nation: pool[i] }))
-    return next
-  }
-
-  // Keep claimed powers; random-fill players who never picked from what's left.
-  const taken = new Set(uids.map((u) => players[u].nation).filter(Boolean) as string[])
-  const free = shuffle(powerIds.filter((id) => !taken.has(id)))
-  let fi = 0
-  for (const uid of uids) {
-    next[uid] = { ...players[uid], nation: players[uid].nation ?? free[fi++] }
-  }
-  return next
-}
-
 /** Claim a power in the lobby (atomic, server-checked). Pass null to release. */
 export async function claimNation(gameId: string, nation: string | null) {
   const { error } = await supabase.rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
@@ -253,27 +186,15 @@ export async function claimNation(gameId: string, nation: string | null) {
 }
 
 /**
- * Move a game from lobby to active play: assign nations to the players, stamp the
- * opening Spring movement phase, seed the authoritative board snapshot with the
- * map's opening position, and set the first deadline so the cron backstop resolves the
- * turn even if not everyone readies. Powers with no human player simply hold (civil
- * disorder).
+ * Move a game from lobby to active play (creator-only, server-side): the start_game RPC
+ * assigns nations, stamps the opening Spring movement phase and sets the first deadline.
+ * The snapshot stays null until the first resolution — it reads as the map's opening
+ * position. Powers with no human player simply hold (civil disorder).
  */
 export async function startGame(game: GameState) {
-  const mapId = game.map_id ?? 'classical'
-  const map = getMap(mapId)
-  const powerIds = map.powers.map((p) => p.id)
-  if (Object.keys(game.players).length > powerIds.length) {
-    throw new Error(`Too many players for ${map.name} (max ${powerIds.length})`)
-  }
-  return updateGame(game.id, {
-    phase: 'movement',
-    year: map.startingYear ?? 1901,
-    season: 'Spring',
-    snapshot: initialBoard(map),
-    deadline: nextDeadline(game.settings, 'movement'),
-    players: assignNations(game.players, powerIds, game.settings?.random_nations ?? false),
-  })
+  const { error } = await supabase.rpc('start_game', { p_game_id: game.id })
+  if (error) throw error
+  return fetchGame(game.id)
 }
 
 export async function joinGame(gameId: string) {
