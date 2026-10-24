@@ -7,12 +7,12 @@ import { dirname, resolve } from 'node:path'
 import { readClassical } from './lib/classical.mjs'
 import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
-import { drawBoard, geomPath, label, coastMark } from './artwork.mjs'
+import { drawBoard, geomPath, label, coastMark, offBoardNote } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
-import { DROP_LABELS, DROP_COAST_MARKS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS } from './layout.mjs'
+import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
 
-const HEIGHT = 1640
+const HEIGHT = 1620
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const src = (name) => readFileSync(resolve(root, 'tools/variants/1900/source', name), 'utf8')
 const attrs = (s) => Object.fromEntries([...s.matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]))
@@ -50,7 +50,31 @@ const { provinces: edited, gibraltarStrait } = europe(classical)
 const { provinces: P, project } = extendSouth(edited, classical, HEIGHT)
 const islands = [], islandMarkup = []
 classical.islands.forEach((g, i) => { if (!Object.values(PLAYABLE_ISLANDS).some((pt) => contains(g, pt))) { islands.push(g); islandMarkup.push(classical.islandMarkup[i]) } })
-const lakes = fillSlivers(P, islands, width, HEIGHT)
+// Water left between provinces stays drawn as lakes, except the strip at the head of the
+// Red Sea, which is part of it (and so of the Mid-Atlantic, which the Red Sea belongs to here).
+// The strip's very tip touches Palestine, which the Red Sea does not border; that tip is Sinai.
+// Canals are narrow water through land, drawn like the classical Kiel canal: classical
+// leaves Kiel's as water outside every province (kept here, not filled in as a sliver), and
+// the Suez Canal (Port Said, Ismailia, Suez) is cut through Egypt the same way.
+const kielCanal = union(...subtract(poly([[612, 655], [672, 655], [672, 690], [612, 690]]), ...Object.values(P), ...islands).filter((pl) => area([pl]) > 20))
+const channel = (pts, w) => {
+  const side = (s) => pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    return [p[0] - s * w / 2 * (b[1] - a[1]) / len, p[1] + s * w / 2 * (b[0] - a[0]) / len]
+  })
+  return poly([...side(1), ...side(-1).reverse()])
+}
+const extend = (pts, d) => {
+  const out = (p, q) => { const len = Math.hypot(p[0] - q[0], p[1] - q[1]); return [p[0] + (p[0] - q[0]) / len * d, p[1] + (p[1] - q[1]) / len * d] }
+  return [out(pts[0], pts[1]), ...pts, out(pts.at(-1), pts.at(-2))]
+}
+const suezCanal = intersect(channel(extend([[32.3, 31.26], [32.28, 30.6], [32.55, 29.97]].map(project), 12), 3), P.egy)
+P.egy = subtract(P.egy, suezCanal)
+const leftover = union(fillSlivers(P, [...islands, kielCanal, suezCanal], width, HEIGHT), kielCanal, suezCanal)
+const redSeaHead = intersect(union(...leftover.filter((pl) => pl[0].every(([x, y]) => x > 1300 && y > 1450))), poly([[1300, 1504], [1400, 1504], [1400, 1600], [1300, 1600]]))
+const sinaiTip = subtract(union(...leftover.filter((pl) => pl[0].every(([x, y]) => x > 1300 && y > 1450))), redSeaHead)
+P.mid = union(P.mid, redSeaHead); P.egy = union(P.egy, sinaiTip)
+const lakes = subtract(leftover, redSeaHead, sinaiTip)
 finalTouches(P)
 // Drop zero-width remnants of merged borders, and hairline holes inside land
 // provinces where source regions did not quite meet (seas keep their island holes).
@@ -112,15 +136,15 @@ for (const p of visible) {
 }
 
 // Named coasts: classical click areas where they still apply, otherwise a split of the province.
-// Spain's west coast is cut off by a sweeping curve, like the classical north-coast boundary.
+// Spain's three coasts are divided by sweeping curves.
 const bezier = (a, b, c, d, n = 24) => Array.from({ length: n + 1 }, (_, i) => {
   const t = i / n, u = 1 - t
   return [0, 1].map((k) => u * u * u * a[k] + 3 * u * u * t * b[k] + 3 * u * t * t * c[k] + t * t * t * d[k])
 })
 const coastAreas = {
   'stp/nc': intersect(classical.namedCoasts['stp/nc'], P.stp), 'stp/sc': intersect(classical.namedCoasts['stp/sc'], P.stp),
-  'spa/nc': intersect(classical.namedCoasts['spa/nc'], P.spa),
-  'spa/wc': intersect(subtract(P.spa, classical.namedCoasts['spa/nc']), poly([[0, 1100], ...bezier([60, 1100], [150, 1100], [178, 1140], [178, 1300]), [0, 1300]])),
+  'spa/nc': intersect(P.spa, poly([[60, 900], [60, 1082], ...bezier([120, 1082], [200, 1086], [290, 1060], [362, 1014]), [362, 900]])),
+  'spa/wc': intersect(subtract(P.spa, poly([[60, 900], [60, 1082], ...bezier([120, 1082], [200, 1086], [290, 1060], [362, 1014]), [362, 900]])), poly([[0, 1100], ...bezier([60, 1100], [150, 1100], [178, 1140], [178, 1300]), [0, 1300]])),
   'mac/wc': intersect(P.mac, poly([[800, 1000], [905, 1000], [905, 1300], [800, 1300]])),
   'mac/ec': subtract(P.mac, poly([[800, 1000], [905, 1000], [905, 1300], [800, 1300]])),
 }
@@ -132,7 +156,14 @@ for (const [id, g] of Object.entries(coastAreas)) {
 
 const near = (a, b, d = 25) => Math.hypot(a[0] - b[0], a[1] - b[1]) < d
 const kept = classical.labels.filter((l) => !DROP_LABELS.has(l.text) && !DROP_COAST_MARKS.some(([t, at]) => t === l.text && near(l.at, at)))
-const labels = kept.map((l) => l.markup)
+// Classical upright names follow the same bold rule as the new ones (coast marks stay bold).
+const COAST_TEXT = new Set(['NC', 'SC', 'EC', 'WC'])
+const reweight = (l) => {
+  if (/font-style:italic/.test(l.markup) || COAST_TEXT.has(l.text)) return l.markup
+  const w = BOLD_NAMES.has(l.text) ? 'bold' : 'normal'
+  return l.markup.replace(/font-weight:\w+/g, `font-weight:${w}`).replace(/font-weight="\w+"/g, `font-weight="${w}"`)
+}
+const labels = kept.map(reweight)
 // New labels are placed automatically inside their province, clear of borders,
 // supply centers, coast marks and the classical labels that are kept.
 const placer = new LabelPlacer()
@@ -145,13 +176,13 @@ for (const l of kept) {
   placer.blockLabel(l.at, w, l.size * 0.8, l.angle); rect(l.at, w, l.size * 0.8, l.angle)
 }
 for (const m of COAST_MARKS) placer.blockLabel(m.at, 22, 10, m.angle)
-const labelArea = (id) => (id === 'redSea' ? intersect(P.mid, poly([[1250, 1480], [width, 1480], [width, HEIGHT], [1250, HEIGHT]])) : P[id])
+const labelArea = (id) => P[id]
 for (const [id, l] of Object.entries(LABELS).sort(([a], [b]) => area(labelArea(a)) - area(labelArea(b)))) {
   // `fixed` labels keep their hand position (they may overlap their supply center).
   const spot = l.fixed ? (placer.blockLabel(l.at, labelBox({ size: 16, ...l }).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : (l.free ? new LabelPlacer() : placer).place(labelArea(id), { size: 16, ...l }, pole(labelArea(id)).point)
   if (!spot) layoutProblems.push(`no room for the ${l.text} label`)
   if (process.env.LABEL_DEBUG) console.log(id, spot && { at: spot.at, angle: spot.angle, size: spot.size })
-  labels.push(label(spot ? { ...l, ...spot } : { ...l, at: l.at ?? pole(P[id]).point }))
+  labels.push(label({ ...(spot ? { ...l, ...spot } : { ...l, at: l.at ?? pole(P[id]).point }), bold: BOLD_NAMES.has(l.text) }))
   if (spot) rect(spot.at, labelBox({ size: 16, ...l, size: spot.size }).w, spot.size * 0.8, spot.angle)
 }
 for (const m of COAST_MARKS) rect(m.at, 22, 10, m.angle)
@@ -187,6 +218,47 @@ for (const id of visible.map((p) => p.id)) {
   if (process.env.LABEL_DEBUG) console.log('moved unit', id, units[id].map(Math.round), clearance(units[id], id).toFixed(1))
 }
 for (const m of COAST_MARKS) labels.push(coastMark(m))
+let longRoutes
+// Notes for routes that leave the board, laid along a line fitted to the shore: the Red Sea's
+// centre line (midpoints between its shores) and the line of Morocco's Atlantic coast.
+{
+  const crossings = (g, axis, v) => g.flatMap((pl) => pl.flatMap((r) => r.flatMap((a, i) => {
+    const b = r[(i + 1) % r.length], o = 1 - axis
+    return (a[axis] > v) !== (b[axis] > v) ? [a[o] + (v - a[axis]) * (b[o] - a[o]) / (b[axis] - a[axis])] : []
+  }))).sort((p, q) => p - q)
+  // Least-squares line through points: its centroid and unit direction.
+  const fit = (pts) => {
+    const n = pts.length, c = [0, 1].map((k) => pts.reduce((s, p) => s + p[k], 0) / n)
+    const sxx = pts.reduce((s, p) => s + (p[0] - c[0]) ** 2, 0), syy = pts.reduce((s, p) => s + (p[1] - c[1]) ** 2, 0), sxy = pts.reduce((s, p) => s + (p[0] - c[0]) * (p[1] - c[1]), 0)
+    const t = Math.atan2(2 * sxy, sxx - syy) / 2
+    return { c, dir: [Math.cos(t), Math.sin(t)] }
+  }
+  const place = ({ text, textAt, arrow, offset = 0, tilt = 0 }, { c, dir }, heading) => {
+    // `heading` picks which way the arrow points; the text always reads left to right.
+    // `tilt` turns the note clockwise from the fitted line, in degrees.
+    const f = dir[0] * heading[0] + dir[1] * heading[1] < 0 ? [-dir[0], -dir[1]] : dir, k = tilt * Math.PI / 180
+    const d = [f[0] * Math.cos(k) - f[1] * Math.sin(k), f[0] * Math.sin(k) + f[1] * Math.cos(k)]
+    const normal = [-d[1], d[0]], at = (t) => [c[0] + d[0] * t + normal[0] * offset, c[1] + d[1] * t + normal[1] * offset]
+    const read = d[0] < 0 ? [-d[0], -d[1]] : d
+    labels.push(offBoardNote({ text, at: at(textAt), angle: Math.atan2(read[1], read[0]) * 180 / Math.PI, arrow: [at(arrow[0]), at(arrow[1])] }))
+  }
+  const red = []
+  for (let y = RED_SEA_NOTE.span[0]; y <= RED_SEA_NOTE.span[1]; y += 2) { const xs = crossings(P.mid, 1, y).filter((x) => x > RED_SEA_NOTE.from); if (xs.length >= 2) red.push([(xs[0] + xs[1]) / 2, y]) }
+  const redLine = fit(red), coast = []
+  place(RED_SEA_NOTE, redLine, [0, 1])
+  for (let x = MOROCCO_NOTE.span[0]; x <= MOROCCO_NOTE.span[1]; x += 2) { const ys = crossings(P.mor, 0, x); if (ys.length) coast.push([x, ys[0]]) }
+  const coastLine = fit(coast)
+  place(MOROCCO_NOTE, coastLine, [-1, 1])
+  // The long route's two legs: down the Red Sea's centre line and off the bottom edge, then in
+  // from the west edge at the middle of the Mid-Atlantic's stretch of it.
+  const down = redLine.dir[1] < 0 ? [-redLine.dir[0], -redLine.dir[1]] : redLine.dir
+  const redExit = [redLine.c[0] + down[0] * (HEIGHT + 12 - redLine.c[1]) / down[1], HEIGHT + 12]
+  const edge = P.mid.flatMap((pl) => pl[0]).filter(([x]) => x < 0.5).map(([, y]) => y)
+  const westY = (Math.min(...edge) + Math.max(...edge)) / 2
+  const westEntry = [-12, westY], inshore = [LONG_ROUTE.inshore, westY]
+  // Egypt joins the Red Sea's centre line first; Hejaz, already at the bottom edge, heads straight off.
+  longRoutes = { egy: [[redLine.c, redExit], [westEntry, inshore]], hej: [[redExit], [westEntry, inshore]] }
+}
 
 for (const [id, pt] of Object.entries(centers)) if (!inside(id, pt)) layoutProblems.push(`supply center of ${id} lies outside it`)
 if (layoutProblems.length) (process.env.LAYOUT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Layout problems:\n  ${layoutProblems.join('\n  ')}`)
@@ -195,22 +267,7 @@ if (layoutProblems.length) (process.env.LAYOUT_DRAFT ? console.warn : (m) => { t
 const outId = (id) => ({ nws: 'nrg' }[id] ?? id)
 // Finishing: embedded label font; no frame or compass rose on the board.
 const style = { font: true }
-// Points on a classical province outline keep their hand-drawn look; other borders are rounded.
-const classicalSegments = new Map()
-for (const g of [...Object.values(classical.provinces), ...classical.islands]) for (const pl of g) for (const r of pl) for (let i = 0; i < r.length; i++) {
-  const a = r[i], b = r[(i + 1) % r.length], key = `${Math.floor((a[0] + b[0]) / 16)},${Math.floor((a[1] + b[1]) / 16)}`
-  ;(classicalSegments.get(key) ?? classicalSegments.set(key, []).get(key)).push([a, b])
-}
-const isClassical = ([x, y]) => {
-  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const [a, b] of classicalSegments.get(`${Math.floor(x / 8) + i},${Math.floor(y / 8) + j}`) ?? []) {
-    const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)))
-    if (Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy) < 0.15) return true
-  }
-  return false
-}
-// The Suez Canal: Port Said, Ismailia, Suez.
-const suez = [[32.3, 31.26], [32.28, 30.6], [32.55, 29.97]].map(project)
-const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, centers: Object.values(centers), labels, isClassical, waterParts: [gibraltarStrait], canals: [suez], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
+const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, centers: Object.values(centers), labels, waterParts: [gibraltarStrait], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
 const r1 = (n) => Math.round(n * 10) / 10
 const layer = (id, body, extra = '') => `<g id="${id}"${extra}>\n${body}\n</g>`
 // The coast shading and water-lining reach past the board edge; clip the artwork to the board.
@@ -224,11 +281,10 @@ ${layer('named-coasts', Object.entries(coastAreas).map(([id, g]) => `<path id="$
 ${layer('unit-positions', Object.entries(units).map(([id, [x, y]]) => `<circle id="${id.includes('/') ? outId(id.split('/')[0]) + '/' + id.split('/')[1] : outId(id)}" cx="${r1(x)}" cy="${r1(y)}"/>`).join(''), ' style="display:none"')}
 ${layer('province-names', board.names)}
 ${layer('routes', [
-  // Suez rule 2: moves between Egypt/Hejaz and the Mid-Atlantic go around Africa;
-  // their arrows follow the board's southern and western margins.
-  ['egy~mid', [[1150, HEIGHT - 22], [620, HEIGHT - 16], [70, HEIGHT - 26], [34, 1250], [60, 1010]]],
-  ['hej~mid', [[1380, HEIGHT - 20], [620, HEIGHT - 16], [70, HEIGHT - 26], [34, 1250], [60, 1010]]],
-].map(([id, pts]) => `<path id="${id}" d="M${pts.map((p) => p.join(' ')).join('L')}"/>`).join(''), ' style="display:none"')}
+  // Suez rule 2: moves between Egypt/Hejaz and the Mid-Atlantic go around Africa. Their
+  // arrows leave the board down the Red Sea and come back in off Morocco (one subpath each).
+  ['egy~mid', longRoutes.egy], ['hej~mid', longRoutes.hej],
+].map(([id, legs]) => `<path id="${id}" d="${legs.map((leg) => 'M' + leg.map((p) => p.map(r1).join(' ')).join('L')).join('')}"/>`).join(''), ' style="display:none"')}
 <g id="borders"/>
 ${layer('foreground', clipped(board.foreground))}
 </svg>

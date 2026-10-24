@@ -5,19 +5,9 @@
 import { readFileSync } from 'node:fs'
 import { geoConicEquidistant } from 'd3-geo'
 import { union, intersect, subtract, poly, area } from './lib/geom.mjs'
-import { region, latBand, transform, box } from './lib/natural.mjs'
+import { region, transform, box } from './lib/natural.mjs'
 
 const SEAM = 1357
-// Below this line the Saharan interior is compressed so the southern provinces stay
-// compact. The squeeze fades out eastward: Egypt's Red Sea coast, Sinai and Arabia keep
-// their true shape.
-const SQUEEZE_FROM = 1460, SQUEEZE = 0.45, SQUEEZE_WEST = 1000, SQUEEZE_EAST = 1250
-export const squeeze = ([x, y]) => {
-  if (y <= SQUEEZE_FROM) return [x, y]
-  const t = Math.max(0, Math.min(1, (x - SQUEEZE_WEST) / (SQUEEZE_EAST - SQUEEZE_WEST))), k = SQUEEZE + (1 - SQUEEZE) * t * t * (3 - 2 * t)
-  return [x, SQUEEZE_FROM + (y - SQUEEZE_FROM) * k]
-}
-
 // Classical province, the extreme taken along `score`, and the real place it depicts.
 const LANDMARKS = [
   ['gre', (p) => p[1], [22.48, 36.38]], ['nap', (p) => p[1], [16.06, 37.92]], ['apu', (p) => p[0] + p[1], [18.37, 39.8]],
@@ -80,16 +70,25 @@ export function southernLand(classical, landIds, { width, height }) {
     return want.at(-1) - have.at(-1)
   }
   const warp = ([x, y]) => [x + shift(x) * Math.max(0, Math.min(1, 1 - (y - SEAM) / 140)), y]
-  const toBoard = (lonLat) => squeeze(warp(project(lonLat)))
+  const toBoard = (lonLat) => warp(project(lonLat))
   const frame = poly([[-60, SEAM - 30], [width + 60, SEAM - 30], [width + 60, height + 60], [-60, height + 60]])
-  const land = union(...rings.map((r) => intersect([[r.map((p) => squeeze(warp(p)))]], frame))).filter((p) => area([p]) > 400)
+  const land = union(...rings.map((r) => intersect([[r.map(warp)]], frame))).filter((p) => area([p]) > 400)
   return { land, toBoard }
 }
 
-// The southern 1900 provinces from real borders: colonial North Africa by country,
-// Algeria's Saharan provinces as Southern Algeria, Libya's west and east as
-// Tripolitania and Cyrenaica, and the Ottoman Levant from the modern states that
-// replaced its districts. Aqaba and the Negev's tip (south of 29.9°N) belonged to the Hejaz.
+// The southern 1900 provinces. North Africa is split by a few simple lines that follow the
+// land rather than the modern administrative maps: Algeria ends at the foot of the Saharan
+// Atlas (Aïn Sefra, El Bayadh, Aflou, between Djelfa and Laghouat, between Biskra and El
+// Oued); Morocco runs down the real border to Figuig, then curves south-west along the edge
+// of the Hammada and down the western Sahara, taking Tindouf; Tripolitania begins at Ghadames, Tunisia's southern tip, and runs south
+// past Ghat. Tunisia, Egypt and Cyrenaica (the Benghazi sanjak, as Libya's districts) keep
+// their real borders. The Ottoman Levant comes from the modern states that replaced its
+// districts; Aqaba and the Negev's tip (south of 29.9°N) belonged to the Hejaz.
+const CYRENAICA = ['Ajdabiya', 'Al Butnan', 'Al Jabal al Akhdar', 'Al Kufrah', 'Al Marj', 'Al Qubbah', 'Benghazi']
+const FIGUIG = [-1.2, 32.1]
+const SAHARAN_ATLAS = [FIGUIG, [-0.6, 32.8], [1.0, 33.55], [2.2, 34.0], [3.4, 34.3], [4.8, 34.45], [6.3, 34.2], [8.5, 33.9]]
+const MOROCCO_LINE = [FIGUIG, [-1.7, 31.5], [-2.5, 30.9], [-3.3, 30.4], [-4.1, 29.7], [-4.8, 29.0], [-5.3, 28.2], [-5.6, 27.3], [-5.7, 26.2], [-5.5, 25.0], [-5.4, 23.6], [-5.6, 22.0], [-5.9, 20.0], [-6.2, 10]]
+const TRIPOLITANIA_LINE = [[9.55, 30.25], [10.0, 26.6], [11.4, 24.6], [12.0, 10]]
 export function southernProvinces(toBoard) {
   const is = (...countries) => (country) => countries.includes(country)
   const hejazSaudi = ['Tabuk', 'Al Madinah', 'Makkah', 'Al Bahah', '`Asir', 'Jizan']
@@ -97,19 +96,22 @@ export function southernProvinces(toBoard) {
   const jawf = region((c, n) => c === 'Saudi Arabia' && n === 'Al Jawf'), jawfWest = intersect(jawf, box(30, 25, 37, 33))
   // Jordan's eastern panhandle (Mafraq) reaches into the desert; it goes with Arabia.
   const levant = region((c, n) => c === 'Israel' || c === 'Palestine' || (c === 'Jordan' && n !== 'Mafraq'))
-  // The board's bottom edge reaches the Sahel; it continues the province above it.
-  const sahel = (west, east) => region((c, n, [lon]) => ['Mauritania', 'Western Sahara', 'Mali', 'Niger', 'Chad', 'Sudan'].includes(c) && lon >= west && lon < east)
+  const nation = (...countries) => region(is(...countries))
+  const sahara = nation('Morocco', 'Western Sahara', 'Mauritania', 'Algeria', 'Mali', 'Niger', 'Libya', 'Chad')
+  const tunisia = nation('Tunisia')
+  const east = subtract(intersect(sahara, [[[...TRIPOLITANIA_LINE, [40, 10], [40, 40], [TRIPOLITANIA_LINE[0][0], 40]]]]), tunisia)
+  const algeria = subtract(intersect(nation('Algeria'), [[[...SAHARAN_ATLAS, [20, SAHARAN_ATLAS.at(-1)[1]], [20, 40], [-20, 40], [-20, FIGUIG[1]]]]]), east)
+  const rest = subtract(sahara, tunisia, east, algeria)
+  const morocco = union(intersect(rest, [[[...MOROCCO_LINE, [-20, 10], [-20, FIGUIG[1]]]]]), intersect(intersect(rest, [[[[-20, FIGUIG[1]], [-20, 40], [20, 40], [20, FIGUIG[1]]]]]), nation('Morocco')))
+  const cyrenaica = intersect(east, union(region((c, n) => c === 'Libya' && CYRENAICA.includes(n)), nation('Chad')))
   const real = {
-    mor: region((c, n, [lon, lat]) => c === 'Morocco' || c === 'Western Sahara' || c === 'Mauritania' || (c === 'Algeria' && lat < 33 && lon <= -2)),
-    // The Southern Territories began at the Saharan Atlas: wilayas centred south of 33°N.
-    alg: region((c, n, [, lat]) => c === 'Algeria' && lat >= 33),
-    // Algeria's south-western Saharan provinces (Tindouf, Béchar) go with Morocco so
-    // Southern Algeria does not wrap underneath it.
-    sou: region((c, n, [lon, lat]) => c === 'Algeria' && lat < 33 && lon > -2),
-    tun: region(is('Tunisia')),
-    trp: region((c, n, [lon]) => c === 'Libya' && lon < 19),
-    cyr: region((c, n, [lon]) => c === 'Libya' && lon >= 19),
-    egy: region(is('Egypt')),
+    mor: morocco,
+    alg: algeria,
+    sou: subtract(rest, morocco),
+    tun: tunisia,
+    trp: subtract(east, cyrenaica),
+    cyr: cyrenaica,
+    egy: nation('Egypt', 'Sudan'),
     // West of 36.4°E (the Jordan valley and its plateau edge); the desert east of it is Arabia.
     // Palestine includes the Negev and Aqaba down to the Gulf, so Egypt and Hejaz share no
     // land border (their link is the drawn crossing).
@@ -119,7 +121,11 @@ export function southernProvinces(toBoard) {
     araJordan: subtract(levant, box(30, 28, 36.4, 34)),
     dam: region(is('Syria', 'Lebanon')),
   }
-  real.sou = union(real.sou, sahel(-6, 11)); real.trp = union(real.trp, sahel(11, 19)); real.cyr = union(real.cyr, sahel(19, 24)); real.egy = union(real.egy, sahel(24, 40))
   real.ara = union(real.ara, real.araJordan); delete real.araJordan
+  // Fragments cut off between the real border and the lines (by Figuig) are Moroccan.
+  for (const id of ['sou', 'alg']) {
+    real.mor = union(real.mor, real[id].filter((pl) => area([pl]) < 0.05))
+    real[id] = real[id].filter((pl) => area([pl]) >= 0.05)
+  }
   return Object.fromEntries(Object.entries(real).map(([id, g]) => [id, transform(g, toBoard)]))
 }

@@ -43,6 +43,9 @@
   let provincePaths = new Map<string, string>()
   let namedCoastPaths = new Map<string, string>()
   let viewBox = { minX: 0, minY: 0, width: 0, height: 0 }
+  // Nothing is drawn outside the board (e.g. a route arrow running off its edge), even where the
+  // letterboxed SVG has room for it. Unique per map, as several can share a page.
+  const clipId = `map-bounds-${Math.random().toString(36).slice(2)}`
   let loadError: string | null = null
 
   let svgEl: SVGSVGElement | undefined
@@ -302,7 +305,11 @@
       on:pointerleave={onPointerUp}
       on:pointercancel={onPointerUp}
     >
+      <defs>
+        <clipPath id={clipId}><rect x={viewBox.minX} y={viewBox.minY} width={viewBox.width} height={viewBox.height} /></clipPath>
+      </defs>
       <g transform={`translate(${tx} ${ty}) scale(${k})`}>
+        <g clip-path={`url(#${clipId})`}>
         <!-- eslint-disable-next-line svelte/no-at-html-tags -->
         <g>{@html rendered.below}</g>
         {#if hoveredPath}
@@ -338,6 +345,7 @@
               on:click={() => handleClickPath(id)}
             />
           {/each}
+        </g>
         </g>
       </g>
     </svg>

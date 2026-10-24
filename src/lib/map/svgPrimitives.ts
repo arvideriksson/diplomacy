@@ -430,6 +430,23 @@ const bSplinePath = (points: Point[]): string => {
   return d
 }
 
+export type RouteLegOptions = {
+  waypoints: Point[]
+  lineWidth: number
+  fill: string
+  stroke: string
+  strokeWidth: number
+}
+
+/** A headless order line through waypoints: the leg of a route that runs off the board. */
+export const routeLeg = (o: RouteLegOptions): string => {
+  if (o.waypoints.length < 2) {
+    return ''
+  }
+  const d = bSplinePath(o.waypoints)
+  return `<g>${strokeLine(d, o.stroke, o.lineWidth + o.strokeWidth * 2)}${strokeLine(d, o.fill, o.lineWidth)}</g>`
+}
+
 export type MoveViaConvoyArrowOptions = {
   waypoints: Point[]
   lineWidth: number
