@@ -23,8 +23,10 @@ export type ParsedDsvg = {
   unitPositions: Map<string, Point>
   supplyCenters: Map<string, Point>
   supplyCenterRadius?: number
-  /** Drawn routes for moves that do not go in a straight line (1900: around Africa), keyed `a~b` by dSVG ids. */
-  routes: Map<string, Point[]>
+  /** Drawn routes for moves that do not go in a straight line (1900: around Africa), keyed `a~b` by
+   * dSVG ids. Each route is one or more legs; a route with two legs leaves the board after the first
+   * and re-enters at the start of the second. */
+  routes: Map<string, Point[][]>
 }
 
 const findLayer = (root: Element, id: string): Element | null => {
@@ -80,15 +82,19 @@ const collectPoints = (layer: Element | null): Map<string, Point> => {
   return points
 }
 
-// <g id="routes"><path id="egy~mid" d="M x y L x y ..."/></g>: polyline waypoints, a → b.
-const collectRoutes = (layer: Element | null): Map<string, Point[]> => {
-  const routes = new Map<string, Point[]>()
+// <g id="routes"><path id="egy~mid" d="M x y L x y M x y L x y"/></g>: polyline waypoints, a → b,
+// one subpath per leg.
+const collectRoutes = (layer: Element | null): Map<string, Point[][]> => {
+  const routes = new Map<string, Point[][]>()
   for (const path of Array.from(layer?.querySelectorAll('path') ?? [])) {
     const id = path.getAttribute('id')
-    const nums = (path.getAttribute('d') ?? '').match(/-?\d*\.?\d+/g)?.map(Number) ?? []
-    const pts: Point[] = []
-    for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
-    if (id && pts.length) routes.set(id, pts)
+    const legs = (path.getAttribute('d') ?? '').split('M').filter((leg) => leg.trim()).map((leg) => {
+      const nums = leg.match(/-?\d*\.?\d+/g)?.map(Number) ?? []
+      const pts: Point[] = []
+      for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
+      return pts
+    }).filter((pts) => pts.length)
+    if (id && legs.length) routes.set(id, legs)
   }
   return routes
 }

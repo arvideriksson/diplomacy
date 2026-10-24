@@ -10,6 +10,7 @@ import {
   supportHoldArrow,
   convoyArrow,
   moveViaConvoyArrow,
+  routeLeg,
 } from './svgPrimitives'
 import {
   headToHeadControlPoint,
@@ -400,7 +401,7 @@ const spotlightOverlayLayer = (
   unitPositions: Map<string, Point>,
   state: RenderState,
   viewBox: { minX: number; minY: number; width: number; height: number },
-  fixedRoutes: Map<string, Point[]> = new Map(),
+  fixedRoutes: Map<string, Point[][]> = new Map(),
 ): string => {
   if (!state.spotlightNation) return ''
   const style = state.unitStyle ?? DEFAULT_UNIT_STYLE
@@ -754,7 +755,7 @@ const moveOrderParts = (
   state: RenderState,
   headToHead: Map<string, Point>,
   routes: Map<string, ConvoyRoute>,
-  fixedRoutes: Map<string, Point[]> = new Map(),
+  fixedRoutes: Map<string, Point[][]> = new Map(),
 ): string[] => {
   const parts: string[] = []
   for (const order of orders) {
@@ -776,12 +777,18 @@ const moveOrderParts = (
     const color = nationColor(state, order.nation)
     const renderCenter = order.failed ? failureCross : undefined
 
-    // A move along a drawn route (1900: around Africa) follows its waypoints.
-    const fixed = fixedRoutes.get(`${order.source}~${order.target}`) ?? fixedRoutes.get(`${order.target}~${order.source}`)?.slice().reverse()
+    // A move along a drawn route (1900: around Africa) follows its waypoints. A route with two
+    // legs leaves the board after the first (a headless line) and re-enters for the second.
+    const fixed = fixedRoutes.get(`${order.source}~${order.target}`) ??
+      fixedRoutes.get(`${order.target}~${order.source}`)?.slice().reverse().map((leg) => leg.slice().reverse())
     if (fixed && order.type === 'Move') {
+      const offBoard = fixed.length > 1
+      if (offBoard) {
+        parts.push(routeLeg({ waypoints: [source, ...fixed[0]], lineWidth: ORDER_LINE_WIDTH, strokeWidth: ORDER_STROKE_WIDTH, stroke: SUCCESS_COLOR, fill: color }))
+      }
       parts.push(
         moveViaConvoyArrow({
-          waypoints: [source, ...fixed, target],
+          waypoints: offBoard ? [...fixed[fixed.length - 1], target] : [source, ...fixed[0], target],
           startOffset: 0,
           lineWidth: ORDER_LINE_WIDTH,
           arrowWidth: ORDER_ARROW_WIDTH,
@@ -882,7 +889,7 @@ const convoyOrderParts = (
 const ordersLayer = (
   unitPositions: Map<string, Point>,
   state: RenderState,
-  fixedRoutes: Map<string, Point[]> = new Map(),
+  fixedRoutes: Map<string, Point[][]> = new Map(),
 ): { behind: string; front: string } => {
   const orders = state.orders ?? []
   const ofType = (type: OrderType): OrderState[] => orders.filter((order) => order.type === type)

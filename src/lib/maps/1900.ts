@@ -684,8 +684,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1175,
-          1490
+          1181.8,
+          1492.7
         ]
       }
     },
@@ -811,8 +811,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          231.6,
-          1199.2
+          235.6,
+          1203.2
         ]
       }
     },
@@ -872,8 +872,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1477.6,
-          1557.2
+          1437.6,
+          1589.2
         ]
       }
     },
@@ -1003,8 +1003,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          626.2,
-          756.7
+          616.2,
+          755.1
         ]
       }
     },
@@ -1104,7 +1104,7 @@ export const map1900: MapDefinition = {
       "render": {
         "center": [
           386.4,
-          598.2
+          602.2
         ]
       }
     },
@@ -1205,8 +1205,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          114.1,
-          829.8
+          114,
+          829.4
         ]
       }
     },
@@ -1224,8 +1224,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          620.2,
-          957.2
+          605.9,
+          981.2
         ]
       }
     },
@@ -1517,8 +1517,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          553.4,
-          996.1
+          579.4,
+          994.6
         ]
       }
     },
@@ -1586,8 +1586,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          707.1,
-          1109
+          704.9,
+          1110.4
         ]
       }
     },
@@ -1934,8 +1934,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          690.3,
-          1523.4
+          689.4,
+          1528.5
         ]
       }
     },
@@ -2040,8 +2040,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          692.3,
-          1046.8
+          687.3,
+          952.8
         ]
       }
     },

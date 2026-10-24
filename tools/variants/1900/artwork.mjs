@@ -3,11 +3,12 @@
 // dashed sea borders, striped unplayable islands, bullseye supply centers.
 import { ringsPath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
-import { simplify, boundaryDistance, wiggle } from './lib/geom.mjs'
+import { simplify, boundaryDistance } from './lib/geom.mjs'
 
 const SEA = '#d4d0ad', LAND = '#f4d7b5'
 const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, serif"
-// As on the classical board: regular italic province names and regular upright centre names.
+// As on the classical board: regular italic province names and upright centre names (bold
+// for the names in BOLD_NAMES).
 // stroke:none opts out of the renderer's label halo, which the classical labels also do.
 const NAME_FONT = "font-family:LibreBaskerville-Italic, 'Libre Baskerville', Georgia, serif"
 const r2 = (n) => Math.round(n * 10) / 10
@@ -19,8 +20,8 @@ const bullseye = ([x, y]) => {
   return `<g transform="translate(${r2(x)},${r2(y)})"><circle r="10" style="${c};stroke:#000005;stroke-width:3.5"/><circle r="7.9344115" style="${c};stroke:#ffffff;stroke-width:1"/><circle r="5.8176403" style="${c};stroke:#000005;stroke-width:3.5"/><circle r="4.1615906" style="mix-blend-mode:normal;fill:#ffffff;fill-opacity:0.7;stroke:none"/></g>`
 }
 
-export function label({ text, at: [x, y], angle = 0, size = 16, kind = 'land' }) {
-  const face = kind === 'sc' ? `font-weight:normal;${FONT}` : `font-style:italic;font-weight:normal;${NAME_FONT}`
+export function label({ text, at: [x, y], angle = 0, size = 16, kind = 'land', bold = false }) {
+  const face = kind === 'sc' ? `font-weight:${bold ? 'bold' : 'normal'};${FONT}` : `font-style:italic;font-weight:normal;${NAME_FONT}`
   const spacing = kind === 'sea' ? 'letter-spacing:2px;' : ''
   return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${kind === 'sea' ? text.toUpperCase() : text}</text>`
 }
@@ -51,43 +52,20 @@ const unzig = (pts) => {
   return r
 }
 
-// Chaikin corner cutting: rounds a polyline while keeping its end points.
-const chaikin = (pts, rounds = 3) => {
-  for (let k = 0; k < rounds; k++) {
-    const out = [pts[0]]
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const [a, b] = [pts[i], pts[i + 1]]
-      out.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]])
-    }
-    out.push(pts.at(-1)); pts = out
-  }
-  return pts
-}
-// Borders that are not classical originals (new 1900 splits, real-world borders) are
-// generalised and rounded so they read like the hand-drawn classical ones.
-const smoothNew = (pts, isClassical, tolerance) => {
-  const out = [], runs = []
-  let run = [pts[0]], classical = isClassical(pts[0])
-  for (const p of pts.slice(1)) {
-    const c = isClassical(p)
-    run.push(p)
-    if (c !== classical) { runs.push([classical && c, run]); run = [p]; classical = c }
-  }
-  runs.push([classical, run])
-  for (const [keep, r] of runs) {
-    // Inland European cuts get a slight hand-drawn wobble so they don't read as ruled arcs.
-    const wobble = (pts) => (tolerance(r) < 1 && pts.length > 1 ? wiggle(pts, { amplitude: 1.4, step: 4, seed: Math.round(pts[0][0] + pts[0][1]) }) : pts)
-    const part = keep || r.length < 3 ? r : chaikin(wobble(simplify(r, tolerance(r))))
-    out.push(...(out.length ? part.slice(1) : part))
-  }
-  return out
+// A small note with an arrow, for routes that leave the board.
+export const offBoardNote = ({ text, at: [x, y], angle = 0, arrow: [[x1, y1], [x2, y2]] }) => {
+  const a = Math.atan2(y2 - y1, x2 - x1), h = 4.5, w = 2.6
+  const tip = [x2, y2], l = [x2 - h * Math.cos(a) + w * Math.sin(a), y2 - h * Math.sin(a) - w * Math.cos(a)], r = [x2 - h * Math.cos(a) - w * Math.sin(a), y2 - h * Math.sin(a) + w * Math.cos(a)]
+  return `<g><text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${r2(angle)} ${r2(x)} ${r2(y)})" style="font-style:italic;font-weight:normal;font-size:9px;letter-spacing:0.5px;${NAME_FONT};fill:#000000;stroke:none">${text}</text>` +
+    `<path d="M${r2(x1)} ${r2(y1)}L${r2(x2 - h * Math.cos(a))} ${r2(y2 - h * Math.sin(a))}" style="fill:none;stroke:#000000;stroke-width:1.2"/>` +
+    `<path d="M${r2(tip[0])} ${r2(tip[1])}L${r2(l[0])} ${r2(l[1])}L${r2(r[0])} ${r2(r[1])}Z" style="fill:#000000;stroke:none"/></g>`
 }
 
 // Dashed double-headed arrow for an army crossing over water.
 const crossing = ([a, b]) => `<path d="M${r2(a[0])} ${r2(a[1])}L${r2(b[0])} ${r2(b[1])}" style="fill:none;stroke:#000000;stroke-width:1.6;stroke-dasharray:3 2;marker-start:url(#crossing-head);marker-end:url(#crossing-head)"/>`
 
 // waterParts: parts of land provinces that are drawn as water (the Strait of Gibraltar).
-export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, isClassical = () => true, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
+export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
   const land = Object.entries(provinces).filter(([id]) => !isSea(id))
   const kind = (id) => (id === null || id === '#frame' ? 'frame' : id.startsWith('#') ? 'hole' : isSea(id) ? 'sea' : 'land')
   // Segments lying on the board edge are never drawn: the board simply ends there.
@@ -101,7 +79,7 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     if (run.length > 1) runs.push(run)
     return runs
   }
-  // Each shared edge is processed once, on its owner side (land before sea, then by id), and
+  // Each shared edge is cleaned once, on its owner side (land before sea, then by id), and
   // the neighbour reuses that line reversed, so the province fills follow the drawn lines.
   const rank = { land: 0, sea: 1, hole: 2, frame: 3 }
   const owns = (c) => { const a = kind(c.id), b = kind(c.other); return c.other === null || c.other === '#frame' || rank[a] < rank[b] || (rank[a] === rank[b] && c.id < c.other) }
@@ -110,7 +88,7 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
   for (const c of chains.filter(owns)) {
     const a = kind(c.id), b = kind(c.other)
     const pts = unzig(simplify(c.points, 0.15))
-    let line = pts
+    const line = a === 'land' || a === 'sea' ? pts : c.points
     if (a === 'land' && b === 'sea' && waterParts.length) {
       // Split land–sea chains into runs along drawn water (the strait: dashed) and real coast.
       const wet = (p) => waterParts.some((g) => boundaryDistance(g, p) < 0.3)
@@ -119,13 +97,10 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
       for (const p of pts.slice(1)) { const w = wet(p); run.push(p); if (w !== state) { flush(); run = [p]; state = w } }
       flush()
     }
-    // Neighbours that only meet along the board edge keep that edge straight and undrawn.
-    else if (a === 'land' && b === 'land' && pts.filter(onEdge).length > pts.length / 2) line = pts
-    else if (a === 'land' && b === 'land') { line = smoothNew(pts, isClassical, (r) => ([c.id, c.other].sort().join('|') === 'alg|tun' ? 3 : r.every(([x, y]) => y > 1250 || x > 1330) ? 1.2 : 0.5)); borders.push(...offEdge(line)) }
+    else if (a === 'land' && b === 'land') borders.push(...offEdge(pts))
     // A gap in the partition (no neighbour) is open water too.
     else if (a === 'land' && (b === 'sea' || b === 'hole' || c.other === null)) coasts.push(...offEdge(pts))
-    else if (a === 'sea' && b === 'sea') { line = chaikin(simplify(pts, 2.5), 2); seaLines.push(...offEdge(line)) }
-    else line = c.points
+    else if (a === 'sea' && b === 'sea') seaLines.push(...offEdge(pts))
     shaped.set(c, line)
     ;(processed.get(pair(c)) ?? processed.set(pair(c), []).get(pair(c))).push({ from: c.points[0], to: c.points.at(-1), line })
   }

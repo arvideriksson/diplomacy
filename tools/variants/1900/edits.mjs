@@ -66,7 +66,9 @@ export function europe(classical) {
 
   // Milan: the eastern part of Piedmont, inland of the coast, so Venetia keeps its full
   // classical width and Piedmont no longer meets Tyrolia or Venetia.
-  const milan = poly(wiggle([[572, 922], [670, 922], [670, 1036], [628, 1036], [610, 1014], [596, 990], [586, 960], [572, 922]], { amplitude: 1.6, seed: 3 }))
+  // Its Piedmont border follows the real one: down Lake Maggiore and the Ticino, then west
+  // around the Lomellina and south into the Oltrepò Pavese.
+  const milan = poly(wiggle([[572, 922], [670, 922], [670, 1036], [628, 1036], [610, 1014], [598, 997], [592, 989], [584, 985], [579, 977], [582, 968], [580, 959], [576, 951], [578, 941], [574, 932], [572, 922]], { amplitude: 1.3, seed: 3 }))
   P.mil = intersect(P.pie, milan); P.pie = subtract(P.pie, milan)
   // Milan also takes inland Emilia (the western tail of classical Venice), and Venetia
   // takes Trentino from Tyrolia,
@@ -74,6 +76,14 @@ export function europe(classical) {
   // (first clearing a hairline spike of Rome/Piedmont that pokes into it)
   move(P, intersect(union(P.ven, P.rom), poly(wiggle([[600, 985], [655, 985], [668, 1000], [672, 1020], [668, 1040], [655, 1052], [640, 1050], [622, 1025], [600, 1000]], { amplitude: 2, seed: 17 }))), 'mil', ['ven', 'rom'])
   move(P, intersect(union(P.pie, P.rom), poly([[600, 996], [616, 996], [614, 1006], [606, 1007]])), 'mil', ['pie', 'rom'])
+  // Northern Italy after the 1900 board: Milan is Lombardy, under Switzerland and touching
+  // Rome only at its southern tip; Venetia runs from Tyrolia across Emilia to the Adriatic;
+  // Rome takes everything south of a line from the Ligurian coast to its old Venetia border
+  // (which keeps Venetia on Apulia), so it has a clear border with Piedmont.
+  const italy = union(P.mil, P.ven, P.rom)
+  const lombardy = intersect(italy, poly([[560, 900], [662, 900], ...wiggle([[662, 950], [660, 968], [650, 982], [634, 990], [618, 994], [604, 992]], { amplitude: 1.4, seed: 23 }), [590, 990], [560, 960]]))
+  const rome = subtract(intersect(italy, poly([[560, 1200], [560, 986], ...wiggle([[590, 986], [604, 988], [618, 990], [636, 1004], [656, 1024], [669, 1037]], { amplitude: 1.6, seed: 31 }), [674, 1039], [681, 1054], [690, 1059], [700, 1064], [704.8, 1078.4], [712, 1074.5], [718.5, 1071.5], [760, 1072], [800, 1200]])), lombardy)
+  P.mil = lombardy; P.rom = rome; P.ven = subtract(italy, lombardy, rome)
   move(P, intersect(P.tyr, poly([[640, 960], ...wiggle([[648, 942], [668, 935], [690, 934], [712, 940], [732, 952]], { amplitude: 2.5, seed: 19 }), [740, 990], [640, 990]])), 'ven', ['tyr'])
 
   // Alsace: the strip of Burgundy along its Ruhr and Munich borders.
