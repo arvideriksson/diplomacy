@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 
 // Without a configured project (e.g. a local checkout with no .env) the app still
 // loads: sandboxes run entirely in the browser, and network calls simply fail.
-export const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'unconfigured'
 if (!supabaseConfigured) console.warn('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY); only sandboxes will work.')
@@ -31,3 +31,10 @@ function devAuthOptions() {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: devAuthOptions(),
 })
+
+/** Call a Postgres RPC; throws its error, else returns its result. */
+export async function rpc<T = void>(fn: string, args?: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.rpc(fn, args)
+  if (error) throw error
+  return data as T
+}

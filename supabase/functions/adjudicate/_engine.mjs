@@ -79,6 +79,21 @@ var reachableCoasts = (map, target, from) => {
   if (!t?.coasts) return [];
   return Object.entries(t.coasts).filter(([, coast]) => coast.fleetAdjacency.includes(from)).map(([id]) => id);
 };
+var convoyChain = (map, from, fleets) => {
+  const seen = /* @__PURE__ */ new Set();
+  const queue = (territory(map, from)?.adjacent ?? []).filter((p) => fleets.has(p));
+  queue.forEach((p) => seen.add(p));
+  while (queue.length) {
+    const p = queue.shift();
+    for (const n of territory(map, p)?.adjacent ?? []) {
+      if (fleets.has(n) && !seen.has(n)) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+  }
+  return seen;
+};
 
 // src/lib/adjudicator/graph.ts
 var adjacentProvinces = (map, province) => {
@@ -90,19 +105,8 @@ var canMoveDirect = (map, unit, dest) => reachable(map, unit).includes(dest);
 var landingCoasts = (map, target, from) => reachableCoasts(map, target, from);
 var convoyPathExists = (map, from, to, convoyFleets, lastHopOk = () => true) => {
   if (from === to) return false;
-  const seasAdjTo = (p) => adjacentProvinces(map, p).includes(to) && lastHopOk(p);
-  const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s));
-  const visited = new Set(frontier);
-  const queue = [...frontier].sort();
-  while (queue.length) {
-    const s = queue.shift();
-    if (seasAdjTo(s)) return true;
-    for (const n of adjacentProvinces(map, s)) {
-      if (convoyFleets.has(n) && !visited.has(n)) {
-        visited.add(n);
-        queue.push(n);
-      }
-    }
+  for (const sea of convoyChain(map, from, convoyFleets)) {
+    if (adjacentProvinces(map, sea).includes(to) && lastHopOk(sea)) return true;
   }
   return false;
 };
@@ -2268,8 +2272,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          235.6,
-          1203.2
+          158,
+          1205
         ]
       }
     },
@@ -2329,8 +2333,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1437.6,
-          1589.2
+          1435.5,
+          1589.1
         ]
       }
     },
@@ -2706,7 +2710,7 @@ var map1900 = {
       "render": {
         "center": [
           110,
-          1370
+          1369
         ]
       }
     },
@@ -2910,8 +2914,8 @@ var map1900 = {
       ],
       "render": {
         "center": [
-          1365.2,
-          1469.8
+          1347.2,
+          1405.8
         ]
       }
     },

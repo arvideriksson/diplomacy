@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import datc from './datc.json'
 import { classicalMap } from '../../maps/classical'
-import { adjudicate, initialBoard } from '../index'
+import { adjudicate } from '../index'
 import type { BoardState } from '../types'
 import type { Unit } from '../../types'
 import {

@@ -2,11 +2,13 @@
   import { onDestroy } from 'svelte'
   import { navigate } from 'svelte-routing'
   import { fetchGame } from '../lib/game'
+  import { errorMessage } from '../lib/errors'
   import type { GameState } from '../lib/game'
   import { user } from '../lib/auth'
   import { immersive } from '../lib/layout'
   import GameLobby from './GameLobby.svelte'
   import GameView from './GameView.svelte'
+  import RouteStatus from './RouteStatus.svelte'
 
   export let id: string
 
@@ -22,9 +24,9 @@
     error = ''
     try {
       game = await fetchGame(gameId)
-    } catch (e: any) {
+    } catch (e) {
       game = null
-      error = e?.message ?? 'Game not found'
+      error = errorMessage(e, 'Game not found')
     } finally {
       loading = false
     }
@@ -48,45 +50,11 @@
   }
 </script>
 
-{#if loading}
-  <div class="route-status"><div class="spinner"></div></div>
-{:else if error}
-  <div class="route-status">
-    <p>{error}</p>
-    <button class="btn" on:click={back}>Back to games</button>
-  </div>
+{#if loading || error}
+  <RouteStatus {error} onBack={back} />
 {:else if game && game.phase === 'lobby'}
   <GameLobby gameId={game.id} initialGame={game} onBack={back} {onStart} />
 {:else if game}
   <GameView {game} nation={viewerNation} onExit={back} />
 {/if}
 
-<style>
-  .route-status {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 80px 24px;
-    color: var(--text-secondary, #777);
-  }
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  .btn {
-    padding: 8px 16px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg-card, #fff);
-    color: var(--text, #1a1a1a);
-    cursor: pointer;
-  }
-</style>

@@ -1,6 +1,6 @@
 // Ported from diplicity-react — SVG-string primitives for orders/markers.
 import type { Point } from './dsvgParser'
-import { closestPointOnLine, ROUTE_TENSION } from './orderGeometry'
+import { closestPointOnLine, unitVector, offsetToward, bSplineSegments } from './orderGeometry'
 
 export type Dash = { length: number; spacing: number }
 
@@ -98,12 +98,10 @@ export const octagon = (o: OctagonOptions): string => {
   )
 }
 
-const offsetPoint = (from: Point, toward: Point, offset: number): Point => {
-  const dx = toward.x - from.x
-  const dy = toward.y - from.y
-  const len = Math.sqrt(dx * dx + dy * dy)
-  return { x: from.x + (dx / len) * offset, y: from.y + (dy / len) * offset }
-}
+
+/** `steps + 1` points along a cubic Bézier. */
+const cubicPoints = (p0: Point, p1: Point, p2: Point, p3: Point, steps = 32): Point[] =>
+  Array.from({ length: steps + 1 }, (_, i) => cubicBezierPoint(i / steps, p0, p1, p2, p3))
 
 const cubicBezierPoint = (t: number, p0: Point, p1: Point, p2: Point, p3: Point): Point => {
   const mt = 1 - t
@@ -136,10 +134,10 @@ export type CurvedArrowOptions = {
 export const curvedArrow = (o: CurvedArrowOptions): string => {
   const source = { x: o.x1, y: o.y1 }
   const ecp = o.endControlPoint ?? { x: o.x3, y: o.y3 }
-  const tip = offsetPoint({ x: o.x2, y: o.y2 }, ecp, o.offset)
+  const tip = offsetToward({ x: o.x2, y: o.y2 }, ecp, o.offset)
   const cp1 = { x: source.x + (o.x3 - source.x) * 0.5, y: source.y + (o.y3 - source.y) * 0.5 }
   const cp2 = { x: tip.x + (ecp.x - tip.x) * 0.5, y: tip.y + (ecp.y - tip.y) * 0.5 }
-  const points = Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, source, cp1, cp2, tip))
+  const points = cubicPoints(source, cp1, cp2, tip)
   return ribbonArrow({
     points,
     shaftWidth: o.lineWidth,
@@ -281,40 +279,21 @@ export const convoyArrow = (o: ConvoyArrowOptions): string => {
   )
 }
 
-const unitVector = (dx: number, dy: number): Point => {
-  const length = Math.sqrt(dx * dx + dy * dy)
-  return length === 0 ? { x: 0, y: 0 } : { x: dx / length, y: dy / length }
-}
 
 const bSplinePath = (points: Point[]): string => {
   if (points.length < 2) {
     return ''
   }
-  if (points.length === 2) {
-    return `M ${n(points[0].x)} ${n(points[0].y)} L ${n(points[1].x)} ${n(points[1].y)}`
+  const last = points[points.length - 1]
+  const segments = bSplineSegments(points)
+  if (!segments.length) {
+    return `M ${n(points[0].x)} ${n(points[0].y)} L ${n(last.x)} ${n(last.y)}`
   }
-  const mid = (i: number): Point => ({
-    x: (points[i].x + points[i + 1].x) / 2,
-    y: (points[i].y + points[i + 1].y) / 2,
-  })
-  const control = (i: number): Point => {
-    const previous = mid(i - 1)
-    const next = mid(i)
-    const midOfMids = { x: (previous.x + next.x) / 2, y: (previous.y + next.y) / 2 }
-    return {
-      x: midOfMids.x + ROUTE_TENSION * (points[i].x - midOfMids.x),
-      y: midOfMids.y + ROUTE_TENSION * (points[i].y - midOfMids.y),
-    }
+  let d = `M ${n(points[0].x)} ${n(points[0].y)} L ${n(segments[0].start.x)} ${n(segments[0].start.y)}`
+  for (const { control, end } of segments) {
+    d += ` Q ${n(control.x)} ${n(control.y)} ${n(end.x)} ${n(end.y)}`
   }
-  const last = points.length - 1
-  let d = `M ${n(points[0].x)} ${n(points[0].y)} L ${n(mid(0).x)} ${n(mid(0).y)}`
-  for (let i = 1; i < last; i++) {
-    const c = control(i)
-    const m = mid(i)
-    d += ` Q ${n(c.x)} ${n(c.y)} ${n(m.x)} ${n(m.y)}`
-  }
-  d += ` L ${n(points[last].x)} ${n(points[last].y)}`
-  return d
+  return d + ` L ${n(last.x)} ${n(last.y)}`
 }
 
 export type RouteLegOptions = {
@@ -327,26 +306,16 @@ export type RouteLegOptions = {
 
 /** Points along the same curve `bSplinePath` draws, for shapes that follow it. */
 export const bSplinePoints = (points: Point[], perSegment = 12): Point[] => {
-  if (points.length < 3) {
+  const segments = bSplineSegments(points)
+  if (!segments.length) {
     return points.slice()
   }
-  const mid = (i: number): Point => ({
-    x: (points[i].x + points[i + 1].x) / 2,
-    y: (points[i].y + points[i + 1].y) / 2,
-  })
-  const out: Point[] = [points[0], mid(0)]
-  for (let i = 1; i < points.length - 1; i++) {
-    const a = mid(i - 1)
-    const b = mid(i)
-    const midOfMids = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-    const c = {
-      x: midOfMids.x + ROUTE_TENSION * (points[i].x - midOfMids.x),
-      y: midOfMids.y + ROUTE_TENSION * (points[i].y - midOfMids.y),
-    }
-    out.push(...quadraticPoints(a, c, b, perSegment).slice(1))
-  }
-  out.push(points[points.length - 1])
-  return out
+  return [
+    points[0],
+    segments[0].start,
+    ...segments.flatMap(({ start, control, end }) => quadraticPoints(start, control, end, perSegment).slice(1)),
+    points[points.length - 1],
+  ]
 }
 
 /** Points along a quadratic Bézier from `a` to `b` with control point `c`. */
@@ -480,7 +449,7 @@ export const tributaryArrow = (o: TributaryArrowOptions): string => {
   const cp1 = { x: o.source.x + (end.x - o.source.x) * 0.45, y: o.source.y + (end.y - o.source.y) * 0.45 }
   const cp2 = { x: end.x - dir.x * lead, y: end.y - dir.y * lead }
   return ribbonArrow({
-    points: Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, o.source, cp1, cp2, end)),
+    points: cubicPoints(o.source, cp1, cp2, end),
     shaftWidth: o.shaftWidth,
     headWidth: 0,
     headLength: 0,

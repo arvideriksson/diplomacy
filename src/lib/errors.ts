@@ -4,8 +4,8 @@
  * NOT `Error` instances — so `String(e)` on them yields "[object Object]". This
  * checks the common shapes before falling back.
  */
-export function errorMessage(e: unknown): string {
-  if (e == null) return 'Unknown error'
+export function errorMessage(e: unknown, fallback = 'Unknown error'): string {
+  if (e == null) return fallback
   if (typeof e === 'string') return e
   if (e instanceof Error) return e.message
   if (typeof e === 'object') {

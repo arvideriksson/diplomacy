@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { fade, scale } from 'svelte/transition'
   import { games, createGame, gamesLoaded } from '../lib/game'
   import { user } from '../lib/auth'
   import { sandboxes } from '../lib/sandbox'
-  import { maps } from '../lib/maps'
+  import { maps, getMap } from '../lib/maps'
   import type { GameState } from '../lib/game'
   import type { Sandbox } from '../lib/sandbox'
+  import type { Snippet } from 'svelte'
+  import { fade } from 'svelte/transition'
+  import Modal from './Modal.svelte'
 
   export let onSelectGame: (game: GameState) => void = () => {}
   export let onOpenSandbox: (id: string) => void = () => {}
@@ -55,6 +57,35 @@
   $: runningGames = $games.filter((g) => !joined(g) && g.phase !== 'lobby')
 </script>
 
+{#snippet newSandboxButton()}
+  <button class="header-btn" on:click|preventDefault|stopPropagation={openNewSandbox}>+ New sandbox</button>
+{/snippet}
+
+<!-- A collapsible list section: title and count, an optional header action, then the cards. -->
+{#snippet section<T extends { id: string }>(title: string, items: T[], emptyText: string, card: Snippet<[T]>, action?: Snippet)}
+  <details class="section" open>
+    <summary>
+      <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 18l6-6-6-6" />
+      </svg>
+      <span class="section-title">{title}</span>
+      <span class="count">{items.length}</span>
+      {#if action}{@render action()}{/if}
+    </summary>
+    <div class="section-body">
+      {#if items.length === 0}
+        <p class="empty-line">{emptyText}</p>
+      {:else}
+        <div class="games">
+          {#each items as item (item.id)}
+            {@render card(item)}
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </details>
+{/snippet}
+
 {#snippet gameCard(game: GameState)}
   <div
     class="game-card"
@@ -95,7 +126,7 @@
             <circle cx="9" cy="7" r="4" />
             <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
-          {Object.keys(game.players).length}/7
+          {Object.keys(game.players).length}/{getMap(game.map_id ?? 'classical').powers.length}
         </span>
       </div>
     </div>
@@ -155,149 +186,46 @@
   </div>
 
   {#if $gamesLoaded}
-    <!-- My games -->
-    <details class="section" open>
-      <summary>
-        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        <span class="section-title">My games</span>
-        <span class="count">{myGames.length}</span>
-      </summary>
-      <div class="section-body">
-        {#if myGames.length === 0}
-          <p class="empty-line">You haven’t joined any games yet.</p>
-        {:else}
-          <div class="games">
-            {#each myGames as game (game.id)}
-              {@render gameCard(game)}
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </details>
-
-    <!-- Sandboxes -->
-    <details class="section" open>
-      <summary>
-        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        <span class="section-title">Sandboxes</span>
-        <span class="count">{$sandboxes.length}</span>
-        <button class="header-btn" on:click|preventDefault|stopPropagation={openNewSandbox}>+ New sandbox</button>
-      </summary>
-      <div class="section-body">
-        {#if $sandboxes.length === 0}
-          <p class="empty-line">Create a sandbox to try the rules — you control every power and resolve turns instantly.</p>
-        {:else}
-          <div class="games">
-            {#each $sandboxes as s (s.id)}
-              {@render sandboxCard(s)}
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </details>
-
-    <!-- Open games -->
-    <details class="section" open>
-      <summary>
-        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        <span class="section-title">Open games</span>
-        <span class="count">{openGames.length}</span>
-      </summary>
-      <div class="section-body">
-        {#if openGames.length === 0}
-          <p class="empty-line">No open games right now.</p>
-        {:else}
-          <div class="games">
-            {#each openGames as game (game.id)}
-              {@render gameCard(game)}
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </details>
-
-    <!-- Running games -->
-    <details class="section" open>
-      <summary>
-        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        <span class="section-title">Running games</span>
-        <span class="count">{runningGames.length}</span>
-      </summary>
-      <div class="section-body">
-        {#if runningGames.length === 0}
-          <p class="empty-line">No games in progress.</p>
-        {:else}
-          <div class="games">
-            {#each runningGames as game (game.id)}
-              {@render gameCard(game)}
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </details>
+    {@render section('My games', myGames, 'You haven’t joined any games yet.', gameCard)}
+    {@render section('Sandboxes', $sandboxes, 'Create a sandbox to try the rules — you control every power and resolve turns instantly.', sandboxCard, newSandboxButton)}
+    {@render section('Open games', openGames, 'No open games right now.', gameCard)}
+    {@render section('Running games', runningGames, 'No games in progress.', gameCard)}
   {/if}
 </div>
 
 {#if showNewSandbox}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="overlay" transition:fade={{ duration: 150 }} on:click={() => (showNewSandbox = false)}>
-    <div
-      class="modal"
-      role="dialog"
-      tabindex="-1"
-      aria-modal="true"
-      aria-label="New sandbox"
-      transition:scale={{ duration: 150, start: 0.96 }}
-      on:click|stopPropagation
-    >
-      <div class="modal-head">
-        <h2>New sandbox</h2>
-        <button class="close" on:click={() => (showNewSandbox = false)} aria-label="Close">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      </div>
-      <p class="modal-desc">A local game where you control every power and resolve turns instantly.</p>
-      <label class="field-label" for="sandbox-name">Name</label>
-      <input
-        id="sandbox-name"
-        bind:this={sandboxInput}
-        bind:value={sandboxName}
-        class="name-input"
-        placeholder="Sandbox name"
-        on:keydown={(e) => {
-          if (e.key === 'Enter') confirmNewSandbox()
-          else if (e.key === 'Escape') showNewSandbox = false
-        }}
-      />
-      <label class="field-label" for="sandbox-map">Map</label>
-      <div class="select-wrap">
-        <select id="sandbox-map" bind:value={sandboxMapId} class="map-select">
-          {#each mapOptions as [id, label] (id)}
-            <option value={id}>{label}</option>
-          {/each}
-        </select>
-        <svg class="select-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" on:click={() => (showNewSandbox = false)}>Cancel</button>
-        <button class="btn btn-primary" on:click={confirmNewSandbox} disabled={!sandboxName.trim()}>
-          Create sandbox
-        </button>
-      </div>
+  <Modal title="New sandbox" onClose={() => (showNewSandbox = false)} maxWidth={420} top={96}>
+    <p class="modal-desc">A local game where you control every power and resolve turns instantly.</p>
+    <label class="field-label" for="sandbox-name">Name</label>
+    <input
+      id="sandbox-name"
+      bind:this={sandboxInput}
+      bind:value={sandboxName}
+      class="name-input"
+      placeholder="Sandbox name"
+      on:keydown={(e) => {
+        if (e.key === 'Enter') confirmNewSandbox()
+        else if (e.key === 'Escape') showNewSandbox = false
+      }}
+    />
+    <label class="field-label" for="sandbox-map">Map</label>
+    <div class="select-wrap">
+      <select id="sandbox-map" bind:value={sandboxMapId} class="map-select">
+        {#each mapOptions as [id, label] (id)}
+          <option value={id}>{label}</option>
+        {/each}
+      </select>
+      <svg class="select-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
     </div>
-  </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" on:click={() => (showNewSandbox = false)}>Cancel</button>
+      <button class="btn btn-primary" on:click={confirmNewSandbox} disabled={!sandboxName.trim()}>
+        Create sandbox
+      </button>
+    </div>
+  </Modal>
 {/if}
 
 <style>
@@ -592,59 +520,6 @@
 
   .game-card:hover .card-arrow {
     transform: translateX(2px);
-  }
-
-  /* New-sandbox modal. */
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    background: rgba(0, 0, 0, 0.45);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 96px 16px 48px;
-    overflow-y: auto;
-  }
-
-  .modal {
-    width: 100%;
-    max-width: 420px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg, 0 20px 50px rgba(0, 0, 0, 0.3));
-    padding: 22px 24px 24px;
-  }
-
-  .modal-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-  }
-
-  .modal-head h2 {
-    font-size: 17px;
-    font-weight: 700;
-    margin: 0;
-    color: var(--text);
-  }
-
-  .close {
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    border-radius: var(--radius-sm);
-    transition: background 0.12s, color 0.12s;
-  }
-
-  .close:hover {
-    background: var(--bg-input);
-    color: var(--text);
   }
 
   .modal-desc {

@@ -1,7 +1,7 @@
 // Draw the 1900 board in the classical board's style from the final partition:
 // sea ground, blurred coast shadow, land fill, 1px land borders and coasts,
 // dashed sea borders, striped unplayable islands, bullseye supply centers.
-import { ringsPath } from './lib/svgpath.mjs'
+import { ringsPath, polylinePath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
 import { simplify, boundaryDistance, subtract, intersect, area } from './lib/geom.mjs'
 
@@ -12,7 +12,7 @@ const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, s
 // stroke:none opts out of the renderer's label halo, which the classical labels also do.
 const NAME_FONT = "font-family:LibreBaskerville-Italic, 'Libre Baskerville', Georgia, serif"
 const r2 = (n) => Math.round(n * 10) / 10
-const polyline = (pts) => 'M' + pts.map((p) => `${r2(p[0])} ${r2(p[1])}`).join('L')
+const polyline = (pts) => polylinePath(pts, 1)
 export const geomPath = (g) => ringsPath(g.flatMap((p) => p), 1)
 
 const bullseye = ([x, y]) => {

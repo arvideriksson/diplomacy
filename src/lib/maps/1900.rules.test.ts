@@ -123,7 +123,7 @@ describe('1900 adjustments and victory', () => {
   })
   it('Russia is not auto-readied when Siberia is its only build site', () => {
     // Russia holds Moscow (occupied) and Warsaw (occupied) of its homes, plus Rumania: allowance 3 + 1.
-    const b = board([A('russia', 'MOS'), A('russia', 'WAR'), A('germany', 'STP', 'nc'), F('turkey', 'SEV')], { MOS: 'russia', WAR: 'russia', RUM: 'russia', STP: 'germany', SEV: 'turkey' })
+    const b = board([A('russia', 'MOS'), A('russia', 'WAR'), A('germany', 'STP'), F('turkey', 'SEV')], { MOS: 'russia', WAR: 'russia', RUM: 'russia', STP: 'germany', SEV: 'turkey' })
     b.phase = 'build'
     expect(idleNations(map1900, b)).not.toContain('russia')
   })

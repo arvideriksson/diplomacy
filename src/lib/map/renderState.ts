@@ -1,5 +1,5 @@
 // Adapts this app's game types into the renderer's RenderState (with dSVG ids).
-import type { MapDefinition } from '../mapDefinition'
+import { findPower, type MapDefinition } from '../mapDefinition'
 import type { Unit } from '../game'
 import type { RenderState, UnitState, OrderState } from './mapRenderer'
 import type { UnitStyle } from './unitStyles'
@@ -7,17 +7,9 @@ import type { MapTheme } from './theme'
 import { DEFAULT_THEME } from './theme'
 import { toDsvgId } from './idMap'
 
-const normalize = (nation: string): string => nation.toLowerCase()
-
 /** Resolve a nation token (power id or display name) to its colour. */
-const makeColorResolver = (mapDef: MapDefinition) => {
-  const byKey = new Map<string, string>()
-  for (const power of mapDef.powers) {
-    byKey.set(normalize(power.id), power.color)
-    byKey.set(normalize(power.name), power.color)
-  }
-  return (nation: string): string | undefined => byKey.get(normalize(nation))
-}
+const makeColorResolver = (mapDef: MapDefinition) => (nation: string): string | undefined =>
+  findPower(mapDef.powers, nation)?.color
 
 export type ToRenderStateInput = {
   mapDef: MapDefinition

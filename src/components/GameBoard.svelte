@@ -3,7 +3,7 @@
   import { submitOrders, fetchMyOrders, saveDraftOrders } from '../lib/game'
   import { onDestroy } from 'svelte'
   import { errorMessage } from '../lib/errors'
-  import type { MapDefinition } from '../lib/mapDefinition'
+  import { findPower, type MapDefinition } from '../lib/mapDefinition'
   import DiplomacyMap from './DiplomacyMap.svelte'
   import { toDsvgId, toGameId } from '../lib/map/idMap'
   import type { AnyOrder, BuildOrder, Order, OrderType, RetreatOrder } from '../lib/orders/types'
@@ -581,7 +581,7 @@
 
   /** A power's display colour, for the popup unit glyphs. */
   const powerColor = (n: string): string =>
-    mapDef.powers.find((p) => p.id === n || p.name.toLowerCase() === n.toLowerCase())?.color ?? '#888'
+    findPower(mapDef.powers, n)?.color ?? '#888'
 
   // Spell out coast codes for the build cards (the terse Stp(sc) form is for notation).
   const COAST_NAMES: Record<string, string> = { nc: 'North', sc: 'South', ec: 'East', wc: 'West' }
@@ -1053,11 +1053,11 @@
     gap: 8px;
     padding: 8px;
     border-radius: 14px;
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28); /* a little deeper than other glass: it floats over units */
+    border: var(--glass-border);
     z-index: 20;
   }
   /* little pointer at the bottom, aimed at the clicked centre */

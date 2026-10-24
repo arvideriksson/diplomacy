@@ -1,13 +1,13 @@
 // Adjacency / path primitives. The engine routes all map-graph queries through
-// here. Low-level reachability reuses the existing order-options helpers; the
-// multi-fleet convoy-path BFS is the one primitive options.ts lacks.
+// here. Low-level reachability and the convoy chain reuse the order-options helpers, so
+// order entry and adjudication agree.
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import { reachable, reachableCoasts } from '../orders/options'
+import { reachable, reachableCoasts, convoyChain } from '../orders/options'
 
 /** Raw province adjacency (coast-collapsed), sorted. */
-export const adjacentProvinces = (map: MapDefinition, province: string): string[] => {
+const adjacentProvinces = (map: MapDefinition, province: string): string[] => {
   const t = map.territories[province]
   return t ? [...t.adjacent].sort() : []
 }
@@ -23,12 +23,6 @@ export const canMoveDirect = (map: MapDefinition, unit: Unit, dest: string): boo
 export const landingCoasts = (map: MapDefinition, target: string, from: string): string[] =>
   reachableCoasts(map, target, from)
 
-export const isSea = (map: MapDefinition, province: string): boolean =>
-  map.territories[province]?.type === 'sea'
-
-export const isCoastal = (map: MapDefinition, province: string): boolean =>
-  map.territories[province]?.type === 'coast'
-
 /**
  * Does a convoy path exist from coastal `from` to coastal `to`, hopping only
  * through sea provinces whose fleets are in `convoyFleets`? Multi-fleet aware.
@@ -42,19 +36,8 @@ export const convoyPathExists = (
   lastHopOk: (sea: string) => boolean = () => true,
 ): boolean => {
   if (from === to) return false
-  const seasAdjTo = (p: string) => adjacentProvinces(map, p).includes(to) && lastHopOk(p)
-  const frontier = adjacentProvinces(map, from).filter((s) => convoyFleets.has(s))
-  const visited = new Set<string>(frontier)
-  const queue = [...frontier].sort()
-  while (queue.length) {
-    const s = queue.shift()!
-    if (seasAdjTo(s)) return true
-    for (const n of adjacentProvinces(map, s)) {
-      if (convoyFleets.has(n) && !visited.has(n)) {
-        visited.add(n)
-        queue.push(n)
-      }
-    }
+  for (const sea of convoyChain(map, from, convoyFleets)) {
+    if (adjacentProvinces(map, sea).includes(to) && lastHopOk(sea)) return true
   }
   return false
 }

@@ -74,12 +74,9 @@ function update(id: string, fn: (s: Sandbox) => Sandbox): void {
   })
 }
 
-export function getSandbox(id: string): Sandbox | undefined {
+function getSandbox(id: string): Sandbox | undefined {
   return loadAll().find((s) => s.id === id)
 }
-
-/** The frame currently being viewed. */
-export const currentFrame = (s: Sandbox): Frame => s.frames[s.cursor]
 
 export function createSandbox(name: string, mapId = 'classical'): Sandbox {
   const s: Sandbox = {
@@ -104,10 +101,6 @@ export function deleteSandbox(id: string): void {
     persist(next)
     return next
   })
-}
-
-export function renameSandbox(id: string, name: string): void {
-  update(id, (s) => ({ ...s, name: name.trim() || s.name }))
 }
 
 // ── navigation ──────────────────────────────────────────────────────────────
@@ -155,21 +148,4 @@ export function resetSandbox(id: string): void {
 
 export function exportSandbox(id: string): string {
   return JSON.stringify(getSandbox(id) ?? {}, null, 2)
-}
-
-/** Import a sandbox JSON blob, assigning it a fresh id. Returns it, or null if invalid. */
-export function importSandbox(json: string): Sandbox | null {
-  try {
-    const parsed = migrate(JSON.parse(json) as LegacySandbox)
-    if (!parsed.frames?.length || !parsed.mapId) return null
-    const s: Sandbox = { ...parsed, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
-    sandboxes.update((list) => {
-      const next = [s, ...list]
-      persist(next)
-      return next
-    })
-    return s
-  } catch {
-    return null
-  }
 }

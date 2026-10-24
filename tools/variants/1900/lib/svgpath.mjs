@@ -25,7 +25,9 @@ export function pathRings(d) {
   return rings
 }
 
-export const ringsPath = (rings, digits = 1) => {
+export const polylinePath = (pts, digits = 1) => {
   const k = 10 ** digits, r = (n) => Math.round(n * k) / k
-  return rings.map((ring) => ring.map((p, i) => (i ? 'L' : 'M') + r(p[0]) + ' ' + r(p[1])).join('') + 'Z').join('')
+  return pts.map((p, i) => (i ? 'L' : 'M') + r(p[0]) + ' ' + r(p[1])).join('')
 }
+
+export const ringsPath = (rings, digits = 1) => rings.map((ring) => polylinePath(ring, digits) + 'Z').join('')

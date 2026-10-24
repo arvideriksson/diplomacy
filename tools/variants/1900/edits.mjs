@@ -1,7 +1,7 @@
 // Turn the classical partition into the 1900 partition. Unchanged provinces keep
 // their classical outlines exactly; each 1900 change is an explicit edit below.
 // Coordinates are classical board units.
-import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle, curve, contains, area, boundaryDistance } from './lib/geom.mjs'
+import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle, curve, contains, area, boundaryDistance, bbox } from './lib/geom.mjs'
 import { sharedEdges } from './lib/edges.mjs'
 import { southernLand, southernProvinces } from './south.mjs'
 import { transform, box, region, affine } from './lib/natural.mjs'
@@ -208,12 +208,6 @@ export function extendSouth(P, classical, height) {
   const board = poly([[0, 0], [width, 0], [width, height], [0, height]])
   for (const id of Object.keys(P)) P[id] = intersect(P[id], board)
   return { provinces: P, project: toBoard }
-}
-
-const bbox = (g) => {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const p of g) for (const [x, y] of p[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
-  return [x0, y0, x1, y1]
 }
 
 // Classical draws sea borders separately from coasts, which leaves hairline

@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import { supabase } from './supabase'
+import { supabase, rpc } from './supabase'
 import { getMap } from './maps'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
@@ -67,12 +67,7 @@ export interface PlayerInfo {
   joined_at: string
 }
 
-export const NATIONS = [
-  'England', 'France', 'Germany', 'Italy', 'Austria', 'Russia', 'Turkey',
-] as const
-
 export const games = writable<GameState[]>([])
-export const currentGame = writable<GameState | null>(null)
 /** False until the first fetchGames resolves — gates the "no games yet" empty state. */
 export const gamesLoaded = writable(false)
 
@@ -99,7 +94,6 @@ export async function fetchGame(id: string) {
     .single()
 
   if (error) throw error
-  currentGame.set(data)
   return data as GameState
 }
 
@@ -148,7 +142,6 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
     .single()
 
   if (error) throw error
-  currentGame.set(data)
   return data as GameState
 }
 
@@ -158,11 +151,10 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
  * server-side. Use this instead of a raw games update so the rules are enforced.
  */
 export async function updateGameSettings(gameId: string, settings: Partial<GameSettings>) {
-  const { error } = await supabase.rpc('update_game_settings', {
+  await rpc('update_game_settings', {
     p_game_id: gameId,
     p_settings: settings,
   })
-  if (error) throw error
   return fetchGame(gameId)
 }
 
@@ -171,18 +163,16 @@ export async function updateGameSettings(gameId: string, settings: Partial<GameS
  * ISO string to set it, or null to clear (no backstop until the next resolution).
  */
 export async function setDeadline(gameId: string, deadline: string | null) {
-  const { error } = await supabase.rpc('set_deadline', {
+  await rpc('set_deadline', {
     p_game_id: gameId,
     p_deadline: deadline,
   })
-  if (error) throw error
   return fetchGame(gameId)
 }
 
 /** Claim a power in the lobby (atomic, server-checked). Pass null to release. */
 export async function claimNation(gameId: string, nation: string | null) {
-  const { error } = await supabase.rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
-  if (error) throw error
+  await rpc('claim_nation', { p_game_id: gameId, p_nation: nation })
 }
 
 /**
@@ -192,25 +182,21 @@ export async function claimNation(gameId: string, nation: string | null) {
  * position. Powers with no human player simply hold (civil disorder).
  */
 export async function startGame(game: GameState) {
-  const { error } = await supabase.rpc('start_game', { p_game_id: game.id })
-  if (error) throw error
+  await rpc('start_game', { p_game_id: game.id })
   return fetchGame(game.id)
 }
 
 export async function joinGame(gameId: string) {
-  const { error } = await supabase.rpc('join_public_game', { game_id: gameId })
-  if (error) throw error
+  await rpc('join_public_game', { game_id: gameId })
   return fetchGame(gameId)
 }
 
 export async function leaveGame(gameId: string) {
-  const { error } = await supabase.rpc('leave_game', { game_id: gameId })
-  if (error) throw error
+  await rpc('leave_game', { game_id: gameId })
 }
 
 export async function kickPlayer(gameId: string, playerId: string) {
-  const { error } = await supabase.rpc('kick_player', { game_id: gameId, player_id: playerId })
-  if (error) throw error
+  await rpc('kick_player', { game_id: gameId, player_id: playerId })
 }
 
 /**
@@ -226,7 +212,7 @@ export async function submitOrders(
   ready: boolean = false,
   round?: { year: number; season: string; phase: string },
 ) {
-  const { error } = await supabase.rpc('submit_orders', {
+  await rpc('submit_orders', {
     p_game_id: gameId,
     p_orders: orders,
     p_ready: ready,
@@ -234,7 +220,6 @@ export async function submitOrders(
     p_season: round?.season ?? null,
     p_phase: round?.phase ?? null,
   })
-  if (error) throw error
 }
 
 /**
@@ -251,14 +236,13 @@ export async function saveDraftOrders(
   orders: AnyOrder[],
   round: { year: number; season: string; phase: string },
 ) {
-  const { error } = await supabase.rpc('save_draft_orders', {
+  await rpc('save_draft_orders', {
     p_game_id: gameId,
     p_orders: orders,
     p_year: round.year,
     p_season: round.season,
     p_phase: round.phase,
   })
-  if (error) throw error
 }
 
 /**
@@ -300,9 +284,7 @@ export async function fetchMyOrders(
 }
 
 export async function adminDeleteAllGames(): Promise<number> {
-  const { data, error } = await supabase.rpc('admin_delete_all_games')
-  if (error) throw error
-  return data as number
+  return rpc<number>('admin_delete_all_games')
 }
 
 export function subscribeToGame(id: string, callback: (game: GameState) => void) {
@@ -313,7 +295,6 @@ export function subscribeToGame(id: string, callback: (game: GameState) => void)
       { event: '*', schema: 'public', table: 'games', filter: `id=eq.${id}` },
       (payload) => {
         const game = payload.new as GameState
-        currentGame.set(game)
         callback(game)
       }
     )

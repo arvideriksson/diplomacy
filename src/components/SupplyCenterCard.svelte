@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PowerDefinition } from '../lib/mapDefinition'
+  import { sameNation, type PowerDefinition } from '../lib/mapDefinition'
   import { scCountByNation } from '../lib/adjudicator/state'
   import { flagUrl } from '../lib/flags'
 
@@ -12,7 +12,7 @@
   /** Hovering a row spotlights that nation's supply centers on the map (null = clear). */
   export let onHover: ((nation: string | null) => void) | null = null
 
-  const isMine = (id: string): boolean => !!nation && id.toLowerCase() === nation.toLowerCase()
+  const isMine = (id: string): boolean => sameNation(id, nation)
 
   // Delegate hover for the whole card: spotlight the row under the pointer. Clearing is
   // deferred so the 2px sliver between rows doesn't flash the whole board on its way to
@@ -88,11 +88,11 @@
     width: 200px;
     border-radius: 14px;
     overflow: hidden;
-    background: color-mix(in srgb, var(--bg-card, #fff) 88%, transparent);
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+    border: var(--glass-border);
     font-size: 13px;
     user-select: none;
   }

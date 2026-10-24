@@ -3,12 +3,9 @@
 // segments with the same neighbour become one polyline. Segments with no
 // neighbour lie on the board frame or reveal a gap in the partition. Each chain records
 // its ring (`ring`, with `poly` and `hole` locating it in its province), in ring order.
-const CELL = 8
+import { segDist } from './geom.mjs'
 
-const segDist = (p, a, b) => {
-  const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)))
-  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
-}
+const CELL = 8
 
 export function sharedEdges(provinces, { tolerance = 0.08, frame } = {}) {
   const segs = []

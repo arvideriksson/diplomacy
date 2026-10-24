@@ -8,9 +8,11 @@
   } from '../lib/game'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
   import { getMap, maps } from '../lib/maps'
+  import { findPower, powerName as nameOf } from '../lib/mapDefinition'
   import { initialBoard } from '../lib/adjudicator'
   import { errorMessage } from '../lib/errors'
   import PhaseTimerSettings from './PhaseTimerSettings.svelte'
+  import ToggleSwitch from './ToggleSwitch.svelte'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -29,7 +31,8 @@
   $: isAdmin = game && $user && game.created_by === $user.id
   $: playerCount = game ? Object.keys(game.players).length : 0
   $: isMember = game && $user && !!game.players[$user.id]
-  $: canJoin = game && $user && !isMember && playerCount < 7 && game.phase === 'lobby'
+  $: maxPlayers = map.powers.length
+  $: canJoin = game && $user && !isMember && playerCount < maxPlayers && game.phase === 'lobby'
   $: canStart = isAdmin && playerCount >= 2 && game?.phase === 'lobby'
 
   $: settingsName = game?.name ?? ''
@@ -60,8 +63,8 @@
   // Centers each power starts with (home centers plus any variant extras, e.g. 1900 Egypt).
   $: startCenters = Object.values(initialBoard(map).supplyCenters)
   $: homeCenters = (id: string): number => startCenters.filter((n) => n === id).length
-  const powerName = (id: string): string => powers.find((p) => p.id === id)?.name ?? id
-  const powerColor = (id: string): string | undefined => powers.find((p) => p.id === id)?.color
+  const powerName = (id: string): string => nameOf(powers, id)
+  const powerColor = (id: string): string | undefined => findPower(powers, id)?.color
 
   let claimError = ''
   async function claimPower(nation: string) {
@@ -236,11 +239,7 @@
                 <span class="setting-label">Early Resolution</span>
                 <p class="setting-desc">Resolve as soon as every power has submitted</p>
               </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsEarlyResolution} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
+              <ToggleSwitch bind:checked={settingsEarlyResolution} disabled={!isAdmin} on:change={saveSettings} />
             </div>
           </div>
 
@@ -268,11 +267,7 @@
                 <span class="setting-label">Gunboat</span>
                 <p class="setting-desc">No press — players cannot negotiate or chat</p>
               </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsGunboat} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
+              <ToggleSwitch bind:checked={settingsGunboat} disabled={!isAdmin} on:change={saveSettings} />
             </div>
           </div>
 
@@ -282,11 +277,7 @@
                 <span class="setting-label">Allow Spectators</span>
                 <p class="setting-desc">Non-players can watch the game</p>
               </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsSpectators} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
+              <ToggleSwitch bind:checked={settingsSpectators} disabled={!isAdmin} on:change={saveSettings} />
             </div>
           </div>
 
@@ -296,11 +287,7 @@
                 <span class="setting-label">Random Nation Assignment</span>
                 <p class="setting-desc">Nations assigned randomly at game start</p>
               </div>
-              <label class="toggle">
-                <input type="checkbox" bind:checked={settingsRandomNations} disabled={!isAdmin}
-                  on:change={saveSettings} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
+              <ToggleSwitch bind:checked={settingsRandomNations} disabled={!isAdmin} on:change={saveSettings} />
             </div>
           </div>
 
@@ -310,11 +297,7 @@
                 <span class="setting-label">Public</span>
                 <p class="setting-desc">{game.is_private ? 'Only invited players can find this game' : 'Anyone can find and join this game'}</p>
               </div>
-              <label class="toggle">
-                <input type="checkbox" checked={!game.is_private} disabled={!isAdmin}
-                  on:change={togglePrivate} />
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
+              <ToggleSwitch checked={!game.is_private} disabled={!isAdmin} on:change={togglePrivate} />
             </div>
           </div>
         </section>
@@ -393,7 +376,7 @@
               <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <h2>Players</h2>
-            <span class="player-counter">{playerCount}/7</span>
+            <span class="player-counter">{playerCount}/{maxPlayers}</span>
           </div>
 
           <div class="player-list">
@@ -442,7 +425,7 @@
               </div>
             {/each}
 
-            {#each { length: 7 - playerCount } as _, i}
+            {#each { length: maxPlayers - playerCount } as _, i}
               <div class="player-row empty-slot">
                 <div class="player-avatar-wrap">
                   <div class="player-avatar empty">
@@ -479,7 +462,7 @@
                 Join Game
               {/if}
             </button>
-            {#if playerCount >= 7}
+            {#if playerCount >= maxPlayers}
               <p class="start-hint">Game is full</p>
             {/if}
           {:else if isAdmin}
@@ -516,19 +499,6 @@
     align-items: center;
     justify-content: center;
     padding: 80px 0;
-  }
-
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   .power-picker {
@@ -772,50 +742,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-  }
-
-  .toggle {
-    flex-shrink: 0;
-    cursor: pointer;
-  }
-
-  .toggle input {
-    display: none;
-  }
-
-  .toggle-track {
-    display: block;
-    width: 40px;
-    height: 22px;
-    background: var(--border-strong);
-    border-radius: var(--radius-full);
-    position: relative;
-    transition: background 0.2s;
-  }
-
-  .toggle input:checked + .toggle-track {
-    background: var(--accent);
-  }
-
-  .toggle input:disabled + .toggle-track {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  }
-
-  .toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(18px);
   }
 
   /* Invite */

@@ -4,7 +4,6 @@
 // and scaled down to the map's UNIT_RADIUS so every shape shares one footprint.
 // The board always draws DEFAULT_UNIT_STYLE.
 
-const BOX = 64
 const BOX_C = 32
 const BOX_R = 22 // chip radius in authoring space
 
@@ -141,7 +140,7 @@ const mark: Record<string, Mark> = {
 
 // ── option tables: id → {chip, mark, label}, also used to build menus ──
 type Def = { id: string; chip: string; mark: string; label: string }
-export const ARMY_DEFS: Def[] = [
+const ARMY_DEFS: Def[] = [
   { id: 'disc-A', chip: 'disc', mark: 'A', label: 'Disc · letter A' },
   { id: 'disc-soldier', chip: 'disc', mark: 'soldier', label: 'Disc · soldier' },
   { id: 'disc-rook', chip: 'disc', mark: 'rook', label: 'Disc · rook/tower' },
@@ -152,7 +151,7 @@ export const ARMY_DEFS: Def[] = [
   { id: 'square-A', chip: 'square', mark: 'A', label: 'Square · letter A' },
   { id: 'hex', chip: 'hex', mark: 'none', label: 'Hexagon · plain' },
 ]
-export const FLEET_DEFS: Def[] = [
+const FLEET_DEFS: Def[] = [
   { id: 'disc-F', chip: 'disc', mark: 'F', label: 'Disc · letter F' },
   { id: 'disc-sailboat', chip: 'disc', mark: 'sailboat', label: 'Disc · sailboat' },
   { id: 'disc-steamship', chip: 'disc', mark: 'steamship', label: 'Disc · steamship' },

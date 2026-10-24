@@ -2,7 +2,7 @@
 // board does not draw: grouped into 1900 provinces in lon/lat, then transformed
 // onto the board.
 import { readFileSync } from 'node:fs'
-import { union, intersect } from './geom.mjs'
+import { union } from './geom.mjs'
 
 let admin1
 const features = () => (admin1 ??= JSON.parse(readFileSync(new URL('../../../geodata/src/admin1.geojson', import.meta.url), 'utf8')).features)
@@ -19,7 +19,6 @@ export function region(pick) {
   return union(...parts.map((f) => polygonsOf(f)))
 }
 
-export const latBand = (g, south, north) => intersect(g, [[[[-180, south], [180, south], [180, north], [-180, north]]]])
 export const transform = (g, f) => g.map((p) => p.map((r) => r.map(f)))
 
 // A lon/lat box with densely sampled edges, so it stays faithful to curved parallels once projected.

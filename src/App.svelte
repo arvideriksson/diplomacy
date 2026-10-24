@@ -121,19 +121,6 @@
     min-height: 100vh;
   }
 
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
   main {
     flex: 1;
     max-width: 960px;
