@@ -282,16 +282,35 @@ type ProvinceFill = {
   inner: boolean
 }
 
-const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
-  const selected = state.selected?.includes(provinceId) ?? false
-  const buildSlot = state.buildSlots?.includes(provinceId) ?? false
-  const removeSlot = state.removeSlots?.includes(provinceId) ?? false
-  const movementHl = state.highlighted?.includes(provinceId) ?? false
+// Per-render lookups for provinceFill, so each province is an O(1) probe rather than a scan of
+// every slot list and the supply-center array.
+type FillLookup = {
+  selected: Set<string>
+  buildSlots: Set<string>
+  removeSlots: Set<string>
+  highlighted: Set<string>
+  unordered: Set<string>
+  owners: Map<string, string>
+}
+
+const fillLookup = (state: RenderState): FillLookup => ({
+  selected: new Set(state.selected),
+  buildSlots: new Set(state.buildSlots),
+  removeSlots: new Set(state.removeSlots),
+  highlighted: new Set(state.highlighted),
+  unordered: new Set(state.unorderedSlots),
+  owners: new Map((state.supplyCenters ?? []).map((sc) => [sc.province, sc.nation])),
+})
+
+const provinceFill = (provinceId: string, state: RenderState, lookup: FillLookup): ProvinceFill => {
+  const selected = lookup.selected.has(provinceId)
+  const buildSlot = lookup.buildSlots.has(provinceId)
+  const removeSlot = lookup.removeSlots.has(provinceId)
+  const movementHl = lookup.highlighted.has(provinceId)
   // Unordered cue only when nothing more specific applies to this province.
-  const unordered =
-    (state.unorderedSlots?.includes(provinceId) ?? false) && !movementHl && !buildSlot && !removeSlot
+  const unordered = lookup.unordered.has(provinceId) && !movementHl && !buildSlot && !removeSlot
   const highlighted = movementHl || buildSlot || removeSlot || unordered
-  const owner = state.supplyCenters?.find((sc) => sc.province === provinceId)
+  const ownerNation = lookup.owners.get(provinceId)
 
   const highlightColor = removeSlot
     ? REMOVE_HIGHLIGHT_COLOR
@@ -302,10 +321,10 @@ const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
         : HIGHLIGHTED_STROKE_COLOR
 
   let fill = DEFAULT_FILL
-  if (owner) {
+  if (ownerNation) {
     const opacity =
       selected || highlighted ? SUPPLY_CENTER_OPACITY_ACTIVE : SUPPLY_CENTER_OPACITY_DEFAULT
-    fill = toRgba(nationColor(state, owner.nation), opacity)
+    fill = toRgba(nationColor(state, ownerNation), opacity)
   } else if (state.nonScProvinceColors?.[provinceId]) {
     const opacity =
       selected || highlighted
@@ -339,49 +358,57 @@ const provinceFill = (provinceId: string, state: RenderState): ProvinceFill => {
   return { fill, stroke, strokeWidth, selected, highlighted, stripe, inner }
 }
 
-const clipId = (id: string): string => `hlclip-${id.replace(/[^a-zA-Z0-9]/g, '-')}`
+const clipId = (prefix: string, id: string): string => `${prefix}hlclip-${id.replace(/[^a-zA-Z0-9]/g, '-')}`
 
-// A pulsing stroke-width animation, shared by the province highlights and the spotlit
-// unit outline so both "breathe" in sync. `delta` is how much the width grows at the peak.
-const PULSE_DUR = '2s'
-const strokeWidthPulse = (base: number, delta = 2): string =>
-  `<animate attributeName="stroke-width" values="${base};${base + delta};${base}" dur="${PULSE_DUR}" repeatCount="indefinite"/>`
+// Pulsing highlight borders "breathe" by opacity, not stroke-width: they are drawn into their own
+// layer (`pulse`) which the component mounts as a separate <svg> and animates with CSS opacity,
+// so the compositor runs the pulse without repainting the board every frame. The stroke sits
+// midway through the old width swing so the border reads the same at its peak.
+export const PULSE_CLASS = 'map-pulse'
+const PULSE_WIDTH_BOOST = 1
 
+/** Province fills (static, repainted only on state changes) and their pulsing borders. */
 const provinceFillsLayer = (
   regionPaths: Map<string, string>,
-  state: RenderState
-): string => {
-  const defs: string[] = []
-  const parts: string[] = []
+  state: RenderState,
+  idPrefix: string,
+): { fills: string; pulse: string } => {
+  const lookup = fillLookup(state)
+  const pulseDefs: string[] = []
+  const pulse: string[] = []
+  const fills: string[] = []
   for (const [id, d] of regionPaths) {
-    const style = provinceFill(id, state)
+    const style = provinceFill(id, state, lookup)
     if (style.fill === DEFAULT_FILL && style.stroke === 'none') {
       continue
     }
     if (style.inner) {
       // Inner stroke: clip the (over-wide) border to the province so only its inner half
       // shows. Neighbouring build/remove highlights then abut at the shared edge.
-      const cid = clipId(id)
-      defs.push(`<clipPath id="${cid}"><path d="${d}"/></clipPath>`)
-      const w = INNER_STROKE_WIDTH
-      parts.push(
-        `<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${w}" clip-path="url(#${cid})">${strokeWidthPulse(w, 3)}</path>`
+      const cid = clipId(idPrefix, id)
+      pulseDefs.push(`<clipPath id="${cid}"><path d="${d}"/></clipPath>`)
+      if (style.fill !== DEFAULT_FILL) fills.push(`<path d="${d}" fill="${style.fill}"/>`)
+      pulse.push(
+        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${INNER_STROKE_WIDTH + PULSE_WIDTH_BOOST * 1.5}" clip-path="url(#${cid})"/>`
       )
       continue
     }
-    const attributes = `d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"`
     if (style.highlighted && !style.selected) {
-      parts.push(`<path ${attributes}>${strokeWidthPulse(HIGHLIGHTED_STROKE_WIDTH)}</path>`)
+      if (style.fill !== DEFAULT_FILL) fills.push(`<path d="${d}" fill="${style.fill}"/>`)
+      pulse.push(
+        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${HIGHLIGHTED_STROKE_WIDTH + PULSE_WIDTH_BOOST}"/>`
+      )
     } else {
-      parts.push(`<path ${attributes}/>`)
+      fills.push(`<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"/>`)
     }
     if (style.stripe) {
-      parts.push(
-        `<path d="${d}" fill="url(#highlightedStripes)" stroke="none" pointer-events="none"/>`
-      )
+      fills.push(`<path d="${d}" fill="url(#highlightedStripes)" stroke="none" pointer-events="none"/>`)
     }
   }
-  return defs.join('') + parts.join('\n')
+  return {
+    fills: fills.join('\n'),
+    pulse: (pulseDefs.length ? `<defs>${pulseDefs.join('')}</defs>` : '') + pulse.join('\n'),
+  }
 }
 
 const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>, radius = SUPPLY_CENTER_OUTER_RADIUS): string => {
@@ -405,26 +432,37 @@ const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>, radius = SU
 // flag, build +, civil-disorder badge, support/move arrows…) appear identically, just lifted
 // above the veil and undarkened, with a pulsing white halo behind each unit. The whole
 // fragment rides one layer whose opacity the component fades in/out.
+export type SpotlightLayers = {
+  /** The dark veil (mask punched by the nation's centers) plus the nation's arrows over it. */
+  veil: string
+  /** Pulsing white halos behind the spotlit units — a separate layer so the pulse is composited. */
+  halos: string
+  /** The spotlit nation's units and front order markers, lifted above veil and halos. */
+  lifted: string
+}
+
 const spotlightOverlayLayer = (
   regionPaths: Map<string, string>,
   unitPositions: Map<string, Point>,
   state: RenderState,
   viewBox: { minX: number; minY: number; width: number; height: number },
   fixedRoutes: Map<string, Point[][]> = new Map(),
-): string => {
-  if (!state.spotlightNation) return ''
+  idPrefix = '',
+): SpotlightLayers | null => {
+  if (!state.spotlightNation) return null
   const style = state.unitStyle ?? DEFAULT_UNIT_STYLE
   const isSpotlit = (nation: string) => sameNation(nation, state.spotlightNation!)
 
   // Punch out the nation's supply-center provinces so its territory floods through in colour.
+  const owners = new Map((state.supplyCenters ?? []).map((sc) => [sc.province, sc.nation]))
   const cuts: string[] = []
   for (const [id, d] of regionPaths) {
-    const owner = state.supplyCenters?.find((sc) => sc.province === id)
-    if (owner && isSpotlit(owner.nation)) cuts.push(`<path d="${d}" fill="black"/>`)
+    const owner = owners.get(id)
+    if (owner && isSpotlit(owner)) cuts.push(`<path d="${d}" fill="black"/>`)
   }
 
-  // The pulsing white halo behind each spotlit unit — drawn over the veil (so it stays bright)
-  // but under the lifted unit token (so the token covers the inner half, leaving just the halo).
+  // The white halo behind each spotlit unit — drawn over the veil (so it stays bright) but
+  // under the lifted unit token (so the token covers the inner half, leaving just the halo).
   const spotlitUnits = (state.units ?? []).filter((u) => isSpotlit(u.nation))
   const halos: string[] = []
   for (const unit of spotlitUnits) {
@@ -434,12 +472,11 @@ const spotlightOverlayLayer = (
     halos.push(
       unitOutlineSvg(
         p.x + offset, p.y + offset, unit.type, UNIT_RADIUS, style, '#fff',
-        SPOTLIGHT_UNIT_OUTLINE_WIDTH,
-        strokeWidthPulse(SPOTLIGHT_UNIT_OUTLINE_WIDTH, SPOTLIGHT_UNIT_OUTLINE_PULSE),
+        SPOTLIGHT_UNIT_OUTLINE_WIDTH + SPOTLIGHT_UNIT_OUTLINE_PULSE / 2,
       ),
     )
   }
-  if (cuts.length === 0 && halos.length === 0) return ''
+  if (cuts.length === 0 && halos.length === 0) return null
 
   // The lifted copy of the spotlit nation's units and orders, rendered through the same code
   // paths as the main board so addons match exactly. State is filtered to the spotlit nation.
@@ -452,11 +489,15 @@ const spotlightOverlayLayer = (
   const units = unitsLayer(unitPositions, spotlitState)
 
   const rect = `x="${viewBox.minX}" y="${viewBox.minY}" width="${viewBox.width}" height="${viewBox.height}"`
-  return (
-    `<defs><mask id="spotlightMask"><rect ${rect} fill="white"/>${cuts.join('')}</mask></defs>` +
-    `<rect ${rect} fill="${SPOTLIGHT_SHADOW_COLOR}" opacity="${SPOTLIGHT_SHADOW_OPACITY}" mask="url(#spotlightMask)" pointer-events="none"/>` +
-    orders.behind + halos.join('') + units + orders.front
-  )
+  const maskId = `${idPrefix}spotlightMask`
+  return {
+    veil:
+      `<defs><mask id="${maskId}"><rect ${rect} fill="white"/>${cuts.join('')}</mask></defs>` +
+      `<rect ${rect} fill="${SPOTLIGHT_SHADOW_COLOR}" opacity="${SPOTLIGHT_SHADOW_OPACITY}" mask="url(#${maskId})" pointer-events="none"/>` +
+      orders.behind,
+    halos: halos.join(''),
+    lifted: units + orders.front,
+  }
 }
 
 // ── Unit addons ────────────────────────────────────────────────────────────────
@@ -970,6 +1011,9 @@ const ordersLayer = (
   return { behind: behind.join('\n'), front: front.join('\n') }
 }
 
+export type StaticLayers = { defs: string; rootFill: string | null; below: string; labels: string; above: string }
+export type DynamicLayers = { fills: string; pulse: string; overlay: string }
+
 export class DiplicityMap {
   private readonly parsed: ParsedDsvg
 
@@ -989,17 +1033,18 @@ export class DiplicityMap {
     return this.parsed.namedCoastPaths
   }
 
-  render(state: RenderState = {}): string {
-    const { viewBox, rootFill, defs, background, provinceNames, borders, foreground } =
-      this.parsed
-    const viewBoxAttr = `${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`
-    const fillAttr = rootFill !== null ? ` fill="${rootFill}"` : ''
-    const regionPaths = new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths])
-    const fills = provinceFillsLayer(regionPaths, state)
-    const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius)
-    const units = unitsLayer(this.parsed.unitPositions, state)
-    const orders = ordersLayer(this.parsed.unitPositions, state, this.parsed.routes)
-
+  /**
+   * The board's static art, which never changes during a game, as inner markup sharing
+   * `defs`: `below` (sea/land/coast atmosphere) sits under the province fills; over them
+   * come `labels` (supply-center markers, province names) then `above` (borders,
+   * foreground). The component rasterizes `below`/`above` to bitmaps once, so their filters
+   * and wave strokes are never re-run while panning, zooming or re-rendering orders.
+   * `labels` stays live vector: it is cheap to paint, and a dsvg's embedded @font-face
+   * loads asynchronously inside an SVG <img>, so rasterized text could come out blank.
+   * Depends only on the map + theme.
+   */
+  renderStatic(state: RenderState = {}): StaticLayers {
+    const { viewBox, defs, background, provinceNames, borders, foreground } = this.parsed
     // An artisanal dsvg with a hand-authored background owns its whole look; otherwise
     // synthesize the atmosphere (sea/land/coast-shadow/borders) from geometry + theme.
     const theme = state.theme ?? DEFAULT_THEME
@@ -1014,47 +1059,50 @@ export class DiplicityMap {
     const foregroundLayer = procedural
       ? proceduralCoastline(this.parsed.provincePaths, landIds, theme)
       : foreground
+    const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius)
 
-    const parts = [
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBoxAttr}"${fillAttr}>`,
-      defs,
-    ]
-    if (procedural) {
-      parts.push(proceduralDefs(theme))
+    return {
+      defs: defs + (procedural ? proceduralDefs(theme) : ''),
+      rootFill: this.parsed.rootFill,
+      below: layer('background', atmosphere),
+      labels: [
+        markers ? layer('supply-center-markers', markers) : '',
+        layer('province-names', themedLabels(provinceNames, theme)),
+      ].join('\n'),
+      above: [layer('borders', borderLayer), layer('foreground', foregroundLayer)].join('\n'),
     }
-    if (fills.includes('highlightedStripes')) {
-      parts.push(HIGHLIGHTED_STRIPES_DEFS)
-    }
-    parts.push(layer('background', atmosphere))
-    if (fills) {
-      parts.push(layer('province-fills', fills))
-    }
-    if (markers) {
-      parts.push(layer('supply-center-markers', markers))
-    }
-    parts.push(layer('province-names', themedLabels(provinceNames, theme)))
-    parts.push(layer('borders', borderLayer))
-    parts.push(layer('foreground', foregroundLayer))
-    if (orders.behind) {
-      parts.push(layer('order-arrows', orders.behind))
-    }
-    if (units) {
-      parts.push(layer('units', units))
-    }
-    if (orders.front) {
-      parts.push(layer('orders', orders.front))
-    }
-    parts.push('</svg>')
-    return parts.join('\n')
   }
 
   /**
-   * The spotlight veil for one nation, as a standalone markup fragment (no <svg>
-   * wrapper). Rendered separately from `render()` so the component can mount it in a
-   * persistent layer and fade its opacity in/out — keeping it in the main string would
-   * recreate the node on every state change, defeating any CSS transition.
+   * Everything that follows game state, split by z-order and update cadence: `fills`
+   * (ownership tints, selection, hatch — between the static layers), `pulse` (breathing
+   * highlight borders, mounted as their own opacity-animated layer) and `overlay`
+   * (arrows, units, order markers — above all static art). `idPrefix` keeps generated
+   * clip ids unique when several maps share a page.
    */
-  renderSpotlight(state: RenderState = {}): string {
+  renderDynamic(state: RenderState = {}, idPrefix = ''): DynamicLayers {
+    const regionPaths = new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths])
+    const { fills, pulse } = provinceFillsLayer(regionPaths, state, idPrefix)
+    const units = unitsLayer(this.parsed.unitPositions, state)
+    const orders = ordersLayer(this.parsed.unitPositions, state, this.parsed.routes)
+    return {
+      fills: (fills.includes('highlightedStripes') ? HIGHLIGHTED_STRIPES_DEFS : '') + fills,
+      pulse,
+      overlay: [
+        orders.behind ? layer('order-arrows', orders.behind) : '',
+        units ? layer('units', units) : '',
+        orders.front ? layer('orders', orders.front) : '',
+      ].join('\n'),
+    }
+  }
+
+  /**
+   * The spotlight veil for one nation, as standalone layers. Rendered separately from the
+   * board so the component can mount it in a persistent layer and fade its opacity in/out —
+   * keeping it with the board markup would recreate the node on every state change,
+   * defeating any CSS transition.
+   */
+  renderSpotlight(state: RenderState = {}, idPrefix = ''): SpotlightLayers | null {
     const regionPaths = new Map([...this.parsed.provincePaths, ...this.parsed.namedCoastPaths])
     return spotlightOverlayLayer(
       regionPaths,
@@ -1062,6 +1110,7 @@ export class DiplicityMap {
       state,
       this.parsed.viewBox,
       this.parsed.routes,
+      idPrefix,
     )
   }
 }
