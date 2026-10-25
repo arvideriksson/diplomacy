@@ -11,6 +11,8 @@
   export let graceEndsAt: string | null = null
   /** Powers yet to submit this round; once the deadline passes the phase waits on them. */
   export let awaiting: string[] = []
+  /** Phones: the countdown already sits in the top bar — show only when it resolves. */
+  export let brief: boolean = false
 
   // Ticks every second so the countdown stays honest; cleared on destroy.
   let now = Date.now()
@@ -34,6 +36,10 @@
     <span class="countdown">{formatCountdown(graceMsLeft ?? 0)}</span>
     <span class="deadline-abs">Resolves early once all orders are in</span>
   </div>
+{:else if msLeft != null && brief}
+  <div class="deadline brief">
+    <span class="deadline-abs">Resolves {deadlineAbs}</span>
+  </div>
 {:else if msLeft != null}
   <div class="deadline" class:urgent={deadlineUrgent}>
     <span class="countdown">{formatCountdown(msLeft)}</span>
@@ -49,6 +55,12 @@
     gap: 2px;
     padding: 8px 14px;
     border-bottom: 1px solid var(--border, #eee);
+  }
+  .deadline.brief {
+    padding: 10px 16px;
+  }
+  .deadline.brief .deadline-abs {
+    font-size: 12.5px;
   }
   .deadline .countdown {
     font-size: 14px;

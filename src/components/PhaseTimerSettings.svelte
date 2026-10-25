@@ -225,4 +225,26 @@
     opacity: 0.65;
     cursor: default;
   }
+
+  /* Phones: the phase name sits above its options so the pills get the full width,
+     and the custom field matches the taller pills (16px text: no iOS focus zoom). */
+  @media (max-width: 600px) {
+    .phase-timers {
+      gap: 14px;
+    }
+    .timer-row {
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .custom {
+      height: 36px;
+    }
+    .custom input,
+    .custom select {
+      font-size: 16px;
+    }
+    .custom input {
+      width: 48px;
+    }
+  }
 </style>

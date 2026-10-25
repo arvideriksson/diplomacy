@@ -349,3 +349,31 @@ input {
   font-size: 13px;
   margin: 4px 0 0;
 }
+
+/* ── Phones ──────────────────────────────────────────────────────────────────
+   Thumb-sized tap targets, 16px text in form fields (iOS zooms into anything
+   smaller on focus) and tighter card gutters. */
+@media (max-width: 600px) {
+  .input,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  .pill {
+    min-height: 36px;
+    padding: 6px 14px;
+  }
+  .card {
+    padding: 18px 16px;
+  }
+  .card-head {
+    margin-bottom: 16px;
+  }
+  .setting-group {
+    padding: 14px 0;
+  }
+}

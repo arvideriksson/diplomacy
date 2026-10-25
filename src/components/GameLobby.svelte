@@ -340,14 +340,64 @@
 
   .lobby-grid {
     display: grid;
-    grid-template-columns: 1fr 340px;
+    /* minmax(0, …) so a long unbreakable child (the invite URL) can't widen the column. */
+    grid-template-columns: minmax(0, 1fr) 340px;
     gap: 20px;
     align-items: start;
   }
 
+  /* One column: flatten both columns into a single stack and reorder it so what a
+     player acts on comes first — power, invite, players — then the settings, with
+     Join / Start pinned to the bottom of the screen. */
   @media (max-width: 768px) {
     .lobby-grid {
-      grid-template-columns: 1fr;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .lobby-main,
+    .lobby-sidebar {
+      display: contents;
+    }
+
+    .lobby-grid :global(.card),
+    .lobby-grid :global(.lobby-actions) {
+      margin: 0;
+    }
+
+    .lobby-grid :global(.power-picker) { order: 1; }
+    .lobby-grid :global(.invite-card) { order: 2; }
+    .lobby-grid :global(.players-card) { order: 3; }
+    .lobby-grid :global(.lobby-settings) { order: 4; }
+    .lobby-grid :global(.lobby-actions) {
+      order: 5;
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      margin: 0 -16px;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: linear-gradient(to bottom, transparent, var(--bg) 14px);
+    }
+    /* Nothing to show (a non-member watching a full lobby): drop the sticky bar. */
+    .lobby-grid :global(.lobby-actions:empty) {
+      display: none;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .lobby-top {
+      margin-bottom: 16px;
+    }
+
+    .title-input,
+    h1 {
+      font-size: 22px;
+    }
+
+    h1 {
+      overflow-wrap: anywhere;
     }
   }
 </style>

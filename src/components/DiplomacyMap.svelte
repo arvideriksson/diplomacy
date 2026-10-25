@@ -9,6 +9,8 @@
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
   import { errorMessage } from '../lib/errors'
+  import type { BubbleMenu } from '../lib/orders/bubbles'
+  import ActionBubbles from './ActionBubbles.svelte'
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
@@ -34,6 +36,16 @@
   export let onProvinceClick: ((dsvgId: string) => void) | null = null
   /** Fill the parent container (immersive in-game view) instead of sizing by aspect ratio. */
   export let fill: boolean = false
+  /** Radial action menu around a unit/center, and its pick handler. */
+  export let bubbles: BubbleMenu | null = null
+  export let onBubble: (id: string) => void = () => {}
+  /** A tap (not a drag) that lands on nothing clickable — e.g. to dismiss a selection. */
+  export let onBackgroundClick: (() => void) | null = null
+  /** Open zoomed to fill the frame (cropping the long side) and centred on these dSVG
+   *  ids — phones, where the letterboxed whole board leaves units too small to tap. */
+  export let coverFocus: string[] | null = null
+  /** Extra room to pan the board's bottom edge up past (px), e.g. above a floating bar. */
+  export let padBottom: number = 0
 
   // Which regions are interactive. An explicit `selectable` wins; otherwise show
   // main provinces by default and reveal coasts only where highlighted.
@@ -110,6 +122,88 @@
     `translate(${scale * (view.tx + viewBox.minX * (view.k - 1))}px, ` +
     `${scale * (view.ty + viewBox.minY * (view.k - 1))}px) scale(${view.k})`
   $: viewBoxAttr = `${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`
+
+  // Board point → wrapper px (inverse of pointerToView, with the pan/zoom applied).
+  const toWrap = (p: { x: number; y: number }, v: { k: number; tx: number; ty: number }) => ({
+    x: offsetX + scale * (v.tx + v.k * p.x - viewBox.minX),
+    y: offsetY + scale * (v.ty + v.k * p.y - viewBox.minY),
+  })
+
+  // Pan so board point `p` sits at wrapper px (x, y) — the centre of the usable area by
+  // default (clamped to the board).
+  function centreOn(p: { x: number; y: number }, x = wrapW / 2, y = (wrapH - padBottom) / 2) {
+    tx = (x - offsetX) / scale + viewBox.minX - k * p.x
+    ty = (y - offsetY) / scale + viewBox.minY - k * p.y
+    clampPan()
+  }
+
+  // Programmatic moves (fit toggles, reveal) glide instead of jumping.
+  let gliding = false
+  let glideTimer: ReturnType<typeof setTimeout> | null = null
+  function glide() {
+    gliding = true
+    if (glideTimer) clearTimeout(glideTimer)
+    glideTimer = setTimeout(() => (gliding = false), 320)
+  }
+
+  // Zoom that fills the frame (cropping the long side), centred on `coverFocus`.
+  function coverFit() {
+    const pts = (coverFocus ?? []).map((id) => renderer!.unitPosition(id)).filter((p): p is { x: number; y: number } => !!p)
+    const cover = Math.max(wrapW / (viewBox.width * scale), wrapH / (viewBox.height * scale))
+    // Closer still when the focus units sit together (a compact home like the British
+    // Isles), framed with a margin — but never past 3× on the way in.
+    let box = cover
+    if (pts.length) {
+      const pad = viewBox.width * 0.14
+      const bw = Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)) + pad * 2
+      const bh = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)) + pad * 2
+      box = Math.min(wrapW / (bw * scale), (wrapH - padBottom) / (bh * scale), 3)
+    }
+    k = Math.min(MAX_K, Math.max(MIN_K, cover, box))
+    const c = pts.length
+      ? { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length }
+      : { x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }
+    centreOn(c)
+  }
+
+  // Cover fit: once, as soon as the board is laid out.
+  let fitted = false
+  $: if (!fitted && coverFocus && renderer && scale) {
+    fitted = true
+    coverFit()
+  }
+
+  /** Whether the whole board is in view (zoomed all the way out). */
+  export let wholeBoard = false
+  $: wholeBoard = view.k <= MIN_K + 0.01
+
+  /** Toggle between the whole board and the zoomed-in view on `coverFocus`. */
+  export function toggleFit() {
+    if (!renderer || !scale) return
+    glide()
+    if (k > MIN_K + 0.01) {
+      k = MIN_K
+      clampPan()
+    } else coverFit()
+  }
+
+  /** Bring a unit into the clear part of the map — away from the edges, the top overlays
+   *  and the bottom bar — so its bubbles open fully visible. */
+  export function reveal(dsvgId: string) {
+    const p = renderer?.unitPosition(dsvgId)
+    if (!p || !scale) return
+    const at = toWrap(p, { k, tx, ty })
+    const side = 96
+    const top = 130
+    const bottom = padBottom + 70
+    if (at.x < side || at.x > wrapW - side || at.y < top || at.y > wrapH - bottom) {
+      glide()
+      centreOn(p, wrapW / 2, Math.max(top, (wrapH - padBottom) / 2 + 30))
+    }
+  }
+
+  $: bubbleAnchor = bubbles && renderer && scale ? renderer.unitPosition(bubbles.anchor) : undefined
+  $: bubblePx = bubbleAnchor ? toWrap(bubbleAnchor, view) : null
 
   onMount(() => {
     if (!wrapEl) return
@@ -205,6 +299,7 @@
     detailGen++
     setDetail(null)
     if (gestureTimer) clearTimeout(gestureTimer)
+    if (glideTimer) clearTimeout(glideTimer)
     if (frameRequest !== null) cancelAnimationFrame(frameRequest)
   })
 
@@ -269,8 +364,13 @@
   function handleLeave() {
     hoveredProvince = null
   }
+  // Set when a region took the click, so the wrapper's background handler (which sees
+  // the same event bubble up, possibly after the region's state already changed) skips it.
+  let regionClicked = false
+
   function handleClickPath(id: string) {
     if (!interactive || moved || !renderableSet.has(id)) return
+    regionClicked = true
     if (onProvinceClick) {
       onProvinceClick(id)
       return
@@ -324,13 +424,13 @@
   function onPointerDown(e: PointerEvent) {
     if (!interactive) return
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    panning = true
+    moved = false
+    captured = false
     if (touches.size === 2) {
       pinchDist = spread().d
       moved = true // a pinch is never a click
     }
-    panning = true
-    moved = false
-    captured = false
     last = { x: e.clientX, y: e.clientY }
     // NOTE: do NOT capture the pointer here — capturing on press retargets the
     // synthesized `click` to the wrapper, so a plain click never reaches a region's
@@ -362,6 +462,13 @@
     last = { x: e.clientX, y: e.clientY }
     clampPan()
   }
+  function onWrapClick() {
+    const handled = regionClicked
+    regionClicked = false
+    if (!interactive || moved || handled || !onBackgroundClick) return
+    onBackgroundClick()
+  }
+
   function onPointerUp(e: PointerEvent) {
     touches.delete(e.pointerId)
     pinchDist = 0
@@ -377,14 +484,19 @@
     }
   }
 
+  // Keep the board in frame: a side larger than the wrapper may pan until its edge meets
+  // the wrapper's (plus `padBottom`, so content under a bottom overlay can be lifted into
+  // view); a smaller side stays centred.
   function clampPan() {
-    // don't let the map be dragged entirely out of view
-    const w = viewBox.width
-    const h = viewBox.height
-    const minTx = w - w * k
-    const minTy = h - h * k
-    tx = Math.min(0, Math.max(minTx, tx))
-    ty = Math.min(0, Math.max(minTy, ty))
+    if (scale) {
+      const fit = (pos: number, size: number, wrap: number, pad: number) =>
+        size >= wrap ? Math.min(0, Math.max(wrap - pad - size, pos)) : (wrap - size) / 2
+      // Board edge in wrapper px: offset + scale·(t + (k−1)·min); solve back for t.
+      const left = offsetX + scale * (tx + (k - 1) * viewBox.minX)
+      const top = offsetY + scale * (ty + (k - 1) * viewBox.minY)
+      tx = (fit(left, scale * k * viewBox.width, wrapW, 0) - offsetX) / scale - (k - 1) * viewBox.minX
+      ty = (fit(top, scale * k * viewBox.height, wrapH, padBottom) - offsetY) / scale - (k - 1) * viewBox.minY
+    }
     scheduleView()
   }
 </script>
@@ -404,6 +516,7 @@
   on:pointerup={onPointerUp}
   on:pointerleave={onPointerUp}
   on:pointercancel={onPointerUp}
+  on:click={onWrapClick}
 >
   {#if loadError}
     <div class="map-msg">Failed to load map: {loadError}</div>
@@ -415,6 +528,7 @@
     <div
       class="stage"
       class:gesturing
+      class:gliding
       style={`left:${offsetX}px;top:${offsetY}px;width:${viewBox.width * scale}px;height:${viewBox.height * scale}px;transform:${stageTransform}`}
     >
       <svg class="layer" viewBox={viewBoxAttr} preserveAspectRatio="none" fill={staticLayers.rootFill ?? undefined}>
@@ -494,6 +608,18 @@
         {/each}
       </svg>
     </div>
+    {#if bubbles && bubblePx}
+      {#key bubbles.anchor + bubbles.items.map((b) => b.id).join()}
+        <ActionBubbles
+          items={bubbles.items}
+          x={bubblePx.x}
+          y={bubblePx.y}
+          width={wrapW}
+          height={wrapH}
+          onPick={onBubble}
+        />
+      {/key}
+    {/if}
   {/if}
 </div>
 
@@ -529,6 +655,9 @@
      board re-rasterizes crisp at the settled zoom instead of staying a scaled bitmap. */
   .stage.gesturing {
     will-change: transform;
+  }
+  .stage.gliding {
+    transition: transform 0.3s ease;
   }
   .layer {
     position: absolute;

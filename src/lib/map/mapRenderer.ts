@@ -44,6 +44,11 @@ export class DiplicityMap {
     return this.parsed.namedCoastPaths
   }
 
+  /** Where a unit in `dsvgId` (a province or named coast) is drawn, in board units. */
+  unitPosition(dsvgId: string): { x: number; y: number } | undefined {
+    return this.parsed.unitPositions.get(dsvgId)
+  }
+
   /**
    * The board's static art, which never changes during a game, as inner markup sharing
    * `defs`: `below` (sea/land/coast atmosphere) sits under the province fills; over them

@@ -42,7 +42,7 @@
   }))
 </script>
 
-<section class="card">
+<section class="card lobby-settings">
   <div class="card-head">
     <Icon name="gear" />
     <h2>Game Settings</h2>

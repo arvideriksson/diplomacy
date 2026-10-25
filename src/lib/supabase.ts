@@ -31,6 +31,14 @@ function devAuthOptions() {
   return { storage: window.localStorage, storageKey: devSeatStorageKey(activeDevSeat()) }
 }
 
+// RPC writes (draft autosave, submit, press) are small; sending them with `keepalive` lets
+// one flushed as the page is closed or navigated away still reach the server.
+const keepaliveFetch: typeof fetch = (input, init) =>
+  String(input instanceof Request ? input.url : input).includes('/rest/v1/rpc/')
+    ? fetch(input, { ...init, keepalive: true })
+    : fetch(input, init)
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: devAuthOptions(),
+  global: { fetch: keepaliveFetch },
 })
