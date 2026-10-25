@@ -36,6 +36,9 @@ import {
 // Max conversation-name length. Mirrors the cap enforced in the create/rename RPCs
 // (supabase/014_chat.sql) — keep the two in sync.
 export const NAME_MAX = 60
+// Max message length. Mirrors send_chat_message / upsert_chat_draft
+// (supabase/migrations/20250101000145_chat_body_max.sql) — keep the two in sync.
+export const BODY_MAX = 5000
 
 /** Fields the label helpers read — satisfied by both a channel and a draft. */
 export type Labelled = { members: string[]; name: string | null; is_public?: boolean }

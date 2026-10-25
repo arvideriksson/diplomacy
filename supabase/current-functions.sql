@@ -869,9 +869,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.send_chat_message(bigint, text)  — from 20250101000137_chat_helpers.sql
--- Append one message and deliver it as a single full-payload Broadcast to the
--- channel's private topic. The sender is recorded as read.
+-- ═══ public.send_chat_message(bigint, text)  — from 20250101000145_chat_body_max.sql
 create or replace function public.send_chat_message(
   p_channel_id bigint,
   p_body       text
@@ -885,8 +883,8 @@ begin
   if p_body is null or length(trim(p_body)) = 0 then
     raise exception 'Message is empty';
   end if;
-  if length(p_body) > 2000 then
-    raise exception 'Message too long (max 2000 characters)';
+  if length(p_body) > 5000 then
+    raise exception 'Message too long (max 5000 characters)';
   end if;
 
   insert into public.chat_messages (channel_id, sender, body)
@@ -1212,10 +1210,7 @@ begin
 end;
 $$ language plpgsql;
 
--- ═══ public.upsert_chat_draft(uuid, text[], text, text)  — from 20250101000123_chat_member_helper.sql
--- ── draft RPC (015) ──────────────────────────────────────────────────────────
--- Still needs the caller's nation for the row's owner/`nation` column; current_nation
--- is a cheap indexed lookup and the helper has already proven it non-null.
+-- ═══ public.upsert_chat_draft(uuid, text[], text, text)  — from 20250101000145_chat_body_max.sql
 create or replace function public.upsert_chat_draft(
   p_game_id uuid,
   p_members text[],
@@ -1233,7 +1228,7 @@ begin
 
   nm := nullif(trim(coalesce(p_name, '')), '');
   if nm is not null and length(nm) > 60 then raise exception 'Name too long (max 60 characters)'; end if;
-  if p_body is not null and length(p_body) > 2000 then raise exception 'Message too long (max 2000 characters)'; end if;
+  if p_body is not null and length(p_body) > 5000 then raise exception 'Message too long (max 5000 characters)'; end if;
 
   update public.chat_drafts
      set body = coalesce(p_body, ''), updated_at = now()
