@@ -43,6 +43,18 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
+-- ═══ public.announce_chat_channel()  — from 20250101000142_chat_channel_announce.sql
+create or replace function public.announce_chat_channel()
+returns trigger as $$
+declare m text;
+begin
+  foreach m in array new.members loop
+    perform realtime.send(to_jsonb(new), 'channel', 'chat-inbox:' || new.game_id::text || ':' || m, true);
+  end loop;
+  return null;
+end;
+$$ language plpgsql security definer;
+
 -- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
 -- ── apply_resolution (re-issues 136): settle agreements an elimination completes ──
 create or replace function public.apply_resolution(
@@ -362,6 +374,14 @@ begin
   return true;
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.first_turn_deadline(jsonb, timestamptz)  — from 20250101000143_first_turn.sql
+create or replace function public.first_turn_deadline(p_settings jsonb, p_from timestamptz)
+returns timestamptz as $$
+  select coalesce(
+    p_from + make_interval(mins => nullif(greatest(0, (p_settings ->> 'first_turn')::int), 0)),
+    public.phase_deadline(p_settings, 'movement', p_from));
+$$ language sql stable;
 
 -- ═══ public.game_nations(jsonb)  — from 20250101000134_sql_helpers.sql
 -- The nations assigned in a players map: sorted, distinct; null when none.
@@ -1038,9 +1058,8 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.start_game(uuid)  — from 20250101000138_maps_table.sql
--- ── start_game (re-issues 132) ─────────────────────────────────────────────────
--- Reads the map row; also uses lock_owned_game / setting_bool / game_nations (134).
+-- ═══ public.start_game(uuid)  — from 20250101000143_first_turn.sql
+-- ── start_game (re-issues 138; only the deadline line changes) ─────────────────
 create or replace function public.start_game(p_game_id uuid)
 returns void as $$
 declare
@@ -1088,7 +1107,7 @@ begin
          snapshot     = null,
          ready        = '{}'::jsonb,
          resolving_at = null,
-         deadline     = public.phase_deadline(g.settings, 'movement', now()),
+         deadline     = public.first_turn_deadline(g.settings, now()),
          updated_at   = now()
    where id = p_game_id;
 end;

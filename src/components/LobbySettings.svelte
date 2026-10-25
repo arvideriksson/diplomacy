@@ -13,6 +13,7 @@
   export let canChooseMap: boolean
   export let timers: PhaseTimers
   export let grace: number | null
+  export let firstTurn: number | null
   export let earlyResolution: boolean
   export let mapId: string
   export let gunboat: boolean
@@ -26,6 +27,7 @@
 
   export let onTimersChange: (t: PhaseTimers) => void
   export let onGraceChange: (v: number | null) => void
+  export let onFirstTurnChange: (v: number | null) => void
   export let onEarlyChange: (v: boolean) => void
   export let onMapChange: (mapId: string) => void
   export let onGunboatChange: (v: boolean) => void
@@ -51,10 +53,12 @@
   <PacingSettings
     {timers}
     {grace}
+    {firstTurn}
     {earlyResolution}
     disabled={!isAdmin}
     {onTimersChange}
     {onGraceChange}
+    {onFirstTurnChange}
     {onEarlyChange}
   />
 

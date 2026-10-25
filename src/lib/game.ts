@@ -45,6 +45,8 @@ export interface GameSettings {
    * resolving without them (0 = no grace). Absent/null = one movement timer.
    */
   grace_period?: number | null
+  /** Length (minutes) of the game's first phase, for opening negotiations. Absent/null = the movement timer. */
+  first_turn?: number | null
   /** Legacy single-timer enum; read only as a fallback when phase_timers is absent. */
   turn_timer?: '12h' | '24h' | '48h' | '72h' | '1w'
 }

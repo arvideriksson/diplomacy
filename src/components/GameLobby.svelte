@@ -37,6 +37,7 @@
   $: settingsName = game?.name ?? ''
   $: settingsPhaseTimers = game?.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
   $: settingsGracePeriod = game?.settings?.grace_period ?? null
+  $: settingsFirstTurn = game?.settings?.first_turn ?? null
   $: settingsEarlyResolution = game?.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
   $: settingsMapId = game?.map_id ?? 'classical'
   $: settingsGunboat = game?.settings?.gunboat ?? DEFAULT_SETTINGS.gunboat
@@ -120,6 +121,7 @@
         phase_timers: settingsPhaseTimers,
         // null, not undefined: the server merges settings, so an omitted key wouldn't clear.
         grace_period: settingsGracePeriod,
+        first_turn: settingsFirstTurn,
       }
       // The map is a top-level column, not a setting; only mutable in the lobby.
       const updates: Parameters<typeof updateGame>[1] = { name: settingsName, settings }
@@ -184,6 +186,11 @@
     saveSettings()
   }
 
+  function onFirstTurnChange(v: number | null) {
+    settingsFirstTurn = v
+    saveSettings()
+  }
+
   // A toggle setting: apply the new value locally, then persist.
   const setAndSave = (apply: (v: boolean) => void) => (v: boolean) => {
     apply(v)
@@ -222,6 +229,7 @@
           canChooseMap={!!canChooseMap}
           timers={settingsPhaseTimers}
           grace={settingsGracePeriod}
+          firstTurn={settingsFirstTurn}
           earlyResolution={settingsEarlyResolution}
           mapId={settingsMapId}
           gunboat={settingsGunboat}
@@ -232,6 +240,7 @@
           hostControlsLocked={hostControls}
           {onTimersChange}
           {onGraceChange}
+          {onFirstTurnChange}
           onEarlyChange={setAndSave((v) => (settingsEarlyResolution = v))}
           onMapChange={(id) => { settingsMapId = id; saveSettings() }}
           onGunboatChange={setAndSave((v) => (settingsGunboat = v))}

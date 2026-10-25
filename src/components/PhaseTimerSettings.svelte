@@ -7,12 +7,17 @@
   export let timers: PhaseTimers
   export let disabled = false
   export let onChange: (timers: PhaseTimers) => void = () => {}
+  /** First-phase length (minutes); null = the movement timer. */
+  export let firstTurn: number | null = null
+  /** Shows the First turn row (lobby only: it means nothing once the game has started). */
+  export let onFirstTurnChange: ((v: number | null) => void) | null = null
 
   const PRESETS: Record<OrderPhase, number[]> = {
     movement: [720, 1440, 2880, 4320, 10080],
     retreat: [360, 720, 1440],
     build: [360, 720, 1440],
   }
+  const FIRST_TURN_PRESETS = [2880, 4320, 10080, 20160]
   const PHASES = ORDER_PHASES.map((key) => ({ key, label: PHASE_LABEL[key], presets: PRESETS[key] }))
 
   const UNITS = [
@@ -31,26 +36,44 @@
     return { num: min, unit: 'minutes' }
   }
 
-  let fields: Record<OrderPhase, Field> = {
+  let fields: Record<OrderPhase | 'first', Field> = {
     movement: toField(timers.movement),
     retreat: toField(timers.retreat),
     build: toField(timers.build),
+    first: toField(firstTurn ?? timers.movement),
   }
   // Re-sync the custom fields when timers change from outside (e.g. a realtime update),
   // but not when we ourselves just pushed a change (guarded by lastSync).
   let lastSync = ''
-  $: syncFields(timers)
-  function syncFields(t: PhaseTimers) {
-    const key = `${t.movement}|${t.retreat}|${t.build}`
+  const syncKey = (t: PhaseTimers, first: number | null) => `${t.movement}|${t.retreat}|${t.build}|${first}`
+  $: syncFields(timers, firstTurn)
+  function syncFields(t: PhaseTimers, first: number | null) {
+    const key = syncKey(t, first)
     if (key === lastSync) return
     lastSync = key
-    fields = { movement: toField(t.movement), retreat: toField(t.retreat), build: toField(t.build) }
+    fields = {
+      movement: toField(t.movement),
+      retreat: toField(t.retreat),
+      build: toField(t.build),
+      first: toField(first ?? t.movement),
+    }
   }
 
   function emit() {
-    lastSync = `${timers.movement}|${timers.retreat}|${timers.build}`
+    lastSync = syncKey(timers, firstTurn)
     onChange(timers)
   }
+
+  function setFirstTurn(v: number | null) {
+    if (disabled || v === firstTurn) return
+    firstTurn = v
+    fields = { ...fields, first: toField(v ?? timers.movement) }
+    lastSync = syncKey(timers, firstTurn)
+    onFirstTurnChange?.(v)
+  }
+
+  const fieldMinutes = (f: Field) =>
+    Math.max(1, Math.round((Number(f.num) || 0) * UNITS.find((u) => u.id === f.unit)!.factor))
 
   function setPreset(phase: OrderPhase, min: number) {
     if (disabled) return
@@ -61,10 +84,7 @@
 
   function applyCustom(phase: OrderPhase) {
     if (disabled) return
-    const f = fields[phase]
-    const factor = UNITS.find((u) => u.id === f.unit)!.factor
-    const min = Math.max(1, Math.round((Number(f.num) || 0) * factor))
-    timers = { ...timers, [phase]: min }
+    timers = { ...timers, [phase]: fieldMinutes(fields[phase]) }
     emit()
   }
 </script>
@@ -107,6 +127,46 @@
       </div>
     </div>
   {/each}
+  {#if onFirstTurnChange}
+    {@const isCustom = firstTurn != null && !FIRST_TURN_PRESETS.includes(firstTurn)}
+    <div class="timer-row">
+      <span class="timer-name">First turn</span>
+      <div class="timer-opts">
+        <button type="button" class="pill" class:active={firstTurn == null} {disabled} on:click={() => setFirstTurn(null)}>
+          Movement
+        </button>
+        {#each FIRST_TURN_PRESETS as preset (preset)}
+          <button
+            type="button"
+            class="pill"
+            class:active={firstTurn === preset}
+            {disabled}
+            on:click={() => setFirstTurn(preset)}
+          >{formatMinutes(preset)}</button>
+        {/each}
+        <div class="custom" class:active={isCustom}>
+          <input
+            type="number"
+            min="1"
+            aria-label="First turn custom duration"
+            bind:value={fields.first.num}
+            {disabled}
+            on:input={() => setFirstTurn(fieldMinutes(fields.first))}
+          />
+          <select
+            aria-label="First turn custom unit"
+            bind:value={fields.first.unit}
+            {disabled}
+            on:change={() => setFirstTurn(fieldMinutes(fields.first))}
+          >
+            {#each UNITS as u (u.id)}
+              <option value={u.id}>{u.label}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>

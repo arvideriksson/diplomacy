@@ -2,7 +2,7 @@
   // Explanations shared by the lobby settings and the in-game host panel. Mid-game
   // edits behave slightly differently, so those get an extra sentence.
   export const PACING_TIPS = {
-    timers: 'How long each phase runs before its deadline.',
+    timers: 'How long each phase runs before its deadline. The first turn can run longer for opening negotiations.',
     timersMidGame: 'Applies to phases opened from the next resolution onward.',
     grace:
       "If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold).",
@@ -27,6 +27,10 @@
   /** Editing a running game (host panel) rather than the lobby. */
   export let midGame = false
   export let onTimersChange: (t: PhaseTimers) => void
+  /** First-phase length (minutes); null = the movement timer. */
+  export let firstTurn: number | null = null
+  /** Lobby only: the First turn row is hidden mid-game. */
+  export let onFirstTurnChange: ((v: number | null) => void) | null = null
   export let onGraceChange: (v: number | null) => void
   export let onEarlyChange: (v: boolean) => void
 
@@ -36,7 +40,13 @@
 
 <div class="setting-group">
   <span class="setting-label">Phase timers<InfoTip text={timersTip} /></span>
-  <PhaseTimerSettings {timers} {disabled} onChange={onTimersChange} />
+  <PhaseTimerSettings
+    {timers}
+    {disabled}
+    onChange={onTimersChange}
+    {firstTurn}
+    onFirstTurnChange={midGame ? null : onFirstTurnChange}
+  />
 </div>
 
 <div class="setting-group">
