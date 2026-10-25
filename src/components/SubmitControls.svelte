@@ -1,9 +1,12 @@
 <script lang="ts">
   // Footer of the order panel: the Submit button and its committed states, the
-  // discard-edits link, and the read-only "Locked in" mirror of the submitted set.
+  // discard-edits link, and the read-only "Currently submitted" mirror of the submitted set.
   // Presentational — the parent owns the submit/load logic and passes its state in.
   import type { AnyOrder } from '../lib/orders/types'
   import { orderSource } from '../lib/orders/board'
+  import ListHead from './ListHead.svelte'
+  import OrderCard from './OrderCard.svelte'
+  import OrderText from './OrderText.svelte'
 
   /** Sandbox: a plain Submit that resolves locally; none of the live states apply. */
   export let sandbox: boolean = false
@@ -18,10 +21,12 @@
   /** The user resubmitted in this view (Resubmitted rather than Submitted). */
   export let resubmitted: boolean = false
   export let error: string = ''
+  /** Something is still left to order: Submit/Resubmit turn yellow (it would go in incomplete). */
+  export let incomplete: boolean = false
   /** The set locked in on the server, shown read-only once ready. */
   export let locked: AnyOrder[] = []
   export let format: (o: AnyOrder) => string
-  /** Plain-language form for the locked-in list (falls back to notation). */
+  /** Plain-language form for the submitted list (falls back to notation). */
   export let describe: ((o: AnyOrder) => string) | null = null
   export let onSubmit: () => void
   export let onDiscard: () => void = () => {}
@@ -61,6 +66,7 @@
       class:submit={tone === 'submit'}
       class:resubmit={tone === 'resubmit'}
       class:pressed
+      class:incomplete={incomplete && !pressed}
       on:click={onSubmit}
       disabled={saving || pressed}
     >
@@ -78,17 +84,12 @@
 {#if !sandbox && ready && dirty && locked.length}
   <!-- Read-only mirror of the set actually locked in on the server. Survives
        Phase 2 edits so it stays the committed truth, not the live draft. -->
-  <div class="locked-box">
-    <div class="locked-head">
-      <span class="locked-dot"></span>
-      Still locked in (until you resubmit)
-    </div>
-    <ul class="locked-list">
-      {#each locked as o (orderSource(o))}
-        <li>{describe ? describe(o) : format(o)}</li>
-      {/each}
-    </ul>
-  </div>
+  <ListHead done title="Currently submitted" />
+  <OrderCard>
+    {#each locked as o (orderSource(o))}
+      <li><OrderText order={o} {format} {describe} /></li>
+    {/each}
+  </OrderCard>
 {/if}
 
 <style>
@@ -123,6 +124,9 @@
   }
   .actions .primary.resubmit {
     background: var(--accent, #2563eb);
+  }
+  .actions .primary.incomplete {
+    background: var(--amber, #d97706);
   }
   .actions .primary:disabled {
     opacity: 0.6;
@@ -173,41 +177,6 @@
   }
   /* Locked-in orders: a calm, slightly recessed card under Submit confirming what's
      committed on the server. Green accent ties it to the "Submitted" state. */
-  .locked-box {
-    margin-top: 12px;
-    border: 1px solid var(--green, #059669);
-    border-radius: 8px;
-    background: var(--green-subtle, rgba(5, 150, 105, 0.08));
-    padding: 10px 12px;
-  }
-  .locked-head {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    text-transform: uppercase;
-    color: var(--green, #059669);
-    margin-bottom: 8px;
-  }
-  .locked-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green, #059669);
-  }
-  .locked-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-    color: var(--text, #1a1a1a);
-  }
   .status {
     font-size: 12px;
     color: var(--text-secondary, #777);

@@ -86,6 +86,10 @@ Once a nation is ready, `save_draft_orders` refuses to write (server-side guard)
 
 Resolved rounds are immutable (they form the replay log) — the one exception is a host **revert** (below). The adjudicator's `apply_resolution` is the only other writer: it blanks the orders of nations that weren't ready (so the log matches what was adjudicated) and flips `resolved = true`. Enforce all of this in RLS / the RPCs: client writes are allowed only for the current round's own nation, and rejected once `resolved` is set.
 
+### Ending by agreement: ties and concessions
+
+Each surviving power holds one **secret** vote in `draw_votes` (`20250101000141_draw_votes.sql`): solo (the default, no row), a tie with a set of powers, or concede. The game ends when some set of survivors all vote for exactly that set and every other survivor concedes (eliminated powers count as conceding); a set of one is a win by concession. Votes are readable only by their owner until the game is `complete` (RLS; not in the realtime publication), so players can bluff about their vote. `settle_draw` ends the game — it moves no units, only stamps `phase = 'complete'` and `games.result` — and runs from `set_draw_vote` and after every `apply_resolution`, never while a resolution is in flight. A host revert clears the votes and the result.
+
 ### Host controls (private games, opt-in in the lobby)
 
 `settings.host_controls` is set in the lobby, is fixed once the game starts, and requires (and locks) `is_private` — enforced by a trigger (`20250101000129_host_controls.sql`). Only then does the creator get the in-game admin menu: deadline override, pacing settings, **force-resolve** (`host_force_resolve` — fires the adjudicator now, unready nations hold) and **revert** (`host_revert_to` — the Edge Function replays the log to the target round and commits via `apply_revert`, deleting later rounds and reopening that round's orders as drafts). Both go through the Edge Function, so it stays the sole board writer.

@@ -77,8 +77,20 @@ export interface GameState {
   grace_ends_at?: string | null
   /** Authoritative board snapshot written by the adjudicator; clients read this. */
   snapshot?: unknown | null
+  /** How the game ended by agreement (a tie or a win by concession); null otherwise. */
+  result?: GameResult | null
   /** Per-nation early-resolution flags, e.g. { france: true }. */
   ready?: Record<string, boolean>
+}
+
+/** A game ended by the players' votes (see the draw_votes migration). */
+export interface GameResult {
+  kind: 'draw' | 'concession'
+  /** The powers sharing the result (one for a concession). */
+  nations: string[]
+  year: number
+  season: string
+  phase: string
 }
 
 export interface PlayerInfo {

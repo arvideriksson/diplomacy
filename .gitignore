@@ -31,3 +31,4 @@ dist-ssr
 # Generated: Supabase CLI cache, Playwright output
 supabase/.temp
 test-results
+supabase/.branches

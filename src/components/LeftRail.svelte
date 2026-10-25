@@ -1,31 +1,44 @@
 <script lang="ts">
   // Left rail of the in-game shell: game/sandbox title + back button on top, then the slotted
   // body (chat in a game, unit styles in a sandbox). Mirror of the right order sidebar.
-  // On narrow screens it becomes a drawer over the map; the scrim closes it.
+  // On narrow screens it becomes a drawer over the map; the scrim closes it. Desktop can
+  // collapse it entirely (it stays mounted, so chat keeps its state).
   import Icon from './Icon.svelte'
 
   /** Name shown at the top (game or sandbox name). */
   export let title: string = ''
   /** Leave the game and return to the menu. */
   export let onExit: (() => void) | null = null
+  /** Set when exiting leads somewhere other than the menu (e.g. "Game" out of a sandbox):
+   *  the button then reads as "back" instead of "exit". */
+  export let exitLabel: string = ''
   /** Rail width (also caps the drawer width on narrow screens). */
   export let width: string = '320px'
   /** Narrow screens: whether the drawer is open. */
   export let open: boolean = false
   export let onClose: () => void
+  /** Hide the rail (desktop) or close the drawer (narrow screens). */
+  export let onHide: (() => void) | null = null
+  /** Desktop: collapsed out of the layout. */
+  export let collapsed: boolean = false
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 <div class="rail-scrim" class:open on:click={onClose}></div>
-<aside class="left-rail" class:open style="--rail-width: {width}">
+<aside class="left-rail" class:open class:collapsed style="--rail-width: {width}">
   {#if title || onExit}
     <div class="side-title">
       {#if onExit}
-        <button class="glass back" on:click={onExit} title="Back" aria-label="Back">
-          <Icon name="back" strokeWidth={2.2} round />
+        <button class="glass back" on:click={onExit} title={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'} aria-label={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'}>
+          <Icon name={exitLabel ? 'back' : 'exit'} strokeWidth={2.2} round />
         </button>
       {/if}
       {#if title}<span class="game-name">{title}</span>{/if}
+      {#if onHide}
+        <button class="hide" on:click={onHide} title="Hide sidebar" aria-label="Hide sidebar">
+          <Icon name="panel-left" size={18} />
+        </button>
+      {/if}
     </div>
   {/if}
   <div class="left-body"><slot /></div>
@@ -111,5 +124,27 @@
   }
   .side-title .back:hover {
     border-color: var(--border-strong);
+  }
+  .side-title .hide {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .side-title .hide:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .left-rail.collapsed {
+    display: none;
   }
 </style>

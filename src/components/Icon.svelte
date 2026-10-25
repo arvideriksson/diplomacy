@@ -11,11 +11,19 @@
     users:
       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />',
+    // Material Design Icons "location-exit" (Apache 2.0); a filled glyph, hence the fill.
+    exit: '<path fill="currentColor" stroke="none" d="M22 12L18 8V11H10V13H18V16M20 18A10 10 0 1 1 20 6H17.27A8 8 0 1 0 17.27 18Z" />',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />',
     reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />',
     check: '<path d="M20 6L9 17l-5-5" />',
+    // The game sections (phone tab bar, and the map buttons for hidden sidebars).
+    press: '<path d="M4 20h14a2 2 0 0 0 2-2V4H7v14a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-8h4" /><path d="M11 8h5M11 12h5M11 16h3" />',
+    map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" />',
+    orders: '<circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="6" r="2.5" /><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />',
+    'panel-left': '<rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />',
+    'panel-right': '<rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />',
   } as const
 
   export type IconName = keyof typeof ICONS

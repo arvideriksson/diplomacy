@@ -5,6 +5,8 @@
   import ChatPanel from './ChatPanel.svelte'
   import GameAdminPanel from './GameAdminPanel.svelte'
   import VictoryBanner from './VictoryBanner.svelte'
+  import DrawVote from './DrawVote.svelte'
+  import { survivingNations } from '../lib/draw'
   import Icon from './Icon.svelte'
   import { user } from '../lib/auth'
   import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
@@ -32,7 +34,10 @@
   $: isActive = isOrderPhase(game.phase)
   // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
   $: isComplete = game.phase === 'complete'
-  $: winner = isComplete ? victoryFor(map, liveBoard().supplyCenters) : undefined
+  // A solo by supply centers is read off the board; a tie or a win by concession is
+  // stamped on the game (game.result) when the players' votes agree.
+  $: winner = isComplete && !game.result ? victoryFor(map, liveBoard().supplyCenters) : undefined
+  $: playedNations = [...new Set(Object.values(game.players).map((p) => p.nation).filter((n): n is string => !!n))]
   // Only games created with host controls get the in-game admin menu. A finished game
   // keeps it so the host can still revert out of the ending.
   $: canManage = isCreator && (isActive || isComplete) && !!game.settings?.host_controls
@@ -194,6 +199,7 @@
     {awaiting}
     graceEndsAt={isFrontier && !isComplete ? game.grace_ends_at ?? null : null}
     historyOrders={frame.orders}
+    historyResults={frame.results ?? []}
     onPhaseBack={() => canBack && (cursor -= 1)}
     onPhaseLatest={() => (cursor = frames.length - 1)}
     onOrdersChange={(o) => (liveOrders = o)}
@@ -219,7 +225,10 @@
 
     <svelte:fragment slot="results">
       {#if isComplete}
-        <VictoryBanner winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers }} />
+        <VictoryBanner
+          winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers }}
+          result={game.result && { kind: game.result.kind, names: game.result.nations.map((n) => powerName(map.powers, n)) }}
+        />
       {/if}
     </svelte:fragment>
     <svelte:fragment slot="left">
@@ -249,6 +258,18 @@
           {/if}
         </section>
       {/if}
+      {#if nation && (isActive || isComplete) && game.phase !== 'lobby'}
+        {#key isComplete}
+          <DrawVote
+            gameId={game.id}
+            {nation}
+            powers={map.powers}
+            nations={playedNations}
+            alive={survivingNations(liveBoard(), playedNations)}
+            complete={isComplete}
+          />
+        {/key}
+      {/if}
     </svelte:fragment>
   </GameBoard>
 {/if}
@@ -269,7 +290,6 @@
     gap: 6px;
     height: 38px;
     padding: 0 12px;
-    margin-right: 8px;
     border-radius: 999px;
     color: var(--amber);
     font: 700 13px var(--font);
@@ -279,7 +299,6 @@
     width: 38px;
     padding: 0;
     justify-content: center;
-    margin-right: 0;
     border-color: color-mix(in srgb, var(--amber) 55%, transparent);
   }
   .sb-chip:hover {

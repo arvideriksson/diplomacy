@@ -43,8 +43,8 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb)  — from 20250101000136_commit_board_helper.sql
--- ── apply_resolution (re-issues 132) ───────────────────────────────────────────
+-- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
+-- ── apply_resolution (re-issues 136): settle agreements an elimination completes ──
 create or replace function public.apply_resolution(
   p_game_id    uuid,
   p_round      jsonb,        -- { year, season, phase } just resolved
@@ -75,13 +75,12 @@ begin
      and resolved = false;
 
   perform public.commit_board(p_game_id, p_snapshot, p_next, p_ready_init);
+  perform public.settle_draw(p_game_id);
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.apply_revert(uuid, jsonb, jsonb, jsonb)  — from 20250101000136_commit_board_helper.sql
--- ── apply_revert (re-issues 132) ───────────────────────────────────────────────
--- Rounds after the target are erased from the log; the target round's orders reopen
--- as unsubmitted drafts.
+-- ═══ public.apply_revert(uuid, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
+-- ── apply_revert (re-issues 136): a reverted game starts its votes over ─────────
 create or replace function public.apply_revert(
   p_game_id    uuid,
   p_round      jsonb,        -- { year, season, phase } to reopen
@@ -101,6 +100,8 @@ begin
      set resolved = false, updated_at = now()
    where game_id = p_game_id
      and public.round_rank(year, season, phase) = target;
+
+  delete from public.draw_votes where game_id = p_game_id;
 
   perform public.commit_board(p_game_id, p_snapshot, p_round, p_ready_init);
 end;
@@ -198,9 +199,8 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.commit_board(uuid, jsonb, jsonb, jsonb)  — from 20250101000136_commit_board_helper.sql
--- Commit a board and open p_round ({ year, season, phase }) on it. The deadline is
--- stamped from the game's settings; a 'complete' game has none.
+-- ═══ public.commit_board(uuid, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
+-- ── commit_board (re-issues 136): a committed board clears any agreed result ──
 create or replace function public.commit_board(
   p_game_id    uuid,
   p_snapshot   jsonb,
@@ -217,6 +217,7 @@ begin
          deadline     = case when p_round ->> 'phase' = 'complete' then null
                              else public.phase_deadline(settings, p_round ->> 'phase', now()) end,
          ready        = coalesce(p_ready_init, '{}'::jsonb),
+         result       = null,
          resolving_at = null,
          updated_at   = now()
    where id = p_game_id;
@@ -289,6 +290,51 @@ begin
   delete from public.chat_drafts where id = p_draft_id;
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.draw_outcome(games)  — from 20250101000141_draw_votes.sql
+-- The set the survivors have agreed on, or null.
+create or replace function public.draw_outcome(g public.games)
+returns text[] as $$
+declare
+  alive text[] := public.surviving_nations(g);
+  n     text;
+  m     text;
+  cand  text[];
+  ok    boolean;
+begin
+  if cardinality(alive) = 0 then return null; end if;
+  foreach n in array alive loop
+    cand := public.draw_vote_set(g.id, n, alive);
+    continue when cand is null;
+    ok := true;
+    foreach m in array alive loop
+      if m = any(cand) then
+        ok := public.draw_vote_set(g.id, m, alive) is not distinct from cand;
+      else
+        ok := public.draw_vote_set(g.id, m, alive) is null;
+      end if;
+      exit when not ok;
+    end loop;
+    if ok then return cand; end if;
+  end loop;
+  return null;
+end;
+$$ language plpgsql stable;
+
+-- ═══ public.draw_vote_set(uuid, text, text[])  — from 20250101000141_draw_votes.sql
+-- A survivor's effective vote: null = concede; otherwise its tie set restricted to the
+-- survivors (sorted). No row = solo = {nation}.
+create or replace function public.draw_vote_set(p_game_id uuid, p_nation text, p_alive text[])
+returns text[] as $$
+declare
+  v public.draw_votes;
+begin
+  select * into v from public.draw_votes where game_id = p_game_id and nation = p_nation;
+  if not found then return array[p_nation]; end if;
+  if v.members is null then return null; end if;
+  return (select array_agg(m order by m) from unnest(v.members) m where m = any(p_alive));
+end;
+$$ language plpgsql stable;
 
 -- ═══ public.fire_adjudicator(uuid, jsonb, boolean)  — from 20250101000131_reuse_helpers.sql
 create function public.fire_adjudicator(
@@ -869,29 +915,77 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.set_display_name(text)  — from 20250101000139_display_name.sql
+-- ═══ public.set_display_name(text)  — from 20250101000140_display_name_fix.sql
+-- set_display_name (re-issues 139): its local `name` was ambiguous with games.name in
+-- the roster update. Renamed to v_name.
 create or replace function public.set_display_name(p_name text)
 returns text as $$
 declare
-  uid  text := auth.uid()::text;
-  name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+  uid    text := auth.uid()::text;
+  v_name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
 begin
   if uid is null then raise exception 'Not signed in'; end if;
-  if char_length(name) < 2 or char_length(name) > 32 then
+  if char_length(v_name) < 2 or char_length(v_name) > 32 then
     raise exception 'Name must be 2–32 characters';
   end if;
 
   update auth.users
-     set raw_user_meta_data = coalesce(raw_user_meta_data, '{}') || jsonb_build_object('display_name', name)
+     set raw_user_meta_data = coalesce(raw_user_meta_data, '{}') || jsonb_build_object('display_name', v_name)
    where id = auth.uid();
 
   -- Roster entries are objects; a private-game invite can still hold a bare 'pending'.
   update public.games
-     set players = jsonb_set(players, array[uid, 'display_name'], to_jsonb(name))
+     set players = jsonb_set(players, array[uid, 'display_name'], to_jsonb(v_name))
    where players ? uid
      and jsonb_typeof(players -> uid) = 'object';
 
-  return name;
+  return v_name;
+end;
+$$ language plpgsql security definer;
+
+-- ═══ public.set_draw_vote(uuid, text[], boolean)  — from 20250101000141_draw_votes.sql
+-- ── set_draw_vote ─────────────────────────────────────────────────────────────
+-- Record the caller's vote: p_concede, or the powers to share a tie with (the caller
+-- is added; an empty or self-only set means solo). Returns whether the game ended.
+create or replace function public.set_draw_vote(
+  p_game_id uuid,
+  p_members text[]  default null,
+  p_concede boolean default false
+)
+returns boolean as $$
+declare
+  g         public.games;
+  my_nation text;
+  alive     text[];
+  members   text[];
+begin
+  select * into g from public.games where id = p_game_id;
+  if not found then raise exception 'Game not found'; end if;
+  my_nation := public.player_nation(g.players);
+  if my_nation is null then raise exception 'Only players can vote'; end if;
+  if not public.is_order_phase(g.phase) then raise exception 'The game is not running'; end if;
+  alive := public.surviving_nations(g);
+  if not my_nation = any(alive) then raise exception 'Eliminated powers no longer vote'; end if;
+
+  if p_concede then
+    members := null;
+  else
+    members := (select array_agg(distinct m order by m)
+                  from unnest(coalesce(p_members, '{}') || array[my_nation]) m);
+    if exists (select 1 from unnest(members) m where not m = any(alive)) then
+      raise exception 'A tie can only include powers still in the game';
+    end if;
+  end if;
+
+  if not p_concede and members = array[my_nation] then
+    delete from public.draw_votes where game_id = p_game_id and nation = my_nation;  -- solo
+  else
+    insert into public.draw_votes (game_id, nation, members, updated_at)
+    values (p_game_id, my_nation, members, now())
+    on conflict (game_id, nation) do update set members = excluded.members, updated_at = now();
+  end if;
+
+  return public.settle_draw(p_game_id);
 end;
 $$ language plpgsql security definer;
 
@@ -911,6 +1005,38 @@ create or replace function public.setting_bool(p_settings jsonb, p_key text, p_d
 returns boolean as $$
   select coalesce((p_settings ->> p_key)::boolean, p_default);
 $$ language sql immutable;
+
+-- ═══ public.settle_draw(uuid)  — from 20250101000141_draw_votes.sql
+-- End the game if the survivors have agreed. Service-only (no grant): called from
+-- set_draw_vote and apply_resolution. Returns whether the game ended.
+create or replace function public.settle_draw(p_game_id uuid)
+returns boolean as $$
+declare
+  g       public.games;
+  outcome text[];
+begin
+  select * into g from public.games where id = p_game_id for update;
+  if not found or not public.is_order_phase(g.phase) or g.resolving_at is not null then
+    return false;
+  end if;
+  outcome := public.draw_outcome(g);
+  if outcome is null then return false; end if;
+
+  update public.games
+     set phase      = 'complete',
+         deadline   = null,
+         ready      = '{}'::jsonb,
+         result     = jsonb_build_object(
+                        'kind',    case when cardinality(outcome) = 1 then 'concession' else 'draw' end,
+                        'nations', to_jsonb(outcome),
+                        'year',    g.year,
+                        'season',  g.season,
+                        'phase',   g.phase),
+         updated_at = now()
+   where id = p_game_id;
+  return true;
+end;
+$$ language plpgsql security definer;
 
 -- ═══ public.start_game(uuid)  — from 20250101000138_maps_table.sql
 -- ── start_game (re-issues 132) ─────────────────────────────────────────────────
@@ -999,6 +1125,21 @@ begin
   if p_ready then perform public.maybe_resolve_now(p_game_id); end if;
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.surviving_nations(games)  — from 20250101000141_draw_votes.sql
+-- ── Survivors ─────────────────────────────────────────────────────────────────
+-- Assigned nations still on the board (a unit or a supply center). Before the first
+-- resolution (no snapshot) everyone is alive.
+create or replace function public.surviving_nations(g public.games)
+returns text[] as $$
+  select coalesce(array_agg(n order by n), '{}')
+    from unnest(coalesce(public.game_nations(g.players), '{}')) as n
+   where g.snapshot is null
+      or exists (select 1 from jsonb_array_elements(coalesce(g.snapshot -> 'units', '[]')) u
+                  where u ->> 'nation' = n)
+      or exists (select 1 from jsonb_each_text(coalesce(g.snapshot -> 'supplyCenters', '{}')) s
+                  where s.value = n);
+$$ language sql stable;
 
 -- ═══ public.tick_due_games()  — from 20250101000134_sql_helpers.sql
 -- tick_due_games (re-issues 131).

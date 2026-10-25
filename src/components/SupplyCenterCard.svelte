@@ -12,6 +12,9 @@
   export let nation: string = ''
   /** Hovering a row spotlights that nation's supply centers on the map (null = clear). */
   export let onHover: ((nation: string | null) => void) | null = null
+  /** A plain section in a panel (phones' orders tab) instead of a card floating over
+   *  the map: always open, no fold. */
+  export let inline: boolean = false
 
   const isMine = (id: string): boolean => !!nation && sameNation(id, nation)
 
@@ -35,7 +38,7 @@
 
   // Collapsed → just the header bar, to reclaim the map corner when studying it.
   // Start folded on phones, where the open card would cover much of the map.
-  let collapsed = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches
+  let collapsed = !inline && typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches
   function toggle() {
     collapsed = !collapsed
     if (collapsed) clearNow() // clear any spotlight when folding away
@@ -52,13 +55,17 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_mouse_events_have_key_events -->
-<div class="glass sc-card" class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
-  <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
-    <span>Supply Centers</span>
-    <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M4 6l4 4 4-4" />
-    </svg>
-  </button>
+<div class="sc-card" class:glass={!inline} class:inline class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
+  {#if inline}
+    <h4 class="sc-head">Supply Centers</h4>
+  {:else}
+    <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
+      <span>Supply Centers</span>
+      <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" />
+      </svg>
+    </button>
+  {/if}
   {#if !collapsed}
   <ul class="sc-rows">
     {#each rows as p (p.id)}
@@ -91,6 +98,29 @@
     overflow: hidden;
     font-size: 13px;
     user-select: none;
+  }
+  .sc-card.inline {
+    position: static;
+    width: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-card);
+    font-size: 14px;
+  }
+  .inline .sc-head {
+    margin: 0;
+    padding: 12px 14px 8px;
+    border-bottom: none;
+    cursor: default;
+  }
+  .inline .sc-head:hover {
+    color: var(--text-secondary);
+  }
+  .inline .sc-rows {
+    padding: 0 6px 6px;
+  }
+  .inline .sc-row {
+    min-height: 36px;
   }
   /* Phones: a small corner pill while folded. */
   @media (max-width: 760px) {

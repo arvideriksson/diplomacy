@@ -12,7 +12,9 @@ export const backendTarget: 'local' | 'live' = import.meta.env.VITE_BACKEND === 
 
 /**
  * Dev-only test seats: up to seven independent sessions that live side by side in
- * localStorage, one per storage key (`sb-dev-seat-<n>`). Each tab picks its active seat
+ * localStorage, one per storage key (`sb-dev-seat-<backend>-<n>`). The backend is part of
+ * the key because `npm run dev` and `dev:live` share the localhost origin, and a live
+ * session is meaningless to the local stack (and vice versa). Each tab picks its active seat
  * from sessionStorage (default 1), so one tab can hop between players (see
  * src/lib/devSeats.ts) and several tabs can still sit in different seats at once — a
  * distinct storageKey also gives each seat its own GoTrue BroadcastChannel, so seats
@@ -21,7 +23,7 @@ export const backendTarget: 'local' | 'live' = import.meta.env.VITE_BACKEND === 
 export const DEV_SEAT_COUNT = 7
 
 export function devSeatStorageKey(seat: number) {
-  return `sb-dev-seat-${seat}`
+  return `sb-dev-seat-${backendTarget}-${seat}`
 }
 
 export function activeDevSeat(): number {

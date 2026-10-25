@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import type { Unit } from '../types'
 import type { AnyOrder, Order } from './types'
+import { adjudicate, initialBoard, replayLog } from '../adjudicator'
 import {
   applyChoice,
   buildMapInputs,
@@ -11,6 +12,7 @@ import {
   openBuildSpots,
   openRemovals,
   retreatChoices,
+  orderFailed,
   toRenderOrders,
   unorderedUnitIds,
   withImplicitHolds,
@@ -67,6 +69,31 @@ describe('toRenderOrders', () => {
       { type: 'Build', nation: 'russia', source: 'stp/nc', unitType: 'Fleet' },
       { type: 'Disband', nation: 'austria', source: 'vie' },
     ])
+  })
+  it('crosses out the orders a history frame says failed', () => {
+    // Spring 1901: Paris and Munich both move to Burgundy and bounce; Marseilles holds.
+    const orders: AnyOrder[] = [
+      { type: 'Move', nation: 'france', source: 'PAR', target: 'BUR' },
+      { type: 'Move', nation: 'germany', source: 'MUN', target: 'BUR' },
+      { type: 'Hold', nation: 'france', source: 'MAR' },
+    ]
+    const { results } = adjudicate(classicalMap, initialBoard(classicalMap), orders)
+    const failed = new Set(results.filter(orderFailed).map((r) => (r.order as Order).source))
+    expect(toRenderOrders(orders, (o) => failed.has((o as Order).source))).toEqual([
+      { type: 'Move', nation: 'france', source: 'par', target: 'bur', failed: true },
+      { type: 'Move', nation: 'germany', source: 'mun', target: 'bur', failed: true },
+      { type: 'Hold', nation: 'france', source: 'mar' },
+    ])
+  })
+})
+
+describe('replayLog results', () => {
+  it('carries each resolved frame\'s results, not the live one', () => {
+    const frames = replayLog(classicalMap, initialBoard(classicalMap), [
+      { year: 1901, season: 'Spring', phase: 'movement', nation: 'france', orders: [{ type: 'Move', nation: 'france', source: 'PAR', target: 'BUR' }] },
+    ])
+    expect(frames[0].results?.find((r) => (r.order as Order).source === 'PAR')?.code).toBe('succeeds')
+    expect(frames.at(-1)?.results).toBeUndefined()
   })
 })
 

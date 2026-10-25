@@ -3,7 +3,7 @@
 // legality only — resolution stays in the adjudicator.
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import type { DislodgedUnit } from '../adjudicator/types'
+import type { DislodgedUnit, OrderResult } from '../adjudicator/types'
 import type { OrderState } from '../map/mapRenderer'
 import { toDsvgId } from '../map/idMap'
 import { toOrderStates, type Draft, type Step } from './wizard'
@@ -113,27 +113,38 @@ const MOVE_TYPES = ['Hold', 'Move', 'Support', 'Convoy']
 
 /**
  * Map overlays per order kind: movement/retreat as arrows, builds as ghost unit
- * tokens, removes/disbands as red markers.
+ * tokens, removes/disbands as red markers. `failed` (history) marks orders that
+ * didn't succeed, which the renderer crosses out.
  */
-export function toRenderOrders(src: AnyOrder[]): OrderState[] {
-  const out: OrderState[] = toOrderStates(src.filter((o) => MOVE_TYPES.includes(o.type)) as Order[])
+export function toRenderOrders(src: AnyOrder[], failed?: (o: AnyOrder) => boolean): OrderState[] {
+  const mark = (o: AnyOrder, s: OrderState): OrderState => (failed?.(o) ? { ...s, failed: true } : s)
+  const moves = src.filter((o) => MOVE_TYPES.includes(o.type)) as Order[]
+  const out: OrderState[] = toOrderStates(moves).map((s, i) => mark(moves[i], s))
   for (const o of src) {
     if (o.type === 'Retreat') {
       const r = o as RetreatOrder
-      out.push({ type: 'Move', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), target: toDsvgId(r.target ?? '', r.targetCoast), dislodged: true })
+      out.push(mark(o, { type: 'Move', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), target: toDsvgId(r.target ?? '', r.targetCoast), dislodged: true }))
     } else if (o.type === 'Disband') {
       const r = o as RetreatOrder
-      out.push({ type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), dislodged: true })
+      out.push(mark(o, { type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), dislodged: true }))
     } else if (o.type === 'Build') {
       const b = o as BuildOrder
-      out.push({ type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' })
+      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' }))
     } else if (o.type === 'Remove') {
       const b = o as BuildOrder
-      out.push({ type: 'Disband', nation: b.nation, source: toDsvgId(b.source) })
+      out.push(mark(o, { type: 'Disband', nation: b.nation, source: toDsvgId(b.source) }))
     }
   }
   return out
 }
+
+/**
+ * Whether a resolved order didn't do what it asked: a bounced/cut/void order, a unit
+ * dislodged while holding or supporting, or a retreat that ended in a disband.
+ */
+export const orderFailed = (r: OrderResult): boolean =>
+  r.code === 'fails' || r.code === 'void' || r.code === 'bounced' || r.code === 'dislodged' ||
+  (r.code === 'disbanded' && r.order.type === 'Retreat')
 
 /**
  * Retreat-phase map inputs (dSVG ids). Idle: highlight the dislodged units still

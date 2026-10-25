@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
+  import { get } from 'svelte/store'
   import type { PlayerInfo } from '../lib/game'
   import type { PowerDefinition } from '../lib/mapDefinition'
   import { chatLabels, createChatStore } from '../lib/chatStore'
   import ConversationList from './ConversationList.svelte'
   import NewConversationPicker from './NewConversationPicker.svelte'
   import ChatThread from './ChatThread.svelte'
+  import ConversationStrip from './ConversationStrip.svelte'
   import { compact } from '../lib/layout'
 
   export let gameId: string
@@ -19,27 +21,90 @@
   export let onUnread: ((n: number) => void) | null = null
 
   let scroller: HTMLDivElement | null = null
+  let scrolledUp = false
 
-  async function scrollToBottom() {
+  // Where the reader left each thread they had scrolled back in (channel id → scrollTop),
+  // so popping out to check another conversation doesn't lose their place.
+  const positions = new Map<number, number>()
+
+  // Show the open thread's newest message — or, with `to` 'unread', its "new messages"
+  // divider, or with 'focus' the message picked from search (briefly highlighted). A
+  // thread with nothing new reopens where the reader left it.
+  async function scrollToBottom(to?: 'unread' | 'focus') {
     await tick()
-    if (scroller) scroller.scrollTop = scroller.scrollHeight
+    if (!scroller) return
+    const focusId = to === 'focus' ? get(chat.focusMsg) : null
+    const target = focusId != null ? scroller.querySelector<HTMLElement>(`[data-msg="${focusId}"]`) : null
+    if (to === 'focus') chat.focusMsg.set(null)
+    if (target) {
+      scroller.scrollTop = target.offsetTop - scroller.clientHeight / 3
+      target.classList.add('flash')
+      setTimeout(() => target.classList.remove('flash'), 1600)
+      opening = false
+      scrolledUp = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 48
+      return
+    }
+    const divider = to === 'unread' ? scroller.querySelector<HTMLElement>('.new-divider') : null
+    const saved = $activeId != null ? positions.get($activeId) : undefined
+    if (divider) scroller.scrollTop = divider.offsetTop - 12
+    else if (opening && saved != null && !to) scroller.scrollTop = saved
+    else scroller.scrollTop = scroller.scrollHeight
+    opening = false
+    scrolledUp = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 48
+    if (!scrolledUp && $activeId != null) positions.delete($activeId)
   }
 
   // All conversation state + loading/sending lives in the store (one per mounted panel).
-  const chat = createChatStore(gameId, nation, scrollToBottom)
+  // A message in the open thread counts as read only if the reader can see it arrive.
+  // (On phones the press pane stays mounted, just hidden, behind the Map/Orders tabs.)
+  const isWatching = () =>
+    document.visibilityState === 'visible' && !!scroller && !scrolledUp && !covered &&
+    (scroller.checkVisibility?.({ visibilityProperty: true }) ?? true)
+  /** The thread's details sheet covers the messages. */
+  let covered = false
+  const chat = createChatStore(gameId, nation, scrollToBottom, isWatching)
   const { picking, openChan, unread, activeId, activeDraftId } = chat
-  $: onUnread?.(Object.values($unread).reduce((a, n) => a + (n || 0), 0))
-
-  // Phones: one pane at a time — the list, or the open thread with a way back.
-  function backToList() {
-    if ($picking) chat.cancelPicking()
-    else if ($activeDraftId != null) chat.toggleDraft($activeDraftId)
-    else if ($activeId != null) chat.toggleChannel($activeId)
+  $: onUnread?.(totalUnread)
+  // Switching conversations: the next scroll may restore that thread's saved place.
+  let opening = false
+  $: onSwitch($activeId, $activeDraftId)
+  function onSwitch(..._: unknown[]) {
+    scrolledUp = false
+    opening = true
   }
 
-  $: labels = chatLabels(powers, nation)
-  $: myName = labels.display(nation)
-  $: myColor = labels.colorOf(nation)
+  // The thread scrolled: remember the place, and reading down to the end reads it.
+  function onThreadScroll(top: number, atBottom: boolean) {
+    if ($activeId == null) return
+    if (atBottom) {
+      positions.delete($activeId)
+      if ($unread[$activeId]) chat.markSeen()
+    } else {
+      positions.set($activeId, top)
+    }
+  }
+
+  // One pane at a time (list, or the open thread with a back arrow) on phones and
+  // whenever the rail is too narrow to give a thread a comfortable reading width. A
+  // narrow desktop rail keeps a strip of conversation avatars beside the thread.
+  let width = 0
+  $: single = $compact || width < 640
+  $: strip = single && !$compact && width >= 420
+  $: totalUnread = Object.values($unread).reduce((a, n) => a + (n || 0), 0)
+  // Conversations with something unread — what navigation badges count.
+  $: unreadChats = Object.values($unread).filter(Boolean).length
+
+  // Back steps out one level: the details sheet first, then the thread itself.
+  function backToList() {
+    if (covered) {
+      covered = false
+      return
+    }
+    chat.cancelPicking()
+    chat.closeAll()
+  }
+
+  $: labels = chatLabels(powers, nation, players)
 
   $: otherNations = Object.values(players)
     .map((p) => p.nation)
@@ -47,66 +112,90 @@
     .sort((a, b) => labels.display(a).localeCompare(labels.display(b)))
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
-  const onVisible = () => { if (document.visibilityState === 'visible') chat.refresh().catch(() => {}) }
+  const onVisible = () => { if (document.visibilityState === 'visible') chat.catchUp().catch(() => {}) }
+
+  // Phones: the system back gesture steps out of a thread (or the new-conversation
+  // screen) to the list, like a native messenger, via one history entry per visit.
+  let pushed = false
+  $: inside = $compact && ($picking || !!$openChan)
+  $: syncHistory(inside)
+  function syncHistory(on: boolean) {
+    if (typeof history === 'undefined') return
+    if (on && !pushed) {
+      history.pushState({ ...history.state, pressThread: true }, '')
+      pushed = true
+    } else if (!on && pushed) {
+      pushed = false
+      if (history.state?.pressThread) history.back()
+    }
+  }
+  function onPopState() {
+    if (!pushed) return
+    pushed = false
+    backToList()
+    if (inside) syncHistory(true) // only the details sheet closed; stay a level deep
+  }
 
   onMount(async () => {
-    await chat.load()
-    pollTimer = setInterval(() => chat.refresh().catch(() => {}), 8000)
+    window.addEventListener('popstate', onPopState)
+    await chat.load().catch(() => {})
+    pollTimer = setInterval(() => {
+      chat.refresh().catch(() => {})
+      // Back on the press tab at the end of an open thread: it has now been seen.
+      if ($activeId != null && $unread[$activeId] && isWatching()) chat.markSeen()
+    }, 8000)
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onVisible)
   })
   onDestroy(() => {
     if (pollTimer) clearInterval(pollTimer)
     document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('online', onVisible)
+    window.removeEventListener('popstate', onPopState)
+    if (pushed && history.state?.pressThread) history.back()
     chat.destroy()
   })
 </script>
 
 {#if nation}
-  <aside class="chat-sidebar">
-    <!-- Country banner: the same .tone-banner as the right sidebar's phase banner,
-         coloured by the nation — shaded tint fill, pure-colour text, 3px edge sliver. -->
-    <div
-      class="tone-banner"
-      style="--tone: {myColor}; --tone-subtle: color-mix(in srgb, {myColor} 15%, transparent);"
-    >
-      {myName}
-    </div>
-
-    <!-- Two-pane press: persistent conversation list (left) + the open thread (right).
-         Phones show one at a time. -->
-    {#if $compact}
-      <div class="panes single">
-        {#if $picking || $openChan}
-          <div class="thread-pane">
-            <button class="back" on:click={backToList}>‹ Conversations</button>
-            {#if $picking}
-              <NewConversationPicker {chat} {labels} {otherNations} />
-            {:else}
-              <ChatThread {chat} {labels} {nation} bind:scroller />
-            {/if}
-          </div>
-        {:else}
-          <ConversationList {chat} {labels} {nation} wide />
-        {/if}
+  <aside class="chat-sidebar" bind:clientWidth={width}>
+    <div class="panes" class:single>
+      <!-- In single-pane mode the list stays mounted (just hidden) behind an open thread,
+           so its search, filter and scroll position survive a look at another chat. -->
+      <div class="list-slot" class:wide={single} hidden={single && ($picking || !!$openChan)}>
+        <ConversationList {chat} {labels} {nation} wide={single} />
       </div>
-    {:else}
-    <div class="panes">
-      <ConversationList {chat} {labels} {nation} />
-
-      <div class="thread-pane">
-        {#if $picking}
-          <NewConversationPicker {chat} {labels} {otherNations} />
-        {:else if $openChan}
-          <ChatThread {chat} {labels} {nation} bind:scroller />
-        {:else}
-          <!-- Nothing open: invite the player to pick a conversation. -->
-          <div class="thread-empty">
-            <p class="empty">Select a conversation, or start a new one.</p>
-          </div>
-        {/if}
-      </div>
+      {#if strip && ($picking || $openChan)}
+        <ConversationStrip {chat} {labels} {nation} />
+      {/if}
+      {#if !single || $picking || $openChan}
+        <div class="thread-pane">
+          {#if $picking}
+            <NewConversationPicker {chat} {labels} {nation} {otherNations} onBack={single ? backToList : null} />
+          {:else if $openChan}
+            {#key $activeId ?? `draft:${$activeDraftId}`}
+              <ChatThread
+                {chat}
+                {labels}
+                {nation}
+                bind:scroller
+                bind:scrolledUp
+                bind:details={covered}
+                onBack={single ? backToList : null}
+                backBadge={unreadChats}
+                onScrolled={onThreadScroll}
+              />
+            {/key}
+          {:else}
+            <!-- Nothing open: invite the player to pick a conversation. -->
+            <div class="thread-empty">
+              <p class="empty">Select a conversation, or start a new one.</p>
+              <button class="btn btn-sm" on:click={chat.startPicking}>New conversation</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </div>
-    {/if}
   </aside>
 {/if}
 
@@ -127,16 +216,17 @@
     min-height: 0;
     display: flex;
   }
-  .back {
+  .list-slot {
     flex: none;
-    align-self: flex-start;
-    min-height: 44px;
-    padding: 0 14px;
-    border: none;
-    background: none;
-    color: var(--accent);
-    font: 600 15px var(--font);
-    cursor: pointer;
+    display: flex;
+    min-height: 0;
+  }
+  .list-slot.wide {
+    flex: 1;
+    min-width: 0;
+  }
+  .list-slot[hidden] {
+    display: none;
   }
   .thread-pane {
     flex: 1;
@@ -151,6 +241,10 @@
     justify-content: center;
     padding: 24px;
     text-align: center;
+  }
+  .thread-empty {
+    flex-direction: column;
+    gap: 12px;
   }
   .empty {
     color: var(--text-secondary, #888);

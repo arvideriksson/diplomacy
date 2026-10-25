@@ -747,18 +747,20 @@ function replayLog(map, initial, rows, until) {
   }
   const ordered = [...rounds.values()].sort((a, b) => roundRank(a) - roundRank(b));
   const frames = [];
+  const pushFrame = (board, orders) => {
+    const { newBoardState, results } = adjudicate(map, board, orders);
+    frames.push({ board, orders, results });
+    return newBoardState;
+  };
   let state = initial;
   for (const round of ordered) {
     for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1e3; guard++) {
-      frames.push({ board: state, orders: [] });
-      state = adjudicate(map, state, []).newBoardState;
+      state = pushFrame(state, []);
     }
-    frames.push({ board: state, orders: round.orders });
-    state = adjudicate(map, state, round.orders).newBoardState;
+    state = pushFrame(state, round.orders);
   }
   for (let guard = 0; until && PHASE_ORDER[until.phase] !== void 0 && roundRank(state) < roundRank(until) && guard < 1e3; guard++) {
-    frames.push({ board: state, orders: [] });
-    state = adjudicate(map, state, []).newBoardState;
+    state = pushFrame(state, []);
   }
   frames.push({ board: state, orders: [] });
   return frames;
