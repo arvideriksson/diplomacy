@@ -27,7 +27,7 @@
       on:click|stopPropagation={() => (showMenu = !showMenu)}
       aria-expanded={showMenu}
     >
-      <Avatar src={$user.user_metadata?.avatar_url} name={$displayName} />
+      <Avatar name={$displayName} />
     </button>
 
     {#if showMenu}
