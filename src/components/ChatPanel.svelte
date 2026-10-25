@@ -139,9 +139,9 @@
   onMount(async () => {
     window.addEventListener('popstate', onPopState)
     await chat.load().catch(() => {})
+    // Local only, no fetch: back on the press tab at the end of an open thread, it has
+    // now been seen. New channels arrive over Realtime (the store's inbox subscription).
     pollTimer = setInterval(() => {
-      chat.refresh().catch(() => {})
-      // Back on the press tab at the end of an open thread: it has now been seen.
       if ($activeId != null && $unread[$activeId] && isWatching()) chat.markSeen()
     }, 8000)
     document.addEventListener('visibilitychange', onVisible)

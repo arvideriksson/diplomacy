@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import { initialBoard } from '../adjudicator'
-import { replayFrames, type ResolvedOrderRow } from '../history'
+import { replayFrames, mergeLog, newestStamp, type ResolvedOrderRow } from '../history'
 
 describe('replayFrames', () => {
   it('reconstructs a board per phase from the resolved log', () => {
@@ -57,5 +57,37 @@ describe('replayFrames', () => {
     const frames = replayFrames(classicalMap, log)
     expect(frames.at(-1)!.board.units.some((u) => u.territory === 'MUN')).toBe(true)
     expect(frames.at(-1)!.board.units.some((u) => u.territory === 'TYR')).toBe(false)
+  })
+})
+
+describe('mergeLog', () => {
+  const row = (year: number, season: string, phase: string, nation: string, orders: unknown[] = []) =>
+    ({ year, season, phase, nation, orders }) as ResolvedOrderRow
+  const live = { year: 1902, season: 'Spring' as const, phase: 'movement' }
+
+  it('appends rows for newly resolved rounds', () => {
+    const merged = mergeLog([row(1901, 'Spring', 'movement', 'germany')], [row(1901, 'Fall', 'movement', 'germany')], live)
+    expect(merged.map((r) => r.season)).toEqual(['Spring', 'Fall'])
+  })
+
+  it('replaces a whole round that was resolved again', () => {
+    const cached = [row(1901, 'Fall', 'movement', 'germany'), row(1901, 'Fall', 'movement', 'france')]
+    const merged = mergeLog(cached, [row(1901, 'Fall', 'movement', 'germany', [{ type: 'Hold' }])], live)
+    expect(merged).toHaveLength(1)
+    expect(merged[0].orders).toHaveLength(1)
+  })
+
+  it('drops rounds at or after the live round (reverted)', () => {
+    const cached = [row(1901, 'Spring', 'movement', 'germany'), row(1902, 'Spring', 'movement', 'germany')]
+    const merged = mergeLog(cached, [], { year: 1901, season: 'Fall' as const, phase: 'movement' })
+    expect(merged.map((r) => r.year)).toEqual([1901])
+  })
+
+  it('newestStamp picks the latest updated_at', () => {
+    expect(newestStamp([])).toBeNull()
+    expect(newestStamp([
+      { ...row(1901, 'Spring', 'movement', 'a'), updated_at: '2026-01-02T00:00:00Z' },
+      { ...row(1901, 'Spring', 'movement', 'b'), updated_at: '2026-01-03T00:00:00Z' },
+    ])).toBe('2026-01-03T00:00:00Z')
   })
 })

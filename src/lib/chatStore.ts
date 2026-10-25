@@ -23,6 +23,7 @@ import {
   markRead,
   fetchMyReads,
   subscribeToChannel,
+  subscribeToInbox,
   listDrafts,
   upsertDraft,
   renameDraft,
@@ -208,6 +209,7 @@ export function createChatStore(
   const draftSave = createDebouncer(() => saveActiveDraft(), 1000)
 
   const unsubs = new Map<number, () => void>()
+  let inboxUnsub: (() => void) | null = null
 
   function store(m: ChatMessage) {
     messagesByCh.update((all) => ({ ...all, [m.channel_id]: insertMsg(all[m.channel_id] ?? [], m) }))
@@ -258,6 +260,8 @@ export function createChatStore(
   }
 
   async function loadAll() {
+    // Join the inbox before listing, so a channel created in between still arrives.
+    inboxUnsub ??= await subscribeToInbox(gameId, nation, onChannel)
     const list = await listChannels(gameId)
     channels.set(list)
     drafts.set(await listDrafts(gameId).catch(() => []))
@@ -268,15 +272,8 @@ export function createChatStore(
     await subscribeAll()
   }
 
-  // Channels are delivered over Broadcast, not postgres_changes, so a conversation a
-  // teammate opens mid-game won't appear on its own. Re-list periodically (and on tab
-  // focus) and subscribe to anything new — once subscribed, delivery is instant.
-  async function refresh() {
-    if (!nation) return
-    const list = await listChannels(gameId)
-    const known = new Set(get(channels).map((c) => c.id))
-    const added = list.filter((c) => !known.has(c.id))
-    channels.set(list) // also picks up renames
+  // Unread counts and previews for channels just discovered, then live delivery.
+  async function addChannels(added: ChatChannel[]) {
     if (added.length) {
       const reads = await fetchMyReads(added.map((c) => c.id), nation)
       const counts = await Promise.all(added.map((c) => unreadCount(c.id, reads[c.id]).catch(() => 0)))
@@ -285,6 +282,23 @@ export function createChatStore(
       latest.update((l) => ({ ...l, ...newest }))
     }
     await subscribeAll()
+  }
+
+  // A channel I belong to was created or renamed (announced on my inbox topic).
+  async function onChannel(c: ChatChannel) {
+    const isNew = !get(channels).some((x) => x.id === c.id)
+    channels.update((list) => (isNew ? [...list, c] : list.map((x) => (x.id === c.id ? c : x))))
+    if (isNew) await addChannels([c])
+  }
+
+  // New and renamed channels arrive on the inbox topic while online. Broadcast misses
+  // whatever happened while hidden or offline, so catchUp re-lists once on return.
+  async function refresh() {
+    if (!nation) return
+    const list = await listChannels(gameId)
+    const known = new Set(get(channels).map((c) => c.id))
+    channels.set(list) // also picks up renames
+    await addChannels(list.filter((c) => !known.has(c.id)))
   }
 
   // Back from a hidden tab or a dropped connection: Broadcast only reaches online
@@ -628,6 +642,8 @@ export function createChatStore(
     saveActiveDraft() // best-effort final flush of the open draft's body (cancels the timer)
     for (const u of unsubs.values()) u()
     unsubs.clear()
+    inboxUnsub?.()
+    inboxUnsub = null
   }
 
   return {
