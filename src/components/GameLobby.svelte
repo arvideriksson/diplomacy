@@ -41,7 +41,6 @@
   $: settingsEarlyResolution = game?.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
   $: settingsMapId = game?.map_id ?? 'classical'
   $: settingsGunboat = game?.settings?.gunboat ?? DEFAULT_SETTINGS.gunboat
-  $: settingsSpectators = game?.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   $: settingsRandomNations = game?.settings?.random_nations ?? DEFAULT_SETTINGS.random_nations
   $: settingsHostControls = !!game?.settings?.host_controls
   // Host-controlled games must stay private (server-enforced).
@@ -114,7 +113,6 @@
       const settings: GameSettings = {
         ...game.settings,
         gunboat: settingsGunboat,
-        allow_spectators: settingsSpectators,
         random_nations: settingsRandomNations,
         host_controls: settingsHostControls && game.is_private,
         early_resolution: settingsEarlyResolution,
@@ -233,7 +231,6 @@
           earlyResolution={settingsEarlyResolution}
           mapId={settingsMapId}
           gunboat={settingsGunboat}
-          spectators={settingsSpectators}
           randomNations={settingsRandomNations}
           isPrivate={game.is_private}
           hostControls={settingsHostControls}
@@ -244,7 +241,6 @@
           onEarlyChange={setAndSave((v) => (settingsEarlyResolution = v))}
           onMapChange={(id) => { settingsMapId = id; saveSettings() }}
           onGunboatChange={setAndSave((v) => (settingsGunboat = v))}
-          onSpectatorsChange={setAndSave((v) => (settingsSpectators = v))}
           onRandomNationsChange={setAndSave((v) => (settingsRandomNations = v))}
           onTogglePrivate={togglePrivate}
           onHostControlsChange={setAndSave((v) => (settingsHostControls = v))}

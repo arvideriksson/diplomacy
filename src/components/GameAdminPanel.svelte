@@ -7,7 +7,6 @@
   import InfoTip from './InfoTip.svelte'
   import Modal from './Modal.svelte'
   import PacingSettings from './PacingSettings.svelte'
-  import ToggleSetting from './ToggleSetting.svelte'
 
   export let game: GameState
   export let onClose: () => void = () => {}
@@ -23,7 +22,6 @@
   $: phaseTimers = game.settings?.phase_timers ?? DEFAULT_SETTINGS.phase_timers
   $: gracePeriod = game.settings?.grace_period ?? null
   $: earlyResolution = game.settings?.early_resolution ?? DEFAULT_SETTINGS.early_resolution
-  $: spectators = game.settings?.allow_spectators ?? DEFAULT_SETTINGS.allow_spectators
   let nameField = game.name
   $: nameField = game.name
 
@@ -46,7 +44,6 @@
   const saveTimers = (t: PhaseTimers) => run(() => updateGameSettings(game.id, { phase_timers: t }))
   const saveGrace = (v: number | null) => run(() => updateGameSettings(game.id, { grace_period: v }))
   const toggleEarly = (on: boolean) => run(() => updateGameSettings(game.id, { early_resolution: on }))
-  const toggleSpectators = (on: boolean) => run(() => updateGameSettings(game.id, { allow_spectators: on }))
   const saveName = () => {
     if (nameField.trim() && nameField !== game.name) run(() => updateGame(game.id, { name: nameField.trim() }))
   }
@@ -156,8 +153,6 @@
       onGraceChange={saveGrace}
       onEarlyChange={toggleEarly}
     />
-
-    <ToggleSetting label="Allow spectators" checked={spectators} disabled={saving} onChange={toggleSpectators} />
   {/if}
 </Modal>
 
