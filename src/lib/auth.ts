@@ -20,9 +20,30 @@ export const displayName = derived(user, ($user) => $user ? (metaDisplayName($us
 /** A real (non-test) account that hasn't picked a name yet — prompted on first sign-in. */
 export const needsDisplayName = derived(user, ($user) => !!$user && !$user.is_anonymous && !$user.user_metadata?.display_name)
 
+// The path to resume after the OAuth round-trip (e.g. /join/<id>). Kept client-side
+// because GoTrue falls back to the site URL when `redirectTo` isn't on the project's
+// redirect allowlist, which would drop a deep link.
+const RETURN_PATH_KEY = 'auth-return-path'
+
+function takeReturnPath(): string | null {
+  try {
+    const path = sessionStorage.getItem(RETURN_PATH_KEY)
+    sessionStorage.removeItem(RETURN_PATH_KEY)
+    return path
+  } catch {
+    return null
+  }
+}
+
 export async function initAuth() {
   const { data } = await supabase.auth.getSession()
   session.set(data.session)
+
+  // Runs before the router mounts, so a plain history swap is enough to land on the path.
+  const returnPath = takeReturnPath()
+  if (data.session && returnPath?.startsWith('/') && returnPath !== location.pathname + location.search) {
+    history.replaceState(null, '', returnPath)
+  }
 
   supabase.auth.onAuthStateChange((_event, newSession) => {
     session.set(newSession)
@@ -30,13 +51,13 @@ export async function initAuth() {
 }
 
 export async function signInWithGoogle() {
+  try {
+    sessionStorage.setItem(RETURN_PATH_KEY, location.pathname + location.search)
+  } catch {}
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: {
-      // Return to the exact URL the user started from so deep links
-      // (e.g. /join/<code>) resume after the OAuth round-trip.
-      redirectTo: window.location.href,
-    },
+    // The origin always matches the site URL; initAuth restores the deep link.
+    options: { redirectTo: window.location.origin },
   })
   if (error) throw error
 }
