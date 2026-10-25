@@ -94,14 +94,14 @@
       </Route>
       <Route path="/">
         <div class="list-view">
-          {#if $isSiteAdmin}
-            <AdminPanel />
-          {/if}
           <GameList
             onSelectGame={handleSelectGame}
             onOpenSandbox={openSandbox}
             onCreateSandbox={newSandbox}
           />
+          {#if $isSiteAdmin}
+            <AdminPanel />
+          {/if}
         </div>
       </Route>
     {/if}
