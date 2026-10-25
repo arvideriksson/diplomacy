@@ -36,8 +36,6 @@ export interface Sandbox {
   createdAt: string
   /** Set when copied from a game: the sandbox lives inside that game's view. */
   origin?: SandboxOrigin
-  /** What Reset returns to (the copied position); the opening board when absent. */
-  start?: Frame
 }
 
 const KEY = 'diplomacy:sandboxes'
@@ -123,16 +121,14 @@ export function createSandboxFromGame(opts: {
   orders: AnyOrder[]
   origin: SandboxOrigin
 }): Sandbox {
-  const start: Frame = { board: structuredClone(opts.board), orders: structuredClone(opts.orders) }
   const s: Sandbox = {
     id: crypto.randomUUID(),
     name: opts.name,
     mapId: opts.mapId,
-    frames: [structuredClone(start)],
+    frames: [{ board: structuredClone(opts.board), orders: structuredClone(opts.orders) }],
     cursor: 0,
     createdAt: new Date().toISOString(),
     origin: opts.origin,
-    start,
   }
   mutate((list) => [s, ...list])
   return s
@@ -187,25 +183,4 @@ export function resolveCurrent(id: string, orders: AnyOrder[]): AdjudicationResu
     return { ...cur, frames, cursor: cur.cursor + 1 }
   })
   return result
-}
-
-export function resetSandbox(id: string): void {
-  update(id, (s) => ({ ...s, frames: [s.start ? structuredClone(s.start) : freshFrame(s.mapId)], cursor: 0 }))
-}
-
-export function exportSandbox(id: string): string {
-  return JSON.stringify(getSandbox(id) ?? {}, null, 2)
-}
-
-/** Import a sandbox JSON blob, assigning it a fresh id. Returns it, or null if invalid. */
-export function importSandbox(json: string): Sandbox | null {
-  try {
-    const parsed = migrate(JSON.parse(json) as LegacySandbox)
-    if (!parsed.frames?.length || !parsed.mapId) return null
-    const s: Sandbox = { ...parsed, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
-    mutate((list) => [s, ...list])
-    return s
-  } catch {
-    return null
-  }
 }

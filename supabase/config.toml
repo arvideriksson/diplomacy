@@ -1,9 +1,73 @@
+# Local Supabase stack (`npm run db:start`, Docker). This file configures ONLY the local
+# stack — the live project is set up in its dashboard. It can't be pushed there:
+# scripts/supabase-guard.mjs refuses `supabase config push`, and the checkout stays
+# unlinked (only scripts/live.mjs links, for one allowlisted command). Unlisted settings
+# keep the CLI defaults.
 project_id = "diplomacy"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+# Match the live project (Postgres 17).
+major_version = 17
+
+[db.seed]
+# supabase/seed.sql: local-only wiring (cron → local Edge Function). Applied after the
+# migrations on `npm run db:start` (first run) and `npm run db:reset`.
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+
+[storage]
+enabled = true
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+# The Vite dev server (5173) and the run-app skill's port (5199).
+site_url = "http://localhost:5173"
+additional_redirect_urls = [
+  "http://localhost:5173/**",
+  "http://127.0.0.1:5173/**",
+  "http://localhost:5199/**",
+  "http://127.0.0.1:5199/**",
+]
+jwt_expiry = 3600
+enable_signup = true
+# Dev seats and `npm run test:7p` play as anonymous users. Google sign-in is not
+# configured locally; use "Continue as guest" or the dev seats.
+enable_anonymous_sign_ins = true
+
+[auth.rate_limit]
+# Every test run signs in seven fresh anonymous players.
+anonymous_users = 1000
 
 [edge_runtime]
 enabled = true
+policy = "per_worker"
+deno_version = 2
 
-# We authenticate the cron->function call with the service-role key ourselves,
+[edge_runtime.secrets]
+# Local-only shared secret; seed.sql puts the same value in private.engine_config.
+# The live project's secret is set with `supabase secrets set` and never lives here.
+ADJUDICATOR_SECRET = "local-dev-adjudicator-secret"
+
+# The cron → function call authenticates with ADJUDICATOR_SECRET itself,
 # so JWT verification is disabled for this function.
 [functions.adjudicate]
 verify_jwt = false

@@ -9,7 +9,9 @@ The app is a Vite + Svelte project.
 pkill -f 'vite' 2>/dev/null || true
 sleep 1
 
-# Start dev server in background
+# Start dev server in background. It targets the local Supabase stack
+# (`npm run db:start`, Docker) and refuses to start if that isn't running;
+# prefix with BACKEND=live to use the cloud project instead.
 cd /home/arvid/diplomacy
 npx vite --host 0.0.0.0 --port 5199 &
 echo $! > /tmp/diplomacy-dev.pid

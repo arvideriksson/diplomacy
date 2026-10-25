@@ -4,7 +4,7 @@
   // under import.meta.env.DEV (see App.svelte), so it's tree-shaken from production.
   import { useLocation } from 'svelte-routing'
   import { currentGame, fetchGame } from '../lib/game'
-  import { activeDevSeat } from '../lib/supabase'
+  import { activeDevSeat, backendTarget } from '../lib/supabase'
   import { SEATS, seatUser, switchSeat, fillLobby, readyOtherSeats } from '../lib/devSeats'
   import { flagUrl } from '../lib/flags'
 
@@ -71,6 +71,9 @@
         <span>Test seats</span>
         <span class="hint">Alt+1…7</span>
       </div>
+      <div class="backend-note {backendTarget}">
+        {backendTarget === 'local' ? 'Local Supabase stack — safe to break.' : 'Live project — test games are real data.'}
+      </div>
       <ul>
         {#each seats as s (s.seat)}
           <li>
@@ -99,7 +102,7 @@
     </div>
   {/if}
   <button class="pill" on:click={() => (open = !open)} title="Dev test seats" aria-expanded={open}>
-    <span class="icon">🧪</span><span class="pill-label">Seat {active}{#if activeNation}{` · ${activeNation}`}{/if}</span><span class="seat-dot">{active}</span>
+    <span class="icon">🧪</span><span class="pill-label">Seat {active}{#if activeNation}{` · ${activeNation}`}{/if}</span><span class="seat-dot">{active}</span><span class="backend {backendTarget}">{backendTarget}</span>
   </button>
 </div>
 
@@ -248,6 +251,35 @@
     cursor: wait;
   }
 
+  .backend {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .backend.local,
+  .backend-note.local {
+    background: color-mix(in srgb, var(--green) 18%, transparent);
+    color: var(--green);
+  }
+
+  .backend.live,
+  .backend-note.live {
+    background: color-mix(in srgb, var(--red) 18%, transparent);
+    color: var(--red);
+  }
+
+  .backend-note {
+    margin: 0 0 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+  }
+
   .msg {
     margin: 8px 6px 2px;
     color: var(--text-secondary);
@@ -304,7 +336,8 @@
       opacity: 1;
     }
 
-    .pill-label {
+    .pill-label,
+    .pill .backend {
       display: none;
     }
 

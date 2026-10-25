@@ -7,6 +7,9 @@ export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'unconfigured'
 if (!supabaseConfigured) console.warn('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY); only sandboxes will work.')
 
+/** The project this dev server talks to: 'local' (the Docker stack) or 'live' — set by vite.config.ts. */
+export const backendTarget: 'local' | 'live' = import.meta.env.VITE_BACKEND === 'local' ? 'local' : 'live'
+
 /**
  * Dev-only test seats: up to seven independent sessions that live side by side in
  * localStorage, one per storage key (`sb-dev-seat-<n>`). Each tab picks its active seat

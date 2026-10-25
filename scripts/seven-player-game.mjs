@@ -3,32 +3,24 @@
 // (its own auth.uid + JWT), so this exercises the real anonymous-auth + RLS + RPC
 // path end to end: create → join → claim → start → submit orders → (resolve).
 //
-// Prereq: anonymous sign-ins enabled in Supabase Auth settings.
+// Prereq: anonymous sign-ins enabled (on locally via supabase/config.toml; for live, in
+//         the dashboard's Auth settings).
 // Run:     npm run test:7p
 //          node --experimental-strip-types scripts/seven-player-game.mjs
 //
-// Reads VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY from .env. Points at whatever
-// project that .env targets — if it's your cloud project, readying all seven also
-// trips the live cron + adjudicator Edge Function, so the poll at the end watches a
-// real Spring-1901 resolution.
+// Targets the local Supabase stack by default (`npm run db:start`); BACKEND=live
+// (`npm run test:7p:live`) points it at the cloud project in .env instead, where readying
+// all seven also trips the live cron + adjudicator Edge Function. Either way the poll at
+// the end watches a real Spring-1901 resolution. See scripts/backend.ts.
 
-import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
+import { backendName, resolveBackend } from './backend.ts'
 
-// ── env ──────────────────────────────────────────────────────────────────────
-const env = Object.fromEntries(
-  readFileSync(new URL('../.env', import.meta.url), 'utf8')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .map((l) => {
-      const i = l.indexOf('=')
-      return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')]
-    }),
-)
-const URL_ = env.VITE_SUPABASE_URL
-const KEY = env.VITE_SUPABASE_ANON_KEY
-if (!URL_ || !KEY) throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY in .env')
+// ── backend ──────────────────────────────────────────────────────────────────
+const backend = resolveBackend(backendName('local'))
+const URL_ = backend.url
+const KEY = backend.anonKey
+console.log(`Backend: ${backend.name} (${URL_})`)
 
 // Starting board comes straight from the map definition (type-only imports, so it
 // loads under Node's --experimental-strip-types).

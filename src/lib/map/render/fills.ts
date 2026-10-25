@@ -107,6 +107,10 @@ const provinceFill = (provinceId: string, state: RenderState, lookup: FillLookup
   return { fill, stroke, strokeWidth, selected, highlighted, stripe, inner }
 }
 
+// Province outlines turn sharply where three provinces meet; a mitred stroke shoots a long
+// spike past such a corner into the neighbour. Every outline stroke joins round instead.
+const JOIN = 'stroke-linejoin="round"'
+
 const clipId = (prefix: string, id: string): string => `${prefix}hlclip-${id.replace(/[^a-zA-Z0-9]/g, '-')}`
 
 // Pulsing highlight borders "breathe" by opacity, not stroke-width: they are drawn into their own
@@ -138,17 +142,17 @@ export const provinceFillsLayer = (
       pulseDefs.push(`<clipPath id="${cid}"><path d="${d}"/></clipPath>`)
       if (style.fill !== DEFAULT_FILL) fills.push(`<path d="${d}" fill="${style.fill}"/>`)
       pulse.push(
-        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${INNER_STROKE_WIDTH + PULSE_WIDTH_BOOST * 1.5}" clip-path="url(#${cid})"/>`
+        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${INNER_STROKE_WIDTH + PULSE_WIDTH_BOOST * 1.5}" ${JOIN} clip-path="url(#${cid})"/>`
       )
       continue
     }
     if (style.highlighted && !style.selected) {
       if (style.fill !== DEFAULT_FILL) fills.push(`<path d="${d}" fill="${style.fill}"/>`)
       pulse.push(
-        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${HIGHLIGHTED_STROKE_WIDTH + PULSE_WIDTH_BOOST}"/>`
+        `<path d="${d}" fill="none" stroke="${style.stroke}" stroke-width="${HIGHLIGHTED_STROKE_WIDTH + PULSE_WIDTH_BOOST}" ${JOIN}/>`
       )
     } else {
-      fills.push(`<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}"/>`)
+      fills.push(`<path d="${d}" fill="${style.fill}" stroke="${style.stroke}" stroke-width="${style.strokeWidth}" ${JOIN}/>`)
     }
     if (style.stripe) {
       fills.push(`<path d="${d}" fill="url(#highlightedStripes)" stroke="none" pointer-events="none"/>`)

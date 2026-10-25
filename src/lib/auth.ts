@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { rpc } from './rpc'
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS ?? '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean)
 
@@ -8,6 +9,16 @@ export const session = writable<Session | null>(null)
 export const user = derived(session, ($session) => $session?.user ?? null)
 export const isAuthenticated = derived(session, ($session) => $session !== null)
 export const isSiteAdmin = derived(user, ($user) => $user?.email ? ADMIN_EMAILS.includes($user.email.toLowerCase()) : false)
+
+/** The name a user goes by: the one they chose, else the provider's. */
+export function metaDisplayName(meta: Record<string, any> | undefined): string | undefined {
+  return meta?.display_name ?? meta?.full_name ?? meta?.name ?? undefined
+}
+
+export const displayName = derived(user, ($user) => $user ? (metaDisplayName($user.user_metadata) ?? $user.email ?? null) : null)
+
+/** A real (non-test) account that hasn't picked a name yet — prompted on first sign-in. */
+export const needsDisplayName = derived(user, ($user) => !!$user && !$user.is_anonymous && !$user.user_metadata?.display_name)
 
 export async function initAuth() {
   const { data } = await supabase.auth.getSession()
@@ -42,6 +53,17 @@ export async function signInAnonymously(displayName?: string) {
   const { error } = await supabase.auth.signInAnonymously({
     options: { data: { full_name: name, name } },
   })
+  if (error) throw error
+}
+
+/**
+ * Choose / change the signed-in user's name. The RPC stores it on the account and copies
+ * it into every game roster they're in; the session refresh pulls the new metadata into
+ * `user`.
+ */
+export async function setDisplayName(name: string) {
+  await rpc('set_display_name', { p_name: name })
+  const { error } = await supabase.auth.refreshSession()
   if (error) throw error
 }
 

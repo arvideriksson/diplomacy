@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Left rail of the in-game shell: game/sandbox title + Leave on top, then the slotted
+  // Left rail of the in-game shell: game/sandbox title + back button on top, then the slotted
   // body (chat in a game, unit styles in a sandbox). Mirror of the right order sidebar.
   // On narrow screens it becomes a drawer over the map; the scrim closes it.
   import Icon from './Icon.svelte'
@@ -21,9 +21,8 @@
   {#if title || onExit}
     <div class="side-title">
       {#if onExit}
-        <button class="leave" on:click={onExit} title="Leave game">
-          <Icon name="back" size={15} strokeWidth={2.2} round />
-          Leave
+        <button class="glass back" on:click={onExit} title="Back" aria-label="Back">
+          <Icon name="back" strokeWidth={2.2} round />
         </button>
       {/if}
       {#if title}<span class="game-name">{title}</span>{/if}
@@ -96,28 +95,21 @@
     min-width: 0;
     max-width: calc(100% - 180px);
   }
-  .side-title .leave {
+  /* The app's standard back button (see FloatingChrome), pinned to the rail's corner. */
+  .side-title .back {
     position: absolute;
-    left: 14px;
+    left: 10px;
     top: 50%;
     transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border: 1px solid var(--border-strong, #cbd5e1);
-    background: var(--bg-input, #fff);
-    color: var(--text-secondary, #555);
-    border-radius: 6px;
-    padding: 0 10px 0 6px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--text);
     cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: var(--font);
-    flex: none;
   }
-  .side-title .leave:hover {
-    border-color: var(--accent, #3b82f6);
-    color: var(--accent, #3b82f6);
+  .side-title .back:hover {
+    border-color: var(--border-strong);
   }
 </style>

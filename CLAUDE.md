@@ -17,10 +17,23 @@ A web application for playing the board game **Diplomacy** online.
 
 ## Commands
 
-- `npm run dev` — start the Vite dev server
-- `npm run build` — production build
+- `npm run dev` — start the Vite dev server against the **local** Supabase stack (`npm run dev:live` targets the cloud project)
+- `npm run build` — production build (live project, from `.env` / CI secrets)
 - `npm run preview` — preview the production build
 - `npm run check` — type-check Svelte + TypeScript
+- `npm run db:start` / `db:stop` / `db:reset` / `db:status` — local Supabase stack in Docker (migrations + `supabase/seed.sql`, adjudicator served locally)
+- `npm run test:7p` — seven-player end-to-end game against the local stack (`test:7p:live` for the cloud)
+- `npm run live:push` (`-- --dry-run`) / `live:deploy-functions` — ship migrations / the adjudicator to the cloud project (the only way to reach it; see below)
+
+## Local vs live backend
+
+Develop and test against the **local** stack first; promote to **live** only once it works there. One switch, `BACKEND=local|live`, resolved by `scripts/backend.ts` and shared by `vite.config.ts` and the Node test scripts. `local` reads its URL/keys from `supabase status` (nothing to copy); `live` uses `.env`. Defaults: `vite` dev → local, `vite build` → live, `test:7p` → local. The dev-seat pill shows a LOCAL/LIVE badge.
+
+- `supabase/config.toml` configures **only the local stack** (anonymous sign-ins on, dev adjudicator secret), and is structurally kept off the live project:
+  - `node_modules/.bin/supabase` is `scripts/supabase-guard.mjs` (installed by `postinstall`, asserted by `supabaseGuard.test.ts`). It refuses `config push` and `--include-seed` always, and `link` / `--project-ref` unless called from `scripts/live.mjs`.
+  - The checkout stays **unlinked**. `scripts/live.mjs` (behind `npm run live:*`) links, runs one allowlisted command, and unlinks in `finally`. Don't `supabase link` by hand; add a command to its allowlist instead.
+- `supabase/seed.sql` wires the local cron to the local Edge Function (`private.engine_config`). It runs on `db:start`/`db:reset`, never on `db push`.
+- Workflow for a backend change: `npm run db:reset` → `npm run test:7p` / `npm run dev` with dev seats → `npm run live:push` + `npm run live:deploy-functions`. The step-by-step versions are the **`local-test`** and **`push-live`** skills (`.claude/skills/`).
 
 ## Layout
 
