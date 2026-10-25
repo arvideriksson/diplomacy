@@ -539,8 +539,7 @@ returns boolean as $$
   select coalesce((p_ready ->> p_nation)::boolean, false);
 $$ language sql immutable;
 
--- ═══ public.join_public_game(uuid)  — from 20250101000139_display_name.sql
--- ── join_public_game (re-issues 138) — snapshot the chosen name ──────────────────
+-- ═══ public.join_public_game(uuid)  — from 20250101000146_drop_avatar_url.sql
 create or replace function public.join_public_game(game_id uuid)
 returns jsonb as $$
 declare
@@ -580,7 +579,6 @@ begin
   player_info = jsonb_build_object(
     'role', 'player',
     'display_name', public.user_display_name(user_meta),
-    'avatar_url', user_meta->>'avatar_url',
     'joined_at', now()
   );
 

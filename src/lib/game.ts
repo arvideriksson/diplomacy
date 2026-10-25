@@ -97,7 +97,6 @@ export interface PlayerInfo {
   role: 'host' | 'player'
   nation?: string
   display_name?: string
-  avatar_url?: string
   joined_at: string
 }
 
@@ -147,7 +146,6 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
   const playerInfo: PlayerInfo = {
     role: 'host',
     display_name: metaDisplayName(meta),
-    avatar_url: meta.avatar_url ?? undefined,
     joined_at: new Date().toISOString(),
   }
 

@@ -40,7 +40,7 @@
         style={info.nation ? `--power: ${powerColor(powers, info.nation)}` : ''}
         transition:fly={{ y: 10, duration: 200 }}
       >
-        <Avatar src={info.avatar_url} name={info.display_name} />
+        <Avatar name={info.display_name} />
         <div class="player-info">
           <span class="player-name">
             {info.display_name ?? 'Anonymous'}
