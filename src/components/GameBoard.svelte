@@ -14,6 +14,7 @@
   import type { AnyOrder, BuildOrder, OrderType, RetreatOrder } from '../lib/orders/types'
   import { nextStep, finalize, applicableOrderTypes, type Draft, type Step, type WizardContext } from '../lib/orders/wizard'
   import { buildSituation } from '../lib/orders/adjustments'
+  import { supportAux } from '../lib/orders/options'
   import { canConvoyFrom } from '../lib/adjudicator/rules'
   import type { OrderResult } from '../lib/adjudicator/types'
   import { BUBBLE_ICONS, ORDER_BUBBLES, type Bubble, type BubbleMenu } from '../lib/orders/bubbles'
@@ -422,6 +423,19 @@
       if (unit) startDraft(unit)
       return
     }
+    if (moveMode) {
+      if (gid === draft.source) return setType('Hold')
+      if (moveModeStep?.kind === 'province') {
+        const next = applyChoice({ ...draft, type: 'Move' }, moveModeStep, dsvgId)
+        if (next) {
+          draft = next
+          recompute()
+          return
+        }
+      }
+      if (unit) startDraft(unit)
+      return
+    }
     if (!draft.type) {
       // Bubbles open: the same unit again closes them, another unit switches to it.
       if (gid === draft.source) cancel()
@@ -434,6 +448,26 @@
       return
     }
     applyProvince(dsvgId)
+  }
+
+  // Mouse: right click on a unit supports it (then picks the supported destination), middle
+  // click on a fleet starts a convoy.
+  function handleProvinceAuxClick(dsvgId: string, button: 'right' | 'middle') {
+    if (phase !== 'movement') return
+    const gid = toGameId(dsvgId)
+    if (button === 'middle') {
+      const unit = ownUnits.find((u) => u.territory === gid)
+      if (!unit) return
+      startDraft(unit)
+      if (applicableOrderTypes({ map: mapDef, unit, units }).includes('Convoy')) setType('Convoy')
+      return
+    }
+    if (!draft) return
+    if (!moveMode) return handleMovementClick(dsvgId)
+    if (supportable.includes(gid)) {
+      draft = { source: draft.source, sourceCoast: draft.sourceCoast, type: 'Support', aux: gid }
+      recompute()
+    }
   }
 
   function cancel() {
@@ -825,6 +859,17 @@
   $: moveSelectable = !draft || !draft.type
     ? ownUnits.map((u) => toDsvgId(u.territory))
     : [...moveHighlighted, toDsvgId(draft.source)]
+  // With a mouse, a selected unit is in move mode until another order type is picked: left
+  // click moves there (the unit itself holds), right click on a unit supports it.
+  let mouseInput = false
+  $: moveMode = mouseInput && phase === 'movement' && !!draft && (!draft.type || (draft.type === 'Move' && !draft.convoyPath?.length))
+  $: moveModeStep = moveMode && draft && draftCtx ? nextStep({ source: draft.source, sourceCoast: draft.sourceCoast, type: 'Move' }, draftCtx) : null
+  $: moveModeChoices = moveModeStep?.kind === 'province' ? moveModeStep.choices.map((c) => toDsvgId(c.id, c.coast)) : []
+  $: supportable = moveMode && draftCtx ? supportAux(mapDef, draftCtx.unit, units) : []
+  $: movementHighlighted = moveMode ? moveModeChoices : moveHighlighted
+  $: movementSelectable = moveMode && draft
+    ? [...new Set([...ownUnits.map((u) => toDsvgId(u.territory)), ...moveModeChoices, ...supportable.map((p) => toDsvgId(p)), toDsvgId(draft.source)])]
+    : moveSelectable
   // Fleets already chosen for a convoy route stay marked while the route is built.
   $: convoyChain = (draft?.convoyPath ?? []).map((p) => toDsvgId(p))
 
@@ -833,8 +878,8 @@
   // Build: open slots as dashed "+" rings; placed builds/removes stay clickable to undo.
   $: buildMap = buildMapInputs(buildSpots, removeChoices, orders)
 
-  $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : moveHighlighted
-  $: selectable = readOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : moveSelectable
+  $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : movementHighlighted
+  $: selectable = readOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : movementSelectable
   $: mapBuildSlots = !readOnly && phase === 'build' ? buildMap.buildIds : []
   $: mapRemoveSlots = !readOnly && phase === 'build' ? buildMap.removeIds : []
 
@@ -971,7 +1016,7 @@
   }
 </script>
 
-<svelte:window on:keydown={onKeydown} />
+<svelte:window on:keydown={onKeydown} on:pointerdown|capture={(e) => (mouseInput = e.pointerType === 'mouse')} />
 
 <div class="game" class:compact={$compact} class:sandbox={Boolean(onResolve)} data-tab={tab}>
   {#if $compact}
@@ -1081,6 +1126,7 @@
         {onBubble}
         onBackgroundClick={canAct ? cancel : null}
         onProvinceClick={canAct ? handleProvinceClick : null}
+        onProvinceAuxClick={canAct ? handleProvinceAuxClick : null}
       />
 
       <div class="map-action">
