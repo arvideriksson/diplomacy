@@ -35,6 +35,8 @@
   export let spotlightNation: string = ''
   /** When set, the parent owns selection — receives the clicked dSVG id. */
   export let onProvinceClick: ((dsvgId: string) => void) | null = null
+  /** Mouse-only right / middle click on a clickable region. */
+  export let onProvinceAuxClick: ((dsvgId: string, button: 'right' | 'middle') => void) | null = null
   /** Fill the parent container (immersive in-game view) instead of sizing by aspect ratio. */
   export let fill: boolean = false
   /** Radial action menu around a unit/center, and its pick handler. */
@@ -371,6 +373,22 @@
     selectedTerritory = selectedTerritory === gameId ? null : gameId
   }
 
+  // Right / middle clicks from a mouse (a touch long-press keeps its default).
+  let pointerType = ''
+  function handleAuxPath(id: string, e: MouseEvent, button: 'right' | 'middle') {
+    if (!onProvinceAuxClick || pointerType !== 'mouse') return
+    e.preventDefault()
+    if (!interactive || moved || !renderableSet.has(id)) return
+    onProvinceAuxClick(id, button)
+  }
+  function onWrapContextMenu(e: MouseEvent) {
+    if (onProvinceAuxClick && pointerType === 'mouse') e.preventDefault()
+  }
+  // No middle-button autoscroll over the board.
+  function onWrapMouseDown(e: MouseEvent) {
+    if (e.button === 1 && onProvinceAuxClick) e.preventDefault()
+  }
+
   // ── pan / zoom ──────────────────────────────────────────────────────
   // Client point → view coords (before the pan/zoom transform), from the untransformed
   // wrapper's box, so it is independent of the stage's CSS transform.
@@ -414,6 +432,7 @@
 
   let captured = false
   function onPointerDown(e: PointerEvent) {
+    pointerType = e.pointerType
     if (!interactive) return
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
     panning = true
@@ -509,6 +528,8 @@
   on:pointerleave={onPointerUp}
   on:pointercancel={onPointerUp}
   on:click={onWrapClick}
+  on:contextmenu={onWrapContextMenu}
+  on:mousedown={onWrapMouseDown}
 >
   {#if loadError}
     <div class="map-msg">Failed to load map: {loadError}</div>
@@ -597,6 +618,8 @@
             on:pointerenter={(e) => handleEnter(id, e)}
             on:pointerleave={handleLeave}
             on:click={() => handleClickPath(id)}
+            on:contextmenu={(e) => handleAuxPath(id, e, 'right')}
+            on:auxclick={(e) => e.button === 1 && handleAuxPath(id, e, 'middle')}
           />
         {/each}
       </svg>
