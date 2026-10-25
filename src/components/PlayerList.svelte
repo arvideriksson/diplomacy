@@ -24,7 +24,7 @@
   $: playerCount = Object.keys(players).length
 </script>
 
-<section class="card">
+<section class="card players-card">
   <div class="card-head">
     <Icon name="users" />
     <h2>Players</h2>
@@ -179,5 +179,14 @@
     color: var(--red);
     border-color: var(--red);
     background: var(--red-subtle);
+  }
+
+  @media (max-width: 600px) {
+    .leave-btn, .kick-btn {
+      width: 36px;
+      height: 36px;
+      justify-content: center;
+      padding: 0;
+    }
   }
 </style>

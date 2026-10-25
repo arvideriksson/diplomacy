@@ -98,8 +98,8 @@
       {/if}
     </div>
   {/if}
-  <button class="pill" on:click={() => (open = !open)} title="Dev test seats">
-    🧪 Seat {active}{#if activeNation}{` · ${activeNation}`}{/if}
+  <button class="pill" on:click={() => (open = !open)} title="Dev test seats" aria-expanded={open}>
+    <span class="icon">🧪</span><span class="pill-label">Seat {active}{#if activeNation}{` · ${activeNation}`}{/if}</span><span class="seat-dot">{active}</span>
   </button>
 </div>
 
@@ -252,5 +252,95 @@
     margin: 8px 6px 2px;
     color: var(--text-secondary);
     font-size: 12px;
+  }
+
+  .icon {
+    margin-right: 5px;
+  }
+
+  .seat-dot {
+    display: none;
+  }
+
+  /* Phones: a small tab on the left screen edge, vertically centred — clear of the
+     top header / back button / avatar and of the bottom tab bar and submit controls.
+     The panel opens beside it. */
+  @media (max-width: 600px) {
+    .dev-seats {
+      left: 0;
+      bottom: auto;
+      top: 50%;
+      transform: translateY(-50%);
+      flex-direction: row-reverse;
+      align-items: center;
+    }
+
+    .pill {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 40px;
+      padding: 0 2px 0 0;
+      font-size: 13px;
+      border-left: none;
+      border-radius: 0 var(--radius-full) var(--radius-full) 0;
+      opacity: 0.8;
+      box-shadow: var(--shadow-md);
+    }
+
+    /* Thumb-sized hit area around the small chip. */
+    .pill::before {
+      content: '';
+      position: absolute;
+      inset: -6px -10px -6px 0;
+    }
+
+    .icon {
+      margin: 0;
+    }
+
+    .pill[aria-expanded='true'] {
+      opacity: 1;
+    }
+
+    .pill-label {
+      display: none;
+    }
+
+    .seat-dot {
+      display: grid;
+      place-items: center;
+      position: absolute;
+      right: -6px;
+      bottom: -5px;
+      min-width: 15px;
+      height: 15px;
+      padding: 0 3px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text-inverse);
+      background: var(--amber);
+      border-radius: var(--radius-full);
+    }
+
+    .panel {
+      width: min(300px, calc(100vw - 32px));
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+    }
+
+    .hint {
+      display: none;
+    }
+
+    .seat {
+      padding: 9px 6px;
+    }
+
+    .action {
+      padding: 11px 8px;
+    }
   }
 </style>

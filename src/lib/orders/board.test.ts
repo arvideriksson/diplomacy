@@ -94,9 +94,9 @@ describe('build phase', () => {
     })
   })
   it('prompts by what is owed', () => {
-    expect(buildPrompt(situations)).toBe('Click a highlighted home center to build, or a unit to remove.')
-    expect(buildPrompt([situations[0]])).toBe('Click a highlighted home center to build (2 available).')
-    expect(buildPrompt([situations[1]])).toBe('Click a highlighted unit to remove (1 required).')
+    expect(buildPrompt(situations)).toBe('Select a highlighted home center to build, or a unit to remove.')
+    expect(buildPrompt([situations[0]])).toBe('Select a highlighted home center to build (2 available).')
+    expect(buildPrompt([situations[1]])).toBe('Select a highlighted unit to remove (1 required).')
     expect(buildPrompt([])).toBe('No adjustments needed this phase.')
   })
 })

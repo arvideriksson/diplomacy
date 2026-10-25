@@ -86,3 +86,38 @@ export function formatAnyOrder(
     }
   }
 }
+
+/** A province's full name, with its coast spelled out ("Spain (South Coast)"). */
+function placeName(map: MapDefinition, id: string, coast?: string): string {
+  const t = map.territories[id]
+  const name = t?.name ?? id
+  return coast ? `${name} (${t?.coasts?.[coast]?.name ?? coast.toUpperCase()})` : name
+}
+
+/**
+ * The same orders in plain words, for readers who don't speak notation:
+ * "London → English Channel", "Edinburgh supports London → North Sea",
+ * "Build a fleet in St. Petersburg (South Coast)".
+ */
+export function describeAnyOrder(map: MapDefinition, o: AnyOrder): string {
+  const src = placeName(map, o.source, o.sourceCoast)
+  switch (o.type) {
+    case 'Hold':
+      return `${src} holds`
+    case 'Move':
+    case 'Retreat':
+      return `${src} → ${placeName(map, o.target ?? '', o.targetCoast)}${o.type === 'Retreat' ? ' (retreat)' : ''}`
+    case 'Support':
+      return o.target && o.target !== o.aux
+        ? `${src} supports ${placeName(map, o.aux ?? '')} → ${placeName(map, o.target)}`
+        : `${src} supports ${placeName(map, o.aux ?? '')} holding`
+    case 'Convoy':
+      return `${src} convoys ${placeName(map, o.aux ?? '')} → ${placeName(map, o.target ?? '')}`
+    case 'Disband':
+      return `${src} disbands`
+    case 'Build':
+      return `Build ${o.unitType === 'fleet' ? 'a fleet' : 'an army'} in ${src}`
+    case 'Remove':
+      return `Remove the unit in ${src}`
+  }
+}

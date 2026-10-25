@@ -175,4 +175,30 @@
     gap: 12px;
     margin-top: 36px;
   }
+
+  /* Phones: 16px gutters, the floating back button / avatar cleared, and room at the
+     bottom past the home indicator. */
+  @media (max-width: 600px) {
+    main {
+      padding: calc(68px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
+    }
+
+    /* The sign-in page has no floating chrome to clear. */
+    main:has(.auth-page) {
+      padding-top: calc(48px + env(safe-area-inset-top));
+    }
+
+    .auth-page {
+      padding-top: 24px;
+    }
+
+    .auth-hero h1 {
+      font-size: 36px;
+      margin-bottom: 20px;
+    }
+
+    .login-container {
+      margin-top: 28px;
+    }
+  }
 </style>

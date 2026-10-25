@@ -6,6 +6,7 @@
   import ConversationList from './ConversationList.svelte'
   import NewConversationPicker from './NewConversationPicker.svelte'
   import ChatThread from './ChatThread.svelte'
+  import { compact } from '../lib/layout'
 
   export let gameId: string
   /** The viewer's nation. Chat is unavailable without one (spectators get no press). */
@@ -14,6 +15,8 @@
   export let players: Record<string, PlayerInfo> = {}
   /** Map powers — supplies each nation's display name and color. */
   export let powers: PowerDefinition[] = []
+  /** Total unread messages across conversations (for a tab badge). */
+  export let onUnread: ((n: number) => void) | null = null
 
   let scroller: HTMLDivElement | null = null
 
@@ -24,7 +27,15 @@
 
   // All conversation state + loading/sending lives in the store (one per mounted panel).
   const chat = createChatStore(gameId, nation, scrollToBottom)
-  const { picking, openChan } = chat
+  const { picking, openChan, unread, activeId, activeDraftId } = chat
+  $: onUnread?.(Object.values($unread).reduce((a, n) => a + (n || 0), 0))
+
+  // Phones: one pane at a time — the list, or the open thread with a way back.
+  function backToList() {
+    if ($picking) chat.cancelPicking()
+    else if ($activeDraftId != null) chat.toggleDraft($activeDraftId)
+    else if ($activeId != null) chat.toggleChannel($activeId)
+  }
 
   $: labels = chatLabels(powers, nation)
   $: myName = labels.display(nation)
@@ -61,7 +72,24 @@
       {myName}
     </div>
 
-    <!-- Two-pane press: persistent conversation list (left) + the open thread (right). -->
+    <!-- Two-pane press: persistent conversation list (left) + the open thread (right).
+         Phones show one at a time. -->
+    {#if $compact}
+      <div class="panes single">
+        {#if $picking || $openChan}
+          <div class="thread-pane">
+            <button class="back" on:click={backToList}>‹ Conversations</button>
+            {#if $picking}
+              <NewConversationPicker {chat} {labels} {otherNations} />
+            {:else}
+              <ChatThread {chat} {labels} {nation} bind:scroller />
+            {/if}
+          </div>
+        {:else}
+          <ConversationList {chat} {labels} {nation} wide />
+        {/if}
+      </div>
+    {:else}
     <div class="panes">
       <ConversationList {chat} {labels} {nation} />
 
@@ -78,6 +106,7 @@
         {/if}
       </div>
     </div>
+    {/if}
   </aside>
 {/if}
 
@@ -97,6 +126,17 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+  .back {
+    flex: none;
+    align-self: flex-start;
+    min-height: 44px;
+    padding: 0 14px;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: 600 15px var(--font);
+    cursor: pointer;
   }
   .thread-pane {
     flex: 1;

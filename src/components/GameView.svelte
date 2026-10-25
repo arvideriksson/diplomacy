@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import GameBoard from './GameBoard.svelte'
+  import SandboxBoard from './SandboxBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
   import GameAdminPanel from './GameAdminPanel.svelte'
   import VictoryBanner from './VictoryBanner.svelte'
@@ -12,8 +13,11 @@
   import { getMap } from '../lib/maps'
   import { initialBoard, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
-  import { isOrderPhase } from '../lib/phases'
+  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
   import { powerName } from '../lib/powers'
+  import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox } from '../lib/sandbox'
+  import type { AnyOrder } from '../lib/orders/types'
+  import { compact, type GameTab } from '../lib/layout'
 
   export let game: GameState
   export let nation: string = ''
@@ -110,14 +114,66 @@
     }
   }
 
+  // ── sandboxes copied from this game ────────────────────────────────────────
+  // The open sandbox lives in the URL (?sandbox=id) so a reload or shared tab returns to
+  // it; switching is a plain state change, so the game stays loaded and live meanwhile.
+  let sandboxId: string | null = new URLSearchParams(location.search).get('sandbox')
+  $: mySandboxes = sandboxesOf($sandboxes, game.id)
+  $: sandbox = sandboxId ? mySandboxes.find((s) => s.id === sandboxId) : undefined
+  let tab: GameTab = 'map'
+  // The viewer's current orders on the live board — copied into a new sandbox.
+  let liveOrders: AnyOrder[] = []
+
+  // Entering pushes a history entry, so the phone's back gesture returns to the game;
+  // leaving pops it when it's ours (else just rewrites the URL).
+  function enterSandbox(id: string) {
+    sandboxId = id
+    history.pushState({ ...history.state, sandbox: id }, '', `${location.pathname}?sandbox=${id}`)
+  }
+  function syncFromUrl() {
+    sandboxId = new URLSearchParams(location.search).get('sandbox')
+  }
+  onMount(() => {
+    window.addEventListener('popstate', syncFromUrl)
+    return () => window.removeEventListener('popstate', syncFromUrl)
+  })
+  function newSandbox() {
+    const board = liveBoard()
+    const phaseLabel = isOrderPhase(board.phase) ? PHASE_LABEL[board.phase] : board.phase
+    const round = `${board.season} ${board.year} ${phaseLabel}`
+    const n = mySandboxes.filter((s) => s.name.startsWith(round)).length
+    const sb = createSandboxFromGame({
+      name: n ? `${round} #${n + 1}` : round,
+      mapId: game.map_id,
+      board,
+      orders: isFrontier ? liveOrders : [],
+      origin: { gameId: game.id, gameName: game.name },
+    })
+    enterSandbox(sb.id)
+  }
+  // Back from a sandbox to the game lands on the map; into one, also on the map.
+  function leaveSandbox() {
+    if (history.state?.sandbox === sandboxId) history.back()
+    else history.replaceState(history.state, '', location.pathname)
+    sandboxId = null
+    tab = 'map'
+  }
+
+  let unread = 0
+
   $: frame = frames[cursor]
   $: isFrontier = cursor === frames.length - 1
   $: canBack = cursor > 0
   $: canForward = cursor < frames.length - 1
 </script>
 
-{#if frame}
+{#if sandbox}
+  {#key sandbox.id}
+    <SandboxBoard {sandbox} {map} onExit={leaveSandbox} onDeleted={leaveSandbox} focusNation={nation} />
+  {/key}
+{:else if frame}
   <GameBoard
+    bind:tab
     mapDef={map}
     {onExit}
     leftWidth={nation && game.phase !== 'lobby' ? '560px' : '320px'}
@@ -139,12 +195,21 @@
     graceEndsAt={isFrontier && !isComplete ? game.grace_ends_at ?? null : null}
     historyOrders={frame.orders}
     onPhaseBack={() => canBack && (cursor -= 1)}
+    onPhaseLatest={() => (cursor = frames.length - 1)}
+    onOrdersChange={(o) => (liveOrders = o)}
+    pressBadge={unread}
     onPhaseForward={() => canForward && (cursor += 1)}
     canPhaseBack={canBack}
     canPhaseForward={canForward}
     seedKey={String(cursor)}
   >
     <svelte:fragment slot="map-action">
+      {#if mySandboxes.length}
+        <button class="glass sb-chip" class:icon={$compact} on:click={() => enterSandbox(mySandboxes[0].id)} title="Open your latest sandbox" aria-label="Open your latest sandbox">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3" /><path d="M7.5 15h9" /></svg>
+          {#if !$compact}<span>Sandbox ›</span>{/if}
+        </button>
+      {/if}
       {#if canManage}
         <button class="glass cog-btn" on:click={() => (showAdmin = true)} title="Manage game" aria-label="Manage game">
           <Icon name="gear" size={17} />
@@ -159,7 +224,29 @@
     </svelte:fragment>
     <svelte:fragment slot="left">
       {#if nation && game.phase !== 'lobby' && !game.settings?.gunboat}
-        <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} />
+        <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} onUnread={(n) => (unread = n)} />
+      {/if}
+    </svelte:fragment>
+    <svelte:fragment slot="orders-extra">
+      {#if !isComplete}
+        <section class="sb-launch">
+          <h4>Sandbox</h4>
+          <p>Try your plans on a private copy of this board — you command every power and resolve instantly.</p>
+          <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {frame.board.season} {frame.board.year}</button>
+          {#if mySandboxes.length}
+            <ul>
+              {#each mySandboxes as sb (sb.id)}
+                <li>
+                  <button class="sb-open" on:click={() => enterSandbox(sb.id)}>
+                    <span class="sb-name">From {sb.name}</span>
+                    <span class="sb-at">{sb.frames[sb.cursor].board.season} {sb.frames[sb.cursor].board.year} ›</span>
+                  </button>
+                  <button class="sb-del" on:click={() => deleteSandbox(sb.id)} aria-label="Delete sandbox {sb.name}">✕</button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
       {/if}
     </svelte:fragment>
   </GameBoard>
@@ -175,6 +262,114 @@
 {/if}
 
 <style>
+  .sb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 12px;
+    margin-right: 8px;
+    border-radius: 999px;
+    color: var(--amber);
+    font: 700 13px var(--font);
+    cursor: pointer;
+  }
+  .sb-chip.icon {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+    margin-right: 0;
+    border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  }
+  .sb-chip:hover {
+    border-color: var(--amber);
+  }
+  .sb-launch {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: var(--bg-card);
+  }
+  .sb-launch h4 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+  .sb-launch p {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .sb-launch .sb-new {
+    width: 100%;
+    min-height: 44px;
+    border: 1.5px solid var(--amber);
+    background: var(--amber-subtle);
+    color: var(--amber);
+    font-weight: 700;
+  }
+  .sb-launch .sb-new:hover {
+    background: color-mix(in srgb, var(--amber) 20%, transparent);
+  }
+  .sb-launch ul {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .sb-launch li {
+    display: flex;
+    align-items: center;
+  }
+  .sb-launch li + li {
+    border-top: 1px solid var(--border);
+  }
+  .sb-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 12px;
+    border: none;
+    background: none;
+    color: var(--text);
+    font: 600 14px var(--font);
+    text-align: left;
+    cursor: pointer;
+  }
+  .sb-open:hover {
+    background: var(--bg-hover);
+  }
+  .sb-at {
+    flex: none;
+    color: var(--accent);
+    font-size: 13px;
+  }
+  .sb-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sb-del {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+  }
+  .sb-del:hover {
+    color: var(--red);
+  }
   /* Frosted (.glass) floating button, mirrored to the supply-center card. */
   .cog-btn {
     display: inline-flex;

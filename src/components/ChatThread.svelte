@@ -14,8 +14,21 @@
   const { openChan, activeDraft, activeMessages, renaming, renameInput, renamable, input, error } = chat
   $: ({ display, colorOf, channelLabel, memberList } = labels)
 
+  // Grow the compose box with its text (up to ~5 lines) instead of clipping it.
+  function autogrow(el: HTMLTextAreaElement, _value: string) {
+    const fit = () => {
+      el.style.height = 'auto'
+      el.style.height = `${Math.min(el.scrollHeight + 2, 130)}px`
+    }
+    fit()
+    return { update: fit }
+  }
+
+  // Touch keyboards have no Shift+Enter: there Return is a newline and Send sends.
+  const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !coarse) {
       e.preventDefault()
       chat.send()
     }
@@ -69,8 +82,8 @@
       {/if}
     </div>
     <div class="compose">
-      <textarea rows="1" placeholder="Message…" bind:value={$input} on:keydown={onKey} on:input={chat.onCompose}></textarea>
-      <button class="btn btn-primary btn-sm" on:click={chat.send} disabled={!$input.trim()}>Send</button>
+      <textarea rows="1" enterkeyhint={coarse ? 'enter' : 'send'} placeholder="Message…" bind:value={$input} use:autogrow={$input} on:keydown={onKey} on:input={chat.onCompose}></textarea>
+      <button class="btn btn-primary btn-sm send" on:click={chat.send} disabled={!$input.trim()}>Send</button>
     </div>
     {#if $error}<p class="err">{$error}</p>{/if}
   </div>
@@ -153,6 +166,10 @@
     color: #dc2626;
     font-weight: 600;
   }
+  .body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   .messages {
     flex: 1;
     overflow-y: auto;
@@ -184,12 +201,20 @@
   .compose {
     flex: none;
     display: flex;
+    align-items: flex-end;
     gap: 6px;
     padding: 8px;
     border-top: 1px solid var(--border, #eee);
   }
+  .send {
+    min-height: 36px;
+  }
+  .send:disabled {
+    opacity: 0.4;
+  }
   .compose textarea {
     flex: 1;
+    line-height: 1.35;
     resize: none;
     border: 1px solid var(--border-strong, #cbd5e1);
     border-radius: 8px;

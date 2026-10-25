@@ -22,6 +22,9 @@
   .toggle {
     flex-shrink: 0;
     cursor: pointer;
+    /* Pad the hit area out to a thumb-sized target without changing the layout. */
+    padding: 9px 4px;
+    margin: -9px -4px;
   }
 
   .toggle input {

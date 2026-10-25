@@ -92,6 +92,21 @@
     font-size: 13px;
     user-select: none;
   }
+  /* Phones: a small corner pill while folded. */
+  @media (max-width: 760px) {
+    .sc-card {
+      top: 10px;
+      left: 10px;
+    }
+    .sc-card.collapsed {
+      width: auto;
+    }
+    .sc-card.collapsed .sc-head {
+      gap: 6px;
+      padding: 8px 12px;
+      min-height: 36px;
+    }
+  }
   .sc-head {
     display: flex;
     align-items: center;

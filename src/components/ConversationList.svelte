@@ -7,6 +7,8 @@
   export let labels: ReturnType<typeof chatLabels>
   /** The viewer's nation (left out of each conversation's roundels). */
   export let nation: string
+  /** Fill the width (phones, where the list is the whole pane). */
+  export let wide: boolean = false
 
   const { channels, drafts, activeId, activeDraftId, unread, picking } = chat
   $: ({ display, colorOf, flagOf, channelLabel } = labels)
@@ -25,7 +27,7 @@
   </span>
 {/snippet}
 
-<div class="list-pane">
+<div class="list-pane" class:wide>
   <button class="new" class:on={$picking} on:click={chat.startPicking}>
     ＋ New
   </button>
@@ -63,6 +65,20 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .list-pane.wide {
+    flex: 1;
+    width: auto;
+    border-right: none;
+    padding: 12px 16px;
+  }
+  .list-pane.wide .new {
+    min-height: 44px;
+  }
+  .list-pane.wide .ch {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
   }
   .new {
     border: 1px dashed var(--border-strong, #cbd5e1);
@@ -113,7 +129,7 @@
     height: 22px;
     border-radius: 50%;
     object-fit: cover;
-    margin-left: -7px;
+    margin-left: -4px;
     box-shadow: 0 0 0 2px var(--bg-card, #fff);
   }
   .ch-flags .roundel:first-child {

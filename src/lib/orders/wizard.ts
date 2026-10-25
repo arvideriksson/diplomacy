@@ -95,7 +95,7 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
           }
         }
         const choices: Choice[] = moveTargets(map, unit).map((t) => ({ id: t.province, label: name(map, t.province) }))
-        return { kind: 'province', field: 'target', prompt: 'Choose destination, or a fleet to convoy through', choices: [...choices, ...fleetChoices] }
+        return { kind: 'province', field: 'target', prompt: fleetChoices.length ? 'Choose destination, or a fleet to convoy through' : 'Choose destination', choices: [...choices, ...fleetChoices] }
       }
       if (!draft.target) {
         // Destinations are coast-specific for multi-coast provinces: each reachable
@@ -136,7 +136,7 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
         return {
           kind: 'province',
           field: 'target',
-          prompt: 'Choose what to support',
+          prompt: 'Tap the unit again to support it holding, or where it is moving',
           choices: provinceChoices(map, targets),
         }
       }

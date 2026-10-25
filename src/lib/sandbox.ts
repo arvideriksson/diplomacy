@@ -20,6 +20,12 @@ export interface Frame {
   orders: AnyOrder[]
 }
 
+/** The live game a sandbox was copied from. */
+export interface SandboxOrigin {
+  gameId: string
+  gameName: string
+}
+
 export interface Sandbox {
   id: string
   name: string
@@ -28,6 +34,10 @@ export interface Sandbox {
   /** Index of the phase currently being viewed. */
   cursor: number
   createdAt: string
+  /** Set when copied from a game: the sandbox lives inside that game's view. */
+  origin?: SandboxOrigin
+  /** What Reset returns to (the copied position); the opening board when absent. */
+  start?: Frame
 }
 
 const KEY = 'diplomacy:sandboxes'
@@ -102,6 +112,36 @@ export function createSandbox(name: string, mapId = 'classical'): Sandbox {
   return s
 }
 
+/**
+ * Copy a game's current board (and the viewer's draft orders for it) into a new
+ * sandbox tied to that game. Reset returns to this copy, not the opening position.
+ */
+export function createSandboxFromGame(opts: {
+  name: string
+  mapId: string
+  board: BoardState
+  orders: AnyOrder[]
+  origin: SandboxOrigin
+}): Sandbox {
+  const start: Frame = { board: structuredClone(opts.board), orders: structuredClone(opts.orders) }
+  const s: Sandbox = {
+    id: crypto.randomUUID(),
+    name: opts.name,
+    mapId: opts.mapId,
+    frames: [structuredClone(start)],
+    cursor: 0,
+    createdAt: new Date().toISOString(),
+    origin: opts.origin,
+    start,
+  }
+  mutate((list) => [s, ...list])
+  return s
+}
+
+/** The sandboxes copied from a game, newest first. */
+export const sandboxesOf = (list: Sandbox[], gameId: string): Sandbox[] =>
+  list.filter((s) => s.origin?.gameId === gameId)
+
 export function deleteSandbox(id: string): void {
   mutate((list) => list.filter((s) => s.id !== id))
 }
@@ -150,7 +190,7 @@ export function resolveCurrent(id: string, orders: AnyOrder[]): AdjudicationResu
 }
 
 export function resetSandbox(id: string): void {
-  update(id, (s) => ({ ...s, frames: [freshFrame(s.mapId)], cursor: 0 }))
+  update(id, (s) => ({ ...s, frames: [s.start ? structuredClone(s.start) : freshFrame(s.mapId)], cursor: 0 }))
 }
 
 export function exportSandbox(id: string): string {

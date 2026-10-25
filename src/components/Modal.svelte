@@ -88,4 +88,33 @@
     background: var(--bg-hover);
     color: var(--text);
   }
+
+  /* Phones: a full-width bottom sheet that scrolls internally when tall. The inline
+     `top` offset is a desktop placement, so it's overridden here. */
+  @media (max-width: 600px) {
+    .overlay {
+      align-items: flex-end;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+
+    .modal {
+      max-width: none !important;
+      max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      border-bottom: none;
+      padding: 18px 16px calc(20px + env(safe-area-inset-bottom));
+    }
+
+    .modal-head {
+      margin-bottom: 12px;
+    }
+
+    .close {
+      padding: 8px;
+      margin: -8px -8px -8px 0;
+    }
+  }
 </style>

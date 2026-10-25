@@ -14,11 +14,13 @@
   </button>
 {/if}
 <div class="float user"><UserMenu /></div>
+<!-- Phones: fades scrolled content out under the floating buttons. -->
+<div class="scrim" aria-hidden="true"></div>
 
 <style>
   .float {
     position: fixed;
-    top: 16px;
+    top: calc(16px + env(safe-area-inset-top));
     z-index: 50;
   }
 
@@ -41,5 +43,25 @@
 
   .user {
     right: 16px;
+  }
+
+  .scrim {
+    display: none;
+  }
+
+  @media (max-width: 600px) {
+    .float {
+      top: calc(12px + env(safe-area-inset-top));
+    }
+
+    .scrim {
+      display: block;
+      position: fixed;
+      inset: 0 0 auto;
+      height: calc(64px + env(safe-area-inset-top));
+      z-index: 49;
+      pointer-events: none;
+      background: linear-gradient(to bottom, var(--bg) 55%, color-mix(in srgb, var(--bg) 0%, transparent));
+    }
   }
 </style>

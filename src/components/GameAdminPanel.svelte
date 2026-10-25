@@ -182,4 +182,22 @@
     gap: 6px;
     margin-top: 8px;
   }
+
+  @media (max-width: 600px) {
+    .action-row {
+      flex-wrap: wrap;
+    }
+
+    .action-row select {
+      flex-basis: 100%;
+    }
+
+    .action-row .btn {
+      flex: 1;
+    }
+
+    .quick-row .pill {
+      flex: 1;
+    }
+  }
 </style>

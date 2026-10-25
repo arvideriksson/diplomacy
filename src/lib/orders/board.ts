@@ -96,9 +96,9 @@ export function openRemovals(
 export function buildPrompt(situations: NationSituation[]): string {
   const builds = situations.filter((s) => s.delta > 0).reduce((a, s) => a + s.delta, 0)
   const removes = situations.filter((s) => s.delta < 0).reduce((a, s) => a - s.delta, 0)
-  if (builds && removes) return 'Click a highlighted home center to build, or a unit to remove.'
-  if (builds) return `Click a highlighted home center to build (${builds} available).`
-  if (removes) return `Click a highlighted unit to remove (${removes} required).`
+  if (builds && removes) return 'Select a highlighted home center to build, or a unit to remove.'
+  if (builds) return `Select a highlighted home center to build (${builds} available).`
+  if (removes) return `Select a highlighted unit to remove (${removes} required).`
   return 'No adjustments needed this phase.'
 }
 

@@ -9,6 +9,20 @@
   import type { Snippet } from 'svelte'
   import Modal from './Modal.svelte'
   import Icon from './Icon.svelte'
+  import { isOrderPhase } from '../lib/phases'
+  import { formatCountdown } from '../lib/time'
+  import { readDraftBackup } from '../lib/draftBackup'
+
+  // The viewer's order state in an active game: 'todo', 'done', 'unsent' (submitted, but
+  // edited on this device since), or null.
+  const orderStatus = (game: GameState, uid: string | undefined): 'todo' | 'done' | 'unsent' | null => {
+    const nation = uid ? game.players[uid]?.nation : undefined
+    if (!nation || !isOrderPhase(game.phase)) return null
+    if (!game.ready?.[nation]) return 'todo'
+    const edits = readDraftBackup({ gameId: game.id, nation, year: game.year, season: game.season, phase: game.phase })
+    return edits ? 'unsent' : 'done'
+  }
+  const timeLeft = (game: GameState) => (game.deadline ? ` · ${formatCountdown(new Date(game.deadline).getTime() - Date.now())}` : '')
 
   export let onSelectGame: (game: GameState) => void = () => {}
   export let onOpenSandbox: (id: string) => void = () => {}
@@ -54,7 +68,8 @@
   // Categorize remote games relative to the current player.
   $: joined = (g: GameState) => !!($user && g.players[$user.id])
   $: myGames = $games.filter(joined)
-  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby')
+  // Full lobbies can't be joined, so they aren't "open".
+  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby' && Object.keys(g.players).length < getMap(g.map_id).powers.length)
   $: runningGames = $games.filter((g) => !joined(g) && g.phase !== 'lobby')
 </script>
 
@@ -105,6 +120,13 @@
     <span class="badge badge-caps">{game.phase}</span>
     {#if game.map_id && game.map_id !== 'classical'}<span class="badge badge-caps">{maps[game.map_id]?.name ?? game.map_id}</span>{/if}
     <span class="season">{game.season} {game.year}</span>
+    {#if orderStatus(game, $user?.id) === 'todo'}
+      <span class="status todo">Not submitted{timeLeft(game)}</span>
+    {:else if orderStatus(game, $user?.id) === 'unsent'}
+      <span class="status todo">Changes not sent{timeLeft(game)}</span>
+    {:else if orderStatus(game, $user?.id) === 'done'}
+      <span class="status done">✓ Submitted</span>
+    {/if}
     <span class="player-count">
       <Icon name="users" size={14} />
       {Object.keys(game.players).length}/{getMap(game.map_id).powers.length}
@@ -115,10 +137,9 @@
 
 {#snippet sandboxCard(s: Sandbox)}
   {#snippet badge()}
-    <span class="badge">
-      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
-        <path d="M3 3v18h18" />
-        <path d="M7 14l4-4 3 3 5-5" />
+    <span class="badge badge-amber">
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3" />
       </svg>
       Sandbox
     </span>
@@ -127,7 +148,7 @@
     <span class="badge badge-caps">{s.frames[s.cursor].board.phase}</span>
     <span class="season">{s.frames[s.cursor].board.season} {s.frames[s.cursor].board.year}</span>
   {/snippet}
-  {@render listCard(() => onOpenSandbox(s.id), s.name, badge, meta)}
+  {@render listCard(() => onOpenSandbox(s.id), s.origin ? `${s.origin.gameName} · ${s.name}` : s.name, badge, meta)}
 {/snippet}
 
 <!-- A collapsible section of cards (games or sandboxes), with an optional header action. -->
@@ -441,5 +462,47 @@
     justify-content: flex-end;
     gap: 8px;
     margin-top: 18px;
+  }
+
+  @media (max-width: 600px) {
+    .actions-row {
+      margin-bottom: 20px;
+    }
+
+    .action-card {
+      padding: 16px;
+    }
+
+    .section summary {
+      padding: 12px 0;
+      min-height: 52px;
+    }
+
+    .game-card {
+      padding: 14px 12px 14px 16px;
+    }
+
+    .card-meta {
+      gap: 6px 10px;
+    }
+
+    .empty-line {
+      padding: 0 0 8px;
+    }
+
+    .modal-actions .btn {
+      flex: 1;
+    }
+  }
+  .status {
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .status.todo {
+    color: var(--amber);
+  }
+  .status.done {
+    color: var(--green);
   }
 </style>

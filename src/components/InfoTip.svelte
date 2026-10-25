@@ -13,7 +13,12 @@
   const WIDTH = 240
   const GAP = 8
 
+  // A touch tap fires focus (→ show) and then click; ignore a click that lands right
+  // after the bubble opened so the tap opens it rather than toggling it shut.
+  let shownAt = 0
+
   function show() {
+    shownAt = Date.now()
     const r = anchor.getBoundingClientRect()
     x = Math.min(Math.max(r.left + r.width / 2 - WIDTH / 2, 8), window.innerWidth - WIDTH - 8)
     // Prefer above; flip below when there isn't room near the top of the viewport.
@@ -31,11 +36,11 @@
   class="info"
   bind:this={anchor}
   aria-label={text}
-  on:mouseenter={show}
-  on:mouseleave={hide}
+  on:pointerenter={(e) => e.pointerType === 'mouse' && show()}
+  on:pointerleave={(e) => e.pointerType === 'mouse' && hide()}
   on:focus={show}
   on:blur={hide}
-  on:click|preventDefault|stopPropagation={() => (open ? hide() : show())}
+  on:click|preventDefault|stopPropagation={() => (open && Date.now() - shownAt > 400 ? hide() : show())}
 >
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
     <circle cx="12" cy="12" r="10" />
@@ -53,8 +58,9 @@
     display: inline-flex;
     align-items: center;
     vertical-align: -2px;
-    margin-left: 5px;
-    padding: 0;
+    /* 14px glyph, ~26px hit area: the padding is cancelled by negative margins. */
+    margin: -6px -6px -6px -1px;
+    padding: 6px;
     border: none;
     background: none;
     color: var(--text-tertiary);

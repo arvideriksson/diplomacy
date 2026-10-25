@@ -21,6 +21,8 @@
   /** The set locked in on the server, shown read-only once ready. */
   export let locked: AnyOrder[] = []
   export let format: (o: AnyOrder) => string
+  /** Plain-language form for the locked-in list (falls back to notation). */
+  export let describe: ((o: AnyOrder) => string) | null = null
   export let onSubmit: () => void
   export let onDiscard: () => void = () => {}
 
@@ -48,7 +50,7 @@
 
 <div class="actions">
   {#if sandbox}
-    <button class="primary submit" on:click={onSubmit}>Submit</button>
+    <button class="primary resolve" on:click={onSubmit}>Resolve this phase</button>
   {:else if idle}
     <!-- Nothing to do this phase: auto-readied server-side, just waiting on others. -->
     <button class="primary waiting pressed" disabled>Waiting…</button>
@@ -73,17 +75,17 @@
   {#if error}<span class="status error">{error}</span>{/if}
 </div>
 
-{#if !sandbox && ready && locked.length}
+{#if !sandbox && ready && dirty && locked.length}
   <!-- Read-only mirror of the set actually locked in on the server. Survives
        Phase 2 edits so it stays the committed truth, not the live draft. -->
   <div class="locked-box">
     <div class="locked-head">
       <span class="locked-dot"></span>
-      Locked in
+      Still locked in (until you resubmit)
     </div>
     <ul class="locked-list">
       {#each locked as o (orderSource(o))}
-        <li>{format(o)}</li>
+        <li>{describe ? describe(o) : format(o)}</li>
       {/each}
     </ul>
   </div>
@@ -115,6 +117,9 @@
   }
   .actions .primary.submit {
     background: var(--green, #059669);
+  }
+  .actions .primary.resolve {
+    background: var(--amber, #d97706);
   }
   .actions .primary.resubmit {
     background: var(--accent, #2563eb);

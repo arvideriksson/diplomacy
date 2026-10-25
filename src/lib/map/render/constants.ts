@@ -49,7 +49,7 @@ export const SPOTLIGHT_UNIT_OUTLINE_PULSE = 2 * UNIT_OUTLINE_SCALE
 export const SUPPLY_CENTER_OUTER_RADIUS = 7
 export const SUPPLY_CENTER_INNER_RADIUS = 4
 // Shared faded opacity for pending changes: a build ghost and a disbanding unit.
-export const GHOST_UNIT_OPACITY = 0.6
+export const GHOST_UNIT_OPACITY = 0.8
 
 export const ORDER_LINE_WIDTH = 3
 export const SUCCESS_COLOR = 'rgba(0,0,0,1)'

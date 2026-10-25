@@ -17,6 +17,8 @@
   /** The orders entered so far this phase. */
   export let orders: AnyOrder[] = []
   export let format: (o: AnyOrder) => string
+  /** Plain-language form, shown above the notation in the entry list. */
+  export let describe: ((o: AnyOrder) => string) | null = null
 
   // movement
   /** A movement draft is open. */
@@ -24,8 +26,16 @@
   /** Order type of the unit being drafted. */
   export let draftType: OrderType | undefined = undefined
   export let draftLabel: string = ''
-  export let draftTypes: OrderType[] = []
   export let currentStep: Step | null = null
+  /** Own units still without an order (movement), each a jump to the map. */
+  export let unordered: Array<{ source: string; label: string }> = []
+  export let onPickUnit: (source: string) => void = () => {}
+  /** A caveat to show under an order (e.g. a support that won't count), or ''. */
+  export let warn: (o: AnyOrder) => string = () => ''
+  /** God mode: label each order with its power (name + colour). */
+  export let powerOf: ((o: AnyOrder) => { name: string; color: string }) | null = null
+  /** Tap an entered order to change it on the map. */
+  export let onEdit: (source: string) => void = () => {}
   // retreat
   export let hasDislodged: boolean = false
   /** A dislodged unit is selected for routing. */
@@ -37,8 +47,6 @@
   export let buildPrompt: string = ''
 
   export let onCancel: () => void
-  export let onSetType: (t: OrderType) => void
-  export let onDisband: () => void
   export let onDelete: (source: string) => void
 </script>
 
@@ -56,30 +64,26 @@
   </div>
 {:else if canAct}
   <div class="panel">
-    <!-- per-phase entry header -->
+    <!-- per-phase entry prompt; the choices themselves are bubbles on the map -->
     {#if phase === 'movement'}
       {#if drafting}
         <div class="panel-head">
-          <strong>{draftLabel}</strong>
+          <strong>{draftLabel}{draftType ? ` · ${draftType}` : ''}</strong>
           <button class="link" on:click={onCancel}>Cancel</button>
         </div>
-        <div class="type-row">
-          {#each draftTypes as t}
-            <button class="type" class:active={draftType === t} on:click={() => onSetType(t)}>
-              {t}<kbd>{t[0]}</kbd>
-            </button>
-          {/each}
-        </div>
         {#if currentStep?.kind === 'province'}
-          <p class="prompt">{currentStep.prompt} — click a highlighted region (or this unit to hold)</p>
+          <p class="prompt">{currentStep.prompt}.</p>
           {#each choiceNotes(currentStep.choices) as [note, names]}
             <p class="choice-note"><strong>{note}:</strong> {names}</p>
           {/each}
+        {:else}
+          <p class="prompt">Choose an order from the bubbles on the map.</p>
         {/if}
       {:else}
         <p class="prompt">
-          Click a unit — it defaults to <strong>Move</strong>. Then <kbd>S</kbd> support,
-          <kbd>C</kbd> convoy, <kbd>H</kbd> hold (or click the unit again to hold).
+          Select a unit on the map, then pick <strong>Hold</strong>, <strong>Move</strong>,
+          <strong>Support</strong> or <strong>Convoy</strong> from the bubbles around it.
+          <span class="keys">Keys: <kbd>H</kbd> <kbd>M</kbd> <kbd>S</kbd> <kbd>C</kbd>, <kbd>Esc</kbd> cancels.</span>
         </p>
       {/if}
     {:else if phase === 'retreat'}
@@ -90,31 +94,58 @@
           <strong>{retreatLabel}</strong>
           <button class="link" on:click={onCancel}>Cancel</button>
         </div>
-        <p class="prompt">Click a highlighted province to retreat there, or:</p>
-        <div class="type-row">
-          <button class="type" on:click={onDisband}>Disband</button>
-        </div>
+        <p class="prompt">Retreat to a highlighted province, or disband — use the bubbles on the map.</p>
       {:else}
-        <p class="prompt">Click a highlighted dislodged unit to retreat or disband it.</p>
+        <p class="prompt">Select a flagged dislodged unit on the map to retreat or disband it.</p>
       {/if}
     {:else if phase === 'build'}
       {#if buildingAt}
         <div class="panel-head">
-          <strong>Build at {buildingAt}</strong>
+          <strong>Build in {buildingAt}</strong>
           <button class="link" on:click={onCancel}>Cancel</button>
         </div>
-        <p class="prompt">Pick a unit type from the card on the map.</p>
+        <p class="prompt">Pick a unit type from the bubbles on the map.</p>
       {:else}
         <p class="prompt">{buildPrompt}</p>
       {/if}
     {/if}
 
+    {#if unordered.length}
+      <h4 class="list-head todo">Needs an order <span>{unordered.length}</span></h4>
+      <ul class="orders">
+        {#each unordered as u (u.source)}
+          <li>
+            <button class="row-btn" on:click={() => onPickUnit(u.source)}>
+              <span class="dot"></span>
+              <span class="row-text">{u.label}</span>
+              <span class="go">Order ›</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
     {#if orders.length}
+      <h4 class="list-head">Your orders <span>{orders.length}</span></h4>
       <ul class="orders">
         {#each orders as o (orderSource(o))}
           <li>
-            <span>{format(o)}</span>
-            <button class="link" on:click={() => onDelete(orderSource(o))}>✕</button>
+            <button class="row-btn edit" on:click={() => onEdit(orderSource(o))} title="Change this order">
+              {#if powerOf}
+                {@const p = powerOf(o)}
+                <span class="power-chip" style="--c: {p.color}">{p.name}</span>
+              {/if}
+              <span class="row-text">
+                {#if describe}
+                  <span class="plain">{describe(o)}</span>
+                  <span class="nota">{format(o)}</span>
+                  {#if warn(o)}<span class="warn">⚠ {warn(o)}</span>{/if}
+                {:else}
+                  {format(o)}
+                {/if}
+              </span>
+            </button>
+            <button class="del" on:click={() => onDelete(orderSource(o))} aria-label="Delete order">✕</button>
           </li>
         {/each}
       </ul>
@@ -147,29 +178,6 @@
     font-size: 12.5px;
     color: var(--text-secondary, #555);
   }
-  .type-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 8px;
-  }
-  .type-row .type {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border: 1px solid var(--border-strong, #bbb);
-    border-radius: 6px;
-    background: var(--bg-input, #fff);
-    color: var(--text, #1a1a1a);
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .type-row .type.active {
-    background: var(--accent, #3b82f6);
-    color: #fff;
-    border-color: var(--accent, #3b82f6);
-  }
   kbd {
     font: 11px/1 ui-monospace, monospace;
     padding: 1px 4px;
@@ -178,25 +186,138 @@
     background: var(--bg-hover, rgba(0, 0, 0, 0.06));
     color: var(--text-secondary, #5c5c5c);
   }
-  /* On the selected (accent) button the hint needs to read against the blue fill. */
-  .type-row .type.active kbd {
-    border-color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.25);
-    color: #fff;
+  .keys {
+    display: block;
+    margin-top: 6px;
+    font-size: 12.5px;
+  }
+  /* Touch screens: no keyboard to hint at. */
+  @media (hover: none) {
+    .keys {
+      display: none;
+    }
+  }
+  .list-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 14px 0 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .list-head span {
+    font-variant-numeric: tabular-nums;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+  }
+  .list-head.todo {
+    color: var(--amber);
+  }
+  .list-head.todo span {
+    background: var(--amber-subtle);
   }
   .orders {
     list-style: none;
-    margin: 12px 0 0;
-    padding: 10px 0 0;
-    border-top: 1px solid var(--border, #eee);
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    overflow: hidden;
   }
   .orders li {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    min-height: 40px;
+    padding-left: 12px;
     font-variant-numeric: tabular-nums;
+  }
+  .orders li + li {
+    border-top: 1px solid var(--border);
+  }
+  .row-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 0;
+  }
+  .plain {
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .warn {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--amber);
+  }
+  .nota {
+    font: 12px var(--mono);
+    color: var(--text-tertiary);
+  }
+  .del {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .del:hover {
+    color: var(--red);
+  }
+  .row-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    margin-left: -12px;
+    padding: 0 12px;
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .row-btn:hover {
+    background: var(--bg-hover);
+  }
+  .power-chip {
+    flex: none;
+    max-width: 76px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+  }
+  .row-btn.edit {
+    padding-right: 0;
+  }
+  .row-btn .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+  }
+  .row-btn .go {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 13px;
   }
 </style>

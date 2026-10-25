@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { navigate } from 'svelte-routing'
-  import { fetchGame } from '../lib/game'
+  import { fetchGame, fetchGames } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { user } from '../lib/auth'
   import { immersive } from '../lib/layout'
@@ -40,8 +40,11 @@
 
   $: viewerNation = game && $user ? game.players[$user.id]?.nation ?? '' : ''
 
+  // The list's order status (submitted / not) is from its own fetch — refresh it on the
+  // way back so it reflects what was just done in the game.
   function back() {
     navigate('/')
+    fetchGames().catch(() => {})
   }
 
   // Lobby start: flip to the active board in place (route stays /game/:id).
