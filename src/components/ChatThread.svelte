@@ -5,7 +5,7 @@
   // the compose box. A draft shows the same shell but creates its DB row on the first
   // send. Keyed per conversation by the panel, so local state resets on switching.
   import { tick } from 'svelte'
-  import { NAME_MAX, type ChatStore, type chatLabels } from '../lib/chatStore'
+  import { BODY_MAX, NAME_MAX, type ChatStore, type chatLabels } from '../lib/chatStore'
   import type { ChatMessage } from '../lib/chat'
   import { clockTime, dayLabel, sameDay } from '../lib/chatTime'
   import ChatAvatar from './ChatAvatar.svelte'
@@ -282,9 +282,13 @@
       </div>
 
       {#if $error}<p class="err">{$error}</p>{/if}
+      {#if $input.length >= BODY_MAX - 500}
+        <span class="counter body-counter" class:full={$input.length >= BODY_MAX}>{$input.length}/{BODY_MAX}</span>
+      {/if}
       <div class="compose" inert={details}>
         <textarea
           rows="1"
+          maxlength={BODY_MAX}
           enterkeyhint={coarse ? 'enter' : 'send'}
           placeholder={direct ? `Message ${who(members[0])}` : 'Message'}
           aria-label="Message"
@@ -501,7 +505,8 @@
   .rename-row .btn {
     height: 44px;
   }
-  /* Quiet near-limit hint: appears only in the last 10 chars, reddens at the cap. */
+  /* Quiet near-limit hint: appears only near the cap (last 10 chars of a name, last
+     500 of a message), reddens at it. */
   .counter {
     align-self: flex-end;
     font-size: 11px;
@@ -511,6 +516,10 @@
   .counter.full {
     color: var(--red);
     font-weight: 600;
+  }
+  .body-counter {
+    flex: none;
+    padding: 4px 16px 0;
   }
 
   /* The scrolling messages plus the floating jump button, above the compose box. */
