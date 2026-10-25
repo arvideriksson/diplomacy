@@ -6,6 +6,7 @@
   import { loadBaseRasters, loadMap } from '../lib/map/mapCache'
   import { baseRasterScale, rasterizeSvg, type Raster } from '../lib/map/rasterize'
   import { toRenderState } from '../lib/map/renderState'
+  import { DISLODGED_OFFSET } from '../lib/map/render/constants'
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
   import { errorMessage } from '../lib/errors'
@@ -173,20 +174,6 @@
     coverFit()
   }
 
-  /** Whether the whole board is in view (zoomed all the way out). */
-  export let wholeBoard = false
-  $: wholeBoard = view.k <= MIN_K + 0.01
-
-  /** Toggle between the whole board and the zoomed-in view on `coverFocus`. */
-  export function toggleFit() {
-    if (!renderer || !scale) return
-    glide()
-    if (k > MIN_K + 0.01) {
-      k = MIN_K
-      clampPan()
-    } else coverFit()
-  }
-
   /** Bring a unit into the clear part of the map — away from the edges, the top overlays
    *  and the bottom bar — so its bubbles open fully visible. */
   export function reveal(dsvgId: string) {
@@ -202,7 +189,12 @@
     }
   }
 
-  $: bubbleAnchor = bubbles && renderer && scale ? renderer.unitPosition(bubbles.anchor) : undefined
+  $: bubbleAnchor = bubbles && renderer && scale ? anchorPosition(bubbles) : undefined
+  function anchorPosition(menu: BubbleMenu) {
+    const p = renderer!.unitPosition(menu.anchor)
+    const off = menu.dislodged ? DISLODGED_OFFSET : 0
+    return p && { x: p.x + off, y: p.y + off }
+  }
   $: bubblePx = bubbleAnchor ? toWrap(bubbleAnchor, view) : null
 
   onMount(() => {

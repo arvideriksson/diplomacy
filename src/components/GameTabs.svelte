@@ -10,8 +10,8 @@
   /** Units still without an order (an amber count), or `done` once submitted. */
   export let ordersBadge: number = 0
   export let ordersDone: boolean = false
-  /** Edits made after submitting that aren't sent yet. */
-  export let ordersDirty: boolean = false
+  /** Unsent changes to a submitted set (a blue count), 0 for none. */
+  export let ordersDirty: number = 0
 
   const TABS: Array<{ id: GameTab; label: string }> = [
     { id: 'press', label: 'Press' },
@@ -28,9 +28,7 @@
         {#if t.id === 'press' && pressBadge}
           <span class="badge">{pressBadge > 99 ? '99+' : pressBadge}</span>
         {:else if t.id === 'orders' && ordersDirty}
-          <span class="badge todo icon" aria-label="Unsaved changes">
-            <svg class="glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 2v3.6M5 8v.01" /></svg>
-          </span>
+          <span class="badge unsent" aria-label="{ordersDirty} unsent">{ordersDirty}</span>
         {:else if t.id === 'orders' && ordersDone}
           <span class="badge done icon" aria-label="Submitted">
             <svg class="glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.4 5.2l1.8 1.8 3.6-3.8" /></svg>
@@ -123,6 +121,9 @@
   }
   .badge.todo {
     background: var(--amber);
+  }
+  .badge.unsent {
+    background: var(--accent);
   }
   .badge.done {
     background: var(--green);

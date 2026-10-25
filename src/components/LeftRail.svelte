@@ -2,7 +2,8 @@
   // Left rail of the in-game shell: game/sandbox title + back button on top, then the slotted
   // body (chat in a game, unit styles in a sandbox). Mirror of the right order sidebar.
   // On narrow screens it becomes a drawer over the map; the scrim closes it. Desktop can
-  // collapse it entirely (it stays mounted, so chat keeps its state).
+  // collapse it entirely with the edge handle on the map (it stays mounted, so chat keeps
+  // its state).
   import Icon from './Icon.svelte'
 
   /** Name shown at the top (game or sandbox name). */
@@ -17,8 +18,6 @@
   /** Narrow screens: whether the drawer is open. */
   export let open: boolean = false
   export let onClose: () => void
-  /** Hide the rail (desktop) or close the drawer (narrow screens). */
-  export let onHide: (() => void) | null = null
   /** Desktop: collapsed out of the layout. */
   export let collapsed: boolean = false
 </script>
@@ -34,11 +33,6 @@
         </button>
       {/if}
       {#if title}<span class="game-name">{title}</span>{/if}
-      {#if onHide}
-        <button class="hide" on:click={onHide} title="Hide sidebar" aria-label="Hide sidebar">
-          <Icon name="panel-left" size={18} />
-        </button>
-      {/if}
     </div>
   {/if}
   <div class="left-body"><slot /></div>
@@ -124,25 +118,6 @@
   }
   .side-title .back:hover {
     border-color: var(--border-strong);
-  }
-  .side-title .hide {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    border: none;
-    border-radius: 8px;
-    background: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-  .side-title .hide:hover {
-    background: var(--bg-hover);
-    color: var(--text);
   }
   .left-rail.collapsed {
     display: none;

@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Supply-center standings as a row in the order sidebar / Orders tab, folded to its
+  // header until opened. Hovering a power spotlights its centers on the map.
   import type { PowerDefinition } from '../lib/mapDefinition'
   import { scCountByNation } from '../lib/adjudicator/state'
   import { flagUrl } from '../lib/flags'
@@ -12,9 +14,6 @@
   export let nation: string = ''
   /** Hovering a row spotlights that nation's supply centers on the map (null = clear). */
   export let onHover: ((nation: string | null) => void) | null = null
-  /** A plain section in a panel (phones' orders tab) instead of a card floating over
-   *  the map: always open, no fold. */
-  export let inline: boolean = false
 
   const isMine = (id: string): boolean => !!nation && sameNation(id, nation)
 
@@ -36,9 +35,7 @@
     }
   }
 
-  // Collapsed → just the header bar, to reclaim the map corner when studying it.
-  // Start folded on phones, where the open card would cover much of the map.
-  let collapsed = !inline && typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches
+  let collapsed = true
   function toggle() {
     collapsed = !collapsed
     if (collapsed) clearNow() // clear any spotlight when folding away
@@ -55,17 +52,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_mouse_events_have_key_events -->
-<div class="sc-card" class:glass={!inline} class:inline class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
-  {#if inline}
-    <h4 class="sc-head">Supply Centers</h4>
-  {:else}
-    <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
-      <span>Supply Centers</span>
-      <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 6l4 4 4-4" />
-      </svg>
-    </button>
-  {/if}
+<div class="sc-card" class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
+  <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
+    <span>Supply Centers</span>
+    <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 6l4 4 4-4" />
+    </svg>
+  </button>
   {#if !collapsed}
   <ul class="sc-rows">
     {#each rows as p (p.id)}
@@ -89,81 +82,38 @@
 
 <style>
   .sc-card {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    z-index: 15;
-    width: 200px;
-    border-radius: 14px;
-    overflow: hidden;
-    font-size: 13px;
+    font-size: 14px;
     user-select: none;
   }
-  .sc-card.inline {
-    position: static;
-    width: auto;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--bg-card);
-    font-size: 14px;
-  }
-  .inline .sc-head {
-    margin: 0;
-    padding: 12px 14px 8px;
-    border-bottom: none;
-    cursor: default;
-  }
-  .inline .sc-head:hover {
-    color: var(--text-secondary);
-  }
-  .inline .sc-rows {
-    padding: 0 6px 6px;
-  }
-  .inline .sc-row {
-    min-height: 36px;
-  }
-  /* Phones: a small corner pill while folded. */
-  @media (max-width: 760px) {
-    .sc-card {
-      top: 10px;
-      left: 10px;
-    }
-    .sc-card.collapsed {
-      width: auto;
-    }
-    .sc-card.collapsed .sc-head {
-      gap: 6px;
-      padding: 8px 12px;
-      min-height: 36px;
-    }
-  }
+  /* The fold row, lit on hover like the Sandbox / End the game rows beside it. */
   .sc-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
     width: 100%;
-    padding: 9px 12px;
+    min-height: 40px;
+    padding: 10px 14px;
     font-family: inherit;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    color: var(--text-secondary, #64748b);
+    color: var(--text-secondary);
     background: none;
     border: none;
-    border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
     cursor: pointer;
   }
-  .sc-head:hover {
-    color: var(--text, #1a1a1a);
-  }
-  /* Collapsed: just the header bar — drop the divider so it reads as a single pill. */
-  .sc-card.collapsed .sc-head {
-    border-bottom: none;
+  @media (hover: hover) {
+    .sc-head:hover {
+      background: var(--bg-hover);
+    }
   }
   .chevron {
     flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--text-tertiary);
     transition: transform 0.15s ease;
   }
   .sc-card.collapsed .chevron {
@@ -172,7 +122,7 @@
   .sc-rows {
     list-style: none;
     margin: 0;
-    padding: 4px;
+    padding: 0 6px 6px;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -181,7 +131,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 30px;
+    min-height: 36px;
     padding: 0 8px 0 0;
     border-radius: 8px;
     overflow: hidden;
@@ -218,8 +168,7 @@
     font-variant-numeric: tabular-nums;
     color: var(--c);
   }
-  /* The viewer's own nation — shaded in its color with an inset edge, mirroring
-     the phase banner treatment in GameBoard. */
+  /* The viewer's own nation, shaded in its color. */
   .sc-row.mine {
     background: color-mix(in srgb, var(--c) 16%, transparent);
   }

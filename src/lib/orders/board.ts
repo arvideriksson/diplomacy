@@ -114,10 +114,15 @@ const MOVE_TYPES = ['Hold', 'Move', 'Support', 'Convoy']
 /**
  * Map overlays per order kind: movement/retreat as arrows, builds as ghost unit
  * tokens, removes/disbands as red markers. `failed` (history) marks orders that
- * didn't succeed, which the renderer crosses out.
+ * didn't succeed, which the renderer slashes; `cut` marks supports drawn broken instead.
  */
-export function toRenderOrders(src: AnyOrder[], failed?: (o: AnyOrder) => boolean): OrderState[] {
-  const mark = (o: AnyOrder, s: OrderState): OrderState => (failed?.(o) ? { ...s, failed: true } : s)
+export function toRenderOrders(
+  src: AnyOrder[],
+  failed?: (o: AnyOrder) => boolean,
+  cut?: (o: AnyOrder) => boolean,
+): OrderState[] {
+  const mark = (o: AnyOrder, s: OrderState): OrderState =>
+    failed?.(o) ? { ...s, failed: true, ...(cut?.(o) ? { cut: true } : {}) } : s
   const moves = src.filter((o) => MOVE_TYPES.includes(o.type)) as Order[]
   const out: OrderState[] = toOrderStates(moves).map((s, i) => mark(moves[i], s))
   for (const o of src) {
@@ -145,6 +150,13 @@ export function toRenderOrders(src: AnyOrder[], failed?: (o: AnyOrder) => boolea
 export const orderFailed = (r: OrderResult): boolean =>
   r.code === 'fails' || r.code === 'void' || r.code === 'bounced' || r.code === 'dislodged' ||
   (r.code === 'disbanded' && r.order.type === 'Retreat')
+
+/**
+ * Whether a resolved support was cut. The adjudicator fails a support only by cutting it,
+ * by an attack or by dislodging the supporter, so any failed support counts.
+ */
+export const supportCut = (r: OrderResult): boolean =>
+  r.order.type === 'Support' && (r.code === 'fails' || r.code === 'dislodged')
 
 /**
  * Retreat-phase map inputs (dSVG ids). Idle: highlight the dislodged units still

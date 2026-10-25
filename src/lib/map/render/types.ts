@@ -27,6 +27,8 @@ export type OrderState = {
   aux?: string
   unitType?: 'Army' | 'Fleet'
   failed?: boolean
+  /** A failed support that was cut: drawn broken rather than slashed. */
+  cut?: boolean
   /** Move arrow belongs to a dislodged unit (a retreat): the tail starts at the
    *  offset retreat token, not the province center the occupier now holds. */
   dislodged?: boolean

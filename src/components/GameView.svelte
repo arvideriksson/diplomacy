@@ -6,6 +6,7 @@
   import GameAdminPanel from './GameAdminPanel.svelte'
   import VictoryBanner from './VictoryBanner.svelte'
   import DrawVote from './DrawVote.svelte'
+  import SupplyCenterCard from './SupplyCenterCard.svelte'
   import { survivingNations } from '../lib/draw'
   import Icon from './Icon.svelte'
   import { user } from '../lib/auth'
@@ -165,6 +166,7 @@
   }
 
   let unread = 0
+  let sandboxOpen = false
 
   $: frame = frames[cursor]
   $: isFrontier = cursor === frames.length - 1
@@ -208,6 +210,7 @@
     canPhaseBack={canBack}
     canPhaseForward={canForward}
     seedKey={String(cursor)}
+    standingsInSidebar
   >
     <svelte:fragment slot="map-action">
       {#if mySandboxes.length}
@@ -236,12 +239,19 @@
         <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} onUnread={(n) => (unread = n)} />
       {/if}
     </svelte:fragment>
-    <svelte:fragment slot="orders-extra">
+    <svelte:fragment slot="orders-extra" let:spotlight>
+      <!-- Secondary tools, one quiet card below the order workflow. -->
+      <div class="utils">
       {#if !isComplete}
         <section class="sb-launch">
-          <h4>Sandbox</h4>
+          <button class="fold" type="button" aria-expanded={sandboxOpen} on:click={() => (sandboxOpen = !sandboxOpen)}>
+            <h4>Sandbox</h4>
+            <svg class="chev" class:open={sandboxOpen} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+          {#if sandboxOpen}
           <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {frame.board.season} {frame.board.year}</button>
-          {#if mySandboxes.length}
+          {/if}
+          {#if sandboxOpen && mySandboxes.length}
             <ul>
               {#each mySandboxes as sb (sb.id)}
                 <li>
@@ -258,7 +268,11 @@
           {/if}
         </section>
       {/if}
-      {#if nation && (isActive || isComplete) && game.phase !== 'lobby'}
+      {#if Object.keys(frame.board.supplyCenters).length}
+        <SupplyCenterCard powers={map.powers} supplyCenters={frame.board.supplyCenters} {nation} onHover={spotlight} />
+      {/if}
+      <!-- The vote acts on the live game: not shown while browsing past phases. -->
+      {#if nation && isFrontier && (isActive || isComplete) && game.phase !== 'lobby'}
         {#key isComplete}
           <DrawVote
             gameId={game.id}
@@ -270,6 +284,7 @@
           />
         {/key}
       {/if}
+      </div>
     </svelte:fragment>
   </GameBoard>
 {/if}
@@ -304,24 +319,77 @@
   .sb-chip:hover {
     border-color: var(--amber);
   }
+  /* Quiet: no card, just hairline-separated rows under the order workflow. */
+  .utils {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .utils:empty {
+    display: none;
+  }
   .sb-launch {
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 14px;
-    background: var(--bg-card);
+    padding: 10px 14px;
+  }
+  .utils > :global(* + *) {
+    border-top: 1px solid var(--border);
+  }
+  .utils :global(.draw) {
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    border-radius: 0;
   }
   .sb-launch h4 {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
-    color: var(--amber);
+    color: var(--text-secondary);
+  }
+  /* Folded to one line (like the end-game vote below it): a secondary tool. */
+  .fold {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: calc(100% + 28px);
+    margin: -10px -14px;
+    padding: 10px 14px;
+    min-height: 40px;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .fold:hover {
+      background: var(--bg-hover);
+    }
+  }
+  .fold[aria-expanded='true'] {
+    margin-bottom: 10px;
+  }
+  .chev {
+    flex: none;
+    margin-left: auto;
+    fill: none;
+    stroke: var(--text-tertiary);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.15s;
+  }
+  .chev.open {
+    transform: rotate(90deg);
   }
   .sb-launch .sb-new {
     width: 100%;
-    min-height: 44px;
-    border: 1.5px solid var(--amber);
+    min-height: 42px;
+    border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent);
     background: var(--amber-subtle);
     color: var(--amber);
     font-weight: 700;

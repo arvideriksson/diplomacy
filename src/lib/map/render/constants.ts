@@ -65,9 +65,17 @@ export const SUPPORT_HEAD_LENGTH = 9
 export const SUPPORT_DASH = { length: 3, spacing: 2 }
 export const CONVOY_STUB_LENGTH = 28
 export const HOLD_OCTAGON_SIZE = 24
-export const FAILED_CROSS_WIDTH = 3
-export const FAILED_CROSS_LENGTH = 16
-export const FAILED_CROSS_ANGLE = 45
+// The failure slash overhangs a move shaft (8) by ~8 each side; the lean (degrees off the
+// perpendicular) makes it a slash rather than a tick. A hold has no heading, so its slash
+// leans the same amount off vertical: "/" through the octagon.
+export const FAILED_SLASH_WIDTH = 3.5
+export const FAILED_SLASH_LENGTH = 24
+export const FAILED_SLASH_LEAN = 35
+export const FAILED_COLOR = '#e5322d'
+// A cut support is broken: its shaft parts by CUT_GAP at the centre and a red jag of
+// CUT_JAG_HEIGHT spans the break, across the line.
+export const CUT_GAP = 18
+export const CUT_JAG_HEIGHT = 18
 export const ORDER_MARKER_WIDTH = 3
 export const ORDER_MARKER_LENGTH = 12
 export const ORDER_MARKER_ANGLE = 90

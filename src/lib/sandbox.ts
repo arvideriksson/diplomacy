@@ -10,7 +10,7 @@
 
 import { writable } from 'svelte/store'
 import { adjudicate, initialBoard } from './adjudicator'
-import type { AdjudicationResult, AnyOrder, BoardState } from './adjudicator'
+import type { AdjudicationResult, AnyOrder, BoardState, OrderResult } from './adjudicator'
 import { getMap } from './maps'
 
 export interface Frame {
@@ -18,6 +18,8 @@ export interface Frame {
   board: BoardState
   /** Orders entered for this phase (preset when revisiting). */
   orders: AnyOrder[]
+  /** How those orders resolved, kept while they're unchanged so a revisit shows them. */
+  results?: OrderResult[]
 }
 
 /** The live game a sandbox was copied from. */
@@ -164,7 +166,10 @@ export function goForward(id: string): void {
 export function setCurrentOrders(id: string, orders: AnyOrder[]): void {
   update(id, (s) => {
     const frames = [...s.frames]
-    frames[s.cursor] = { ...frames[s.cursor], orders }
+    const frame = frames[s.cursor]
+    // An edit invalidates the phase's results; re-saving the same orders (a revisit) keeps them.
+    const same = JSON.stringify(frame.orders) === JSON.stringify(orders)
+    frames[s.cursor] = same ? { ...frame, orders } : { board: frame.board, orders }
     return { ...s, frames }
   })
 }
@@ -178,7 +183,7 @@ export function resolveCurrent(id: string, orders: AnyOrder[]): AdjudicationResu
   const result = adjudicate(getMap(s.mapId), frame.board, orders)
   update(id, (cur) => {
     const frames = cur.frames.slice(0, cur.cursor + 1)
-    frames[cur.cursor] = { ...frames[cur.cursor], orders }
+    frames[cur.cursor] = { ...frames[cur.cursor], orders, results: result.results }
     frames.push({ board: result.newBoardState, orders: [] })
     return { ...cur, frames, cursor: cur.cursor + 1 }
   })

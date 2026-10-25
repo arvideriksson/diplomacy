@@ -31,6 +31,8 @@
   let saving = false
   let error = ''
   let finals: Record<string, DrawVote> | null = null
+  // The ballot is a rare action: folded to a one-line summary until opened.
+  let open = false
 
   onMount(async () => {
     try {
@@ -99,14 +101,18 @@
       <p class="err">{error}</p>
     {/if}
   {:else}
-    <h4 id="draw-title">End the game</h4>
-    {#if loading}
+    <button class="fold" type="button" aria-expanded={open} on:click={() => (open = !open)}>
+      <h4 id="draw-title">End the game</h4>
+      <span class="fold-sum">{loading ? '…' : !isAlive ? 'Eliminated' : saved.kind === 'solo' ? 'Solo' : saved.kind === 'concede' ? 'Concede' : `${saved.members.length}-way tie`}</span>
+      <svg class="chev" class:open viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+    </button>
+    {#if !open}
+      <!-- folded -->
+    {:else if loading}
       <p class="note">Loading your vote…</p>
     {:else if !isAlive}
       <p class="note">You've been eliminated, so you count as conceding.</p>
     {:else}
-      <p class="current">Your vote: <strong>{describe(saved)}</strong></p>
-
       <div class="choices" role="radiogroup" aria-label="Your vote">
         {#each [['solo', 'Solo'], ['tie', 'Tie'], ['concede', 'Concede']] as [k, label] (k)}
           <button
@@ -121,7 +127,8 @@
       </div>
 
       {#if kind === 'tie'}
-        <p class="note">Pick who shares the tie with you{tie.length > 1 ? ` — ${tie.length}-way` : ''}.</p>
+        <!-- The tie being built, as a count badge; it lights up once it's a real tie. -->
+        <span class="tie-count" class:valid={tie.length > 1} aria-live="polite">{tie.length}-way tie</span>
         <div class="powers">
           <span class="power me" aria-label="{name(nation)} (you)">
             {#if flag(nation)}<img src={flag(nation)} alt="" width="18" height="18" />{/if}
@@ -159,6 +166,52 @@
     border-radius: 12px;
     background: var(--bg-card);
   }
+  .fold {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: calc(100% + 28px);
+    margin: -10px -14px;
+    padding: 10px 14px;
+    min-height: 40px;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .fold:hover {
+      background: var(--bg-hover);
+    }
+  }
+  .fold[aria-expanded='true'] {
+    margin-bottom: 0;
+  }
+  .fold-sum {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .chev {
+    flex: none;
+    fill: none;
+    stroke: var(--text-tertiary);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.15s;
+  }
+  .chev.open {
+    transform: rotate(90deg);
+  }
   h4 {
     margin: 0;
     font-size: 11px;
@@ -166,10 +219,6 @@
     letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--text-secondary);
-  }
-  .current {
-    margin: 0;
-    font-size: 13.5px;
   }
   .choices {
     display: grid;
@@ -204,9 +253,9 @@
     gap: 6px;
     min-height: 34px;
     padding: 0 10px 0 6px;
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--bg-fill);
     border-radius: 999px;
-    background: none;
+    background: var(--bg-fill);
     color: var(--text);
     font: 500 13px var(--font);
     cursor: pointer;
@@ -221,7 +270,6 @@
     font-weight: 600;
   }
   .power.me {
-    border-style: dashed;
     cursor: default;
     color: var(--text-secondary);
   }
@@ -237,6 +285,18 @@
     font: 600 13px var(--font);
     cursor: pointer;
     padding: 6px 0;
+  }
+  .tie-count {
+    align-self: flex-start;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--bg-fill);
+    color: var(--text-tertiary);
+    font: 700 12px var(--font);
+  }
+  .tie-count.valid {
+    background: var(--accent-subtle);
+    color: var(--accent);
   }
   .note {
     padding-top: 8px;

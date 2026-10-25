@@ -41,9 +41,9 @@
     <span class="deadline-abs">Resolves {deadlineAbs}</span>
   </div>
 {:else if msLeft != null}
-  <div class="deadline" class:urgent={deadlineUrgent}>
+  <div class="deadline row" class:urgent={deadlineUrgent}>
     <span class="countdown">{formatCountdown(msLeft)}</span>
-    <span class="deadline-abs">{deadlineAbs}</span>
+    <span class="deadline-abs">· {deadlineAbs}</span>
   </div>
 {/if}
 
@@ -55,6 +55,15 @@
     gap: 2px;
     padding: 8px 14px;
     border-bottom: 1px solid var(--border, #eee);
+  }
+  .deadline.row {
+    flex-direction: row;
+    justify-content: center;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .deadline.row .deadline-abs {
+    font-size: 12px;
   }
   .deadline.brief {
     padding: 10px 16px;

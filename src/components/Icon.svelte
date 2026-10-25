@@ -22,8 +22,6 @@
     press: '<path d="M4 20h14a2 2 0 0 0 2-2V4H7v14a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-8h4" /><path d="M11 8h5M11 12h5M11 16h3" />',
     map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" />',
     orders: '<circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="6" r="2.5" /><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />',
-    'panel-left': '<rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" />',
-    'panel-right': '<rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />',
   } as const
 
   export type IconName = keyof typeof ICONS

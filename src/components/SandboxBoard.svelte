@@ -101,6 +101,7 @@
   controlAll={true}
   onResolve={handleResolve}
   initialOrders={frame.orders ?? []}
+  historyResults={frame.results ?? []}
   onOrdersChange={handleOrdersChange}
   seedKey={`${sb.id}|${sb.cursor}`}
   onPhaseBack={() => step(goBack)}

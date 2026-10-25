@@ -24,6 +24,10 @@
     padding-left: 12px;
     font-variant-numeric: tabular-nums;
   }
+  /* A plain (non-interactive) row keeps its text off the right edge too. */
+  .orders > :global(li:not(:has(button))) {
+    padding-right: 12px;
+  }
   .orders > :global(li + li) {
     border-top: 1px solid var(--border);
   }
