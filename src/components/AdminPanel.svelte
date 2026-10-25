@@ -1,6 +1,7 @@
 <script lang="ts">
   import { adminDeleteAllGames, fetchGames } from '../lib/game'
   import { errorMessage } from '../lib/errors'
+  import Icon from './Icon.svelte'
 
   let deleting = false
   let result = ''
@@ -21,13 +22,14 @@
   }
 </script>
 
-<section class="card admin-panel">
-  <div class="card-head admin-header">
+<details class="card admin-panel">
+  <summary class="card-head admin-header">
+    <span class="chevron"><Icon name="chevron-right" size={16} /></span>
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
     <h2>Admin</h2>
-  </div>
+  </summary>
 
   <div class="admin-actions">
     <button class="delete-all" on:click={handleDeleteAll} disabled={deleting}>
@@ -38,16 +40,37 @@
   {#if result}
     <p class="result">{result}</p>
   {/if}
-</section>
+</details>
 
 <style>
   .admin-panel {
     border-color: var(--red);
-    margin-bottom: 24px;
+    margin-top: 24px;
   }
 
   .admin-header {
+    list-style: none;
+    margin-bottom: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .admin-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .admin-panel[open] .admin-header {
     margin-bottom: 16px;
+  }
+
+  .chevron {
+    display: flex;
+    color: var(--red);
+    transition: transform 0.18s ease;
+  }
+
+  .admin-panel[open] .chevron {
+    transform: rotate(90deg);
   }
 
   .admin-header svg,
