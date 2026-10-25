@@ -1,6 +1,7 @@
 <script lang="ts">
   // Phones: the bottom tab bar of the game view — Press, Map, Orders.
   import type { GameTab } from '../lib/layout'
+  import Icon from './Icon.svelte'
 
   export let tab: GameTab
   export let onSelect: (t: GameTab) => void
@@ -12,10 +13,10 @@
   /** Edits made after submitting that aren't sent yet. */
   export let ordersDirty: boolean = false
 
-  const TABS: Array<{ id: GameTab; label: string; icon: string }> = [
-    { id: 'press', label: 'Press', icon: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />' },
-    { id: 'map', label: 'Map', icon: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" />' },
-    { id: 'orders', label: 'Orders', icon: '<path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" />' },
+  const TABS: Array<{ id: GameTab; label: string }> = [
+    { id: 'press', label: 'Press' },
+    { id: 'map', label: 'Map' },
+    { id: 'orders', label: 'Orders' },
   ]
 </script>
 
@@ -23,14 +24,17 @@
   {#each TABS as t (t.id)}
     <button class="tab" class:on={tab === t.id} on:click={() => onSelect(t.id)} aria-current={tab === t.id ? 'page' : undefined}>
       <span class="ico">
-        <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{@html t.icon}</svg>
+        <Icon name={t.id} size={24} round />
         {#if t.id === 'press' && pressBadge}
           <span class="badge">{pressBadge > 99 ? '99+' : pressBadge}</span>
         {:else if t.id === 'orders' && ordersDirty}
-          <span class="badge todo">!</span>
+          <span class="badge todo icon" aria-label="Unsaved changes">
+            <svg class="glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 2v3.6M5 8v.01" /></svg>
+          </span>
         {:else if t.id === 'orders' && ordersDone}
-          <span class="badge done">✓</span>
+          <span class="badge done icon" aria-label="Submitted">
+            <svg class="glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.4 5.2l1.8 1.8 3.6-3.8" /></svg>
+          </span>
         {:else if t.id === 'orders' && ordersBadge}
           <span class="badge todo">{ordersBadge}</span>
         {/if}
@@ -97,9 +101,25 @@
     color: #fff;
     font-size: 11px;
     font-weight: 700;
-    line-height: 18px;
-    text-align: center;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     box-shadow: 0 0 0 2px var(--bg-card);
+  }
+  .badge.icon {
+    width: 18px;
+    padding: 0;
+  }
+  /* "!" and "✓" drawn rather than typed, so they sit dead centre in the dot. */
+  .badge .glyph {
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .badge.todo {
     background: var(--amber);

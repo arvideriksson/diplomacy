@@ -319,7 +319,16 @@ create trigger games_create_public_chat
 -- enforced at subscribe time. We only need SELECT (receive): messages are emitted
 -- from the database (send_chat_message), never published by clients, so no client
 -- INSERT policy is granted.
-alter table realtime.messages enable row level security;
+--
+-- Supabase ships realtime.messages with RLS already on, owned by a role `postgres`
+-- isn't always allowed to ALTER (a fresh local stack refuses it). Only enable it if
+-- it's somehow off, so a from-scratch replay doesn't fail on a no-op.
+do $$
+begin
+  if not (select relrowsecurity from pg_class where oid = 'realtime.messages'::regclass) then
+    alter table realtime.messages enable row level security;
+  end if;
+end $$;
 
 drop policy if exists "chat_realtime_receive" on realtime.messages;
 create policy "chat_realtime_receive"

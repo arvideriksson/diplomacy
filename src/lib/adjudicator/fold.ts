@@ -3,7 +3,7 @@
 // deterministic, replaying the log always reproduces the same state.
 
 import type { MapDefinition } from '../mapDefinition'
-import type { AnyOrder, BoardState, RoundKey } from './types'
+import type { AnyOrder, BoardState, OrderResult, RoundKey } from './types'
 
 export interface ResolvedRound extends RoundKey {
   orders: AnyOrder[]
@@ -34,6 +34,8 @@ export type LogRow = RoundKey & {
 export interface ReplayFrame {
   board: BoardState
   orders: AnyOrder[]
+  /** How each order resolved (absent on the trailing live frame, which isn't resolved yet). */
+  results?: OrderResult[]
 }
 
 const SEASON_ORDER: Record<string, number> = { Spring: 0, Fall: 1 }
@@ -71,6 +73,12 @@ export function replayLog(
   const ordered = [...rounds.values()].sort((a, b) => roundRank(a) - roundRank(b))
 
   const frames: ReplayFrame[] = []
+  // Record the phase as resolved from `board`, returning the board after it.
+  const pushFrame = (board: BoardState, orders: AnyOrder[]): BoardState => {
+    const { newBoardState, results } = adjudicate(map, board, orders)
+    frames.push({ board, orders, results })
+    return newBoardState
+  }
   let state = initial
   for (const round of ordered) {
     // A phase in which nobody had an order row (everyone idle, or nobody submitted
@@ -78,15 +86,12 @@ export function replayLog(
     // it — with no orders. Resolve such phases the same way until the board reaches
     // this round, so every later round replays against the right board.
     for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1000; guard++) {
-      frames.push({ board: state, orders: [] })
-      state = adjudicate(map, state, []).newBoardState
+      state = pushFrame(state, [])
     }
-    frames.push({ board: state, orders: round.orders })
-    state = adjudicate(map, state, round.orders).newBoardState
+    state = pushFrame(state, round.orders)
   }
   for (let guard = 0; until && PHASE_ORDER[until.phase] !== undefined && roundRank(state) < roundRank(until) && guard < 1000; guard++) {
-    frames.push({ board: state, orders: [] })
-    state = adjudicate(map, state, []).newBoardState
+    state = pushFrame(state, [])
   }
   frames.push({ board: state, orders: [] })
   return frames

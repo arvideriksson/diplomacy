@@ -5,7 +5,8 @@
   import { errorMessage } from '../lib/errors'
   import { createDebouncer } from '../lib/debounce'
   import { readDraftBackup, writeDraftBackup, sameOrders } from '../lib/draftBackup'
-  import { isOrderPhase } from '../lib/phases'
+  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import Icon from './Icon.svelte'
   import { sameNation } from '../lib/powers'
   import type { MapDefinition } from '../lib/mapDefinition'
   import DiplomacyMap from './DiplomacyMap.svelte'
@@ -14,11 +15,12 @@
   import { nextStep, finalize, applicableOrderTypes, type Draft, type Step, type WizardContext } from '../lib/orders/wizard'
   import { buildSituation } from '../lib/orders/adjustments'
   import { canConvoyFrom } from '../lib/adjudicator/rules'
+  import type { OrderResult } from '../lib/adjudicator/types'
   import { BUBBLE_ICONS, ORDER_BUBBLES, type Bubble, type BubbleMenu } from '../lib/orders/bubbles'
-  import { compact, type GameTab } from '../lib/layout'
+  import { compact, wideLayout, type GameTab } from '../lib/layout'
   import { powerColor, powerName } from '../lib/powers'
   import {
-    orderSource, withImplicitHolds, toRenderOrders, applyChoice, commitMove, ORDER_TYPE_KEYS, unorderedUnitIds,
+    orderSource, withImplicitHolds, toRenderOrders, orderFailed, applyChoice, commitMove, ORDER_TYPE_KEYS, unorderedUnitIds,
     retreatChoices as retreatChoicesFor, retreatMapInputs,
     openBuildSpots, openRemovals, buildMapInputs, buildPrompt as buildPromptFor, coastName,
   } from '../lib/orders/board'
@@ -30,6 +32,7 @@
   import DeadlineBanner from './DeadlineBanner.svelte'
   import OrderPanel from './OrderPanel.svelte'
   import SubmitControls from './SubmitControls.svelte'
+  import Modal from './Modal.svelte'
   import PhaseHeader from './PhaseHeader.svelte'
   import GameTopBar from './GameTopBar.svelte'
   import GameTabs from './GameTabs.svelte'
@@ -70,6 +73,8 @@
   export let readOnly: boolean = false
   /** The resolved orders to display in read-only history mode. */
   export let historyOrders: AnyOrder[] = []
+  /** How each history order resolved, so failed ones are crossed out on the map. */
+  export let historyResults: OrderResult[] = []
   /** Leave the game and return to the menu (the global header is hidden in-game). */
   export let onExit: (() => void) | null = null
   /** Name shown at the top of the sidebar (game or sandbox name). */
@@ -138,6 +143,31 @@
 
   // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
   let leftOpen = false
+
+  // Desktop: either sidebar can be hidden to give the map the room; remembered per
+  // browser. Hidden, the left rail stays mounted (chat keeps its state) and its Leave
+  // button moves onto the map, so leaving is always one click away.
+  const PANELS_KEY = 'game:hidden-panels'
+  let leftHidden = false
+  let rightHidden = false
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANELS_KEY) ?? '{}')
+    leftHidden = saved.left === true
+    rightHidden = saved.right === true
+  } catch {
+    /* no storage: both sidebars start shown */
+  }
+  $: try {
+    localStorage.setItem(PANELS_KEY, JSON.stringify({ left: leftHidden, right: rightHidden }))
+  } catch {
+    /* not remembered */
+  }
+  // The left rail is on screen: docked and not hidden (desktop), or the drawer is open.
+  $: leftShown = hasRail && ($wideLayout ? !leftHidden : leftOpen)
+  function toggleLeft() {
+    if ($wideLayout) leftHidden = !leftHidden
+    else leftOpen = !leftOpen
+  }
 
   // The left rail shows when there's a title, a Leave action or slotted rail content.
   $: hasRail = Boolean(title || onExit || $$slots.left)
@@ -352,9 +382,17 @@
 
   // Keyboard shortcuts while a draft is active: H hold, M move, S support, C convoy.
   function onKeydown(e: KeyboardEvent) {
-    if (!canAct) return
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+    // [ and ] toggle the left and right sidebars.
+    if (!$compact && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '[' || e.key === ']')) {
+      e.preventDefault()
+      if (e.key === '[') {
+        if (hasRail) toggleLeft()
+      } else rightHidden = !rightHidden
+      return
+    }
+    if (!canAct) return
     if (e.key === 'Escape') {
       cancel()
       return
@@ -643,7 +681,7 @@
     : draft && draft.type && currentStep?.kind === 'province'
       ? { title: `${draftLabel} · ${draft.type}`, text: currentStep.prompt, back: true }
       : draft && !draft.type
-        ? { title: draftLabel, text: draftCurrent ? `Now: ${describeOrder(draftCurrent)} — pick to change` : 'Choose an order', back: false }
+        ? { title: draftLabel, text: 'Choose an order', back: false }
         : retreatSel && retreatRouting
           ? { title: retreatLabel, text: 'Pick a highlighted province to retreat to', back: true }
           : retreatSel
@@ -654,7 +692,6 @@
                 ? { title: `Remove from ${provinceName(removeSel.territory)}?`, text: '', back: false }
                 : null
 
-  $: draftCurrent = draft ? orders.find((o) => orderSource(o) === draft!.source) : undefined
   let dismissedNotice = ''
 
   function hintBack() {
@@ -667,6 +704,13 @@
   const byNationThenProvince = (a: AnyOrder, b: AnyOrder) =>
     a.nation.localeCompare(b.nation) || provinceName(orderSource(a)).localeCompare(provinceName(orderSource(b)))
   $: listedOrders = [...orders].sort(byNationThenProvince)
+  // What the panel lists. A sandbox phase you've stepped back to reads as history: every
+  // unit, an un-ordered one as the Hold it resolved as. The latest phase is entry: just the
+  // entered orders, with un-ordered units under "Needs an order". History lists every unit.
+  $: sandboxPast = controlAll && canPhaseForward
+  $: shownOrders = sandboxPast ? withImplicitHolds(orders, phase, ownUnits).sort(byNationThenProvince) : listedOrders
+  $: shownHistory = withImplicitHolds(historyOrders, phase, units).sort(byNationThenProvince)
+  const isEntered = (o: AnyOrder) => orders.some((x) => orderSource(x) === orderSource(o))
   // The order set as notation for the clipboard: un-ordered units hold in a game; a
   // sandbox (one board commanding every power) copies only the entered orders, by power.
   $: copyText = (() => {
@@ -687,11 +731,12 @@
   $: pendingAdjust = !canAct
     ? null
     : pendingRetreats.length
-      ? { text: `${pendingRetreats.length} retreat${pendingRetreats.length === 1 ? '' : 's'} to order` }
+      ? { text: `${pendingRetreats.length} retreat${pendingRetreats.length === 1 ? '' : 's'} to order`, next: true }
       : pendingBuilds && buildSpots.length
-        ? { text: `${pendingBuilds} build${pendingBuilds === 1 ? '' : 's'} available` }
+        // No "Next" for builds: where to build is the choice, so don't pick a center for them.
+        ? { text: `${pendingBuilds} build${pendingBuilds === 1 ? '' : 's'} available`, next: false }
         : pendingRemovals
-          ? { text: `${pendingRemovals} unit${pendingRemovals === 1 ? '' : 's'} to remove` }
+          ? { text: `${pendingRemovals} unit${pendingRemovals === 1 ? '' : 's'} to remove`, next: true }
           : null
   function nextPending() {
     const d = pendingRetreats[0]
@@ -721,6 +766,39 @@
   $: submitDone = !onResolve && effectiveReady && !dirtySinceSubmit
   $: submitLabel = onResolve ? 'Resolve' : amIdle ? 'Waiting…' : !effectiveReady ? 'Submit' : dirtySinceSubmit ? 'Resubmit' : 'Submitted'
   const doSubmit = () => (onResolve ? onResolve(withImplicitHolds(orders, phase, ownUnits)) : submit())
+
+  // Submitting with something left to do asks first, spelling out what the engine will do
+  // in its place. Live play only — a sandbox resolves whatever is on the board.
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+  const names = (list: string[]) => list.join(', ')
+  $: submitWarnings = onResolve || !canAct
+    ? []
+    : [
+        unorderedUnits.length
+          ? `${plural(unorderedUnits.length, 'unit')} without an order will hold: ${names(unorderedUnits.map(unitLabel))}.`
+          : '',
+        pendingRetreats.length
+          ? `${plural(pendingRetreats.length, 'dislodged unit')} without a retreat will be disbanded: ${names(pendingRetreats.map((d) => unitLabel(d.unit)))}.`
+          : '',
+        pendingBuilds && buildSpots.length ? `You'll give up ${plural(pendingBuilds, 'build')} — unused builds are lost.` : '',
+        pendingRemovals
+          ? `${plural(pendingRemovals, 'unit')} will be removed for you, farthest from your home centers first.`
+          : '',
+      ].filter(Boolean)
+  let confirmingSubmit = false
+  // The mobile strip with nothing to say (every unit ordered, builds all placed): just the
+  // Submit button, its backdrop shrunk to fit and pinned right, rather than a status bar.
+  $: stripBare =
+    !onResolve &&
+    !pendingAdjust &&
+    !(effectiveReady && dirtySinceSubmit) &&
+    !amIdle &&
+    ((phase === 'movement' && !unorderedUnits.length) || (phase === 'build' && !buildPrompt))
+  const requestSubmit = () => (submitWarnings.length ? (confirmingSubmit = true) : doSubmit())
+  function submitAnyway() {
+    confirmingSubmit = false
+    doSubmit()
+  }
 
   // ── map inputs, per phase ─────────────────────────────────────────────────
   // Movement: wizard choices; units targeted at province level (coast collapsed)
@@ -756,8 +834,15 @@
     : null
 
   // Map overlays per order kind: movement/retreat as arrows, builds as ghost unit
-  // tokens, removes/disbands as red markers. Read-only history uses resolved orders.
-  $: renderOrders = toRenderOrders(readOnly ? historyOrders : orders)
+  // tokens, removes/disbands as red markers. Read-only history draws what the panel
+  // lists (un-ordered units as holds), crossing out the orders that failed. Only a
+  // resolved phase has results — a finished game's final board has no orders to draw.
+  $: failedSources = new Set(historyResults.filter(orderFailed).map((r) => orderSource(r.order)))
+  $: renderOrders = !readOnly
+    ? toRenderOrders(orders)
+    : historyResults.length
+      ? toRenderOrders(shownHistory, (o) => failedSources.has(orderSource(o)))
+      : toRenderOrders(historyOrders)
 
   const provinceName = (id: string): string => mapDef.territories[id]?.name ?? id
   $: draftUnit = draft ? units.find((u) => u.territory === draft!.source) : undefined
@@ -801,9 +886,22 @@
         ].filter((t) => t !== null)
       })
       .sort((a, b) => (a.power?.name ?? '').localeCompare(b.power?.name ?? ''))
+  // Sandbox, latest phase: each power's un-ordered units as its own "Needs an order" group.
+  $: sandboxUnordered = controlAll && canAct && phase === 'movement' && !sandboxPast
+    ? ownUnits.filter((u) => !orders.some((o) => orderSource(o) === u.territory))
+    : []
+  $: sandboxTodos = [...new Set(sandboxUnordered.map((u) => u.nation))]
+    .map((n) => {
+      const list = sandboxUnordered.filter((u) => u.nation === n).sort((a, b) => provinceName(a.territory).localeCompare(provinceName(b.territory)))
+      const power = { name: powerName(mapDef.powers, n), color: powerColor(mapDef.powers, n, '#888') }
+      return { key: `unordered:${n}`, title: 'Needs an order', count: list.length, go: 'Order', power, items: list.map((u) => ({ id: u.territory, label: unitLabel(u) })) }
+    })
+    .sort((a, b) => a.power.name.localeCompare(b.power.name))
   $: todos = phase === 'movement' && unorderedUnits.length
     ? [{ key: 'unordered', title: 'Needs an order', count: unorderedUnits.length, go: 'Order', items: unorderedUnits.map((u) => ({ id: u.territory, label: unitLabel(u) })) }]
-    : adjustTodos
+    : phase === 'movement' && controlAll
+      ? sandboxTodos
+      : adjustTodos
   // A to-do row: open that unit's / center's bubbles on the map.
   function pickTodo(id: string) {
     if (phase === 'movement') return pickUnit(id)
@@ -863,12 +961,40 @@
         {/if}
       </section>
     {:else if hasRail}
-      <LeftRail {title} {onExit} width={leftWidth} open={leftOpen} onClose={() => (leftOpen = false)}>
+      <LeftRail
+        {title}
+        {onExit}
+        {exitLabel}
+        width={leftWidth}
+        open={leftOpen}
+        collapsed={$wideLayout && leftHidden}
+        onClose={() => (leftOpen = false)}
+        onHide={toggleLeft}
+      >
         <slot name="left" />
       </LeftRail>
     {/if}
 
-    <div class="map-area pane" aria-hidden={$compact && tab !== 'map'}>
+    <div class="map-area pane" class:chrome-left={!$compact && hasRail && !leftShown} aria-hidden={$compact && tab !== 'map'}>
+      {#if !$compact && hasRail && !leftShown}
+        <!-- Left rail hidden (or a closed drawer): Leave and a way back to it, on the map. -->
+        <div class="map-chrome">
+          {#if onExit}
+            <button
+              class="glass chrome-btn"
+              on:click={onExit}
+              title={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'}
+              aria-label={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'}
+            >
+              <Icon name={exitLabel ? 'back' : 'exit'} strokeWidth={2.2} round />
+            </button>
+          {/if}
+          <button class="glass chrome-btn" on:click={toggleLeft} title={onResolve ? 'Show sidebar ([)' : 'Show press ([)'} aria-label={onResolve ? 'Show sidebar' : 'Show press'}>
+            <Icon name={onResolve ? 'panel-left' : 'press'} round />
+            {#if pressBadge}<span class="chrome-badge">{pressBadge > 99 ? '99+' : pressBadge}</span>{/if}
+          </button>
+        </div>
+      {/if}
       <DiplomacyMap
         bind:this={mapRef}
         bind:wholeBoard
@@ -894,6 +1020,14 @@
       />
 
       <div class="map-action">
+        {#if !$compact && rightHidden}
+          <button class="glass orders-chip" on:click={() => (rightHidden = false)} title="Show orders (])" aria-label="Show orders sidebar">
+            <span>{season} {year}</span>
+            {#if isOrderPhase(phase)}<span class="chip-phase">{PHASE_LABEL[phase]}</span>{/if}
+            {#if canAct && unorderedUnits.length}<span class="chrome-badge inline">{unorderedUnits.length}</span>{/if}
+            <Icon name="orders" round />
+          </button>
+        {/if}
         {#if !$compact}<slot name="map-action" />{/if}
         <button
           class="glass fit-btn"
@@ -909,7 +1043,8 @@
         </button>
       </div>
 
-      {#if phase !== 'lobby' && Object.keys(supplyCenters).length}
+      <!-- Phones list the standings at the bottom of the orders tab instead. -->
+      {#if !$compact && phase !== 'lobby' && Object.keys(supplyCenters).length}
         <SupplyCenterCard
           powers={mapDef.powers}
           {supplyCenters}
@@ -945,13 +1080,16 @@
             <button class="hint-btn" on:click={cancel} aria-label="Cancel">✕</button>
           </div>
         {:else if $compact && canAct && isOrderPhase(phase)}
-          <div class="glass strip">
+          <div class="glass strip" class:bare={stripBare}>
+            {#if !stripBare}
             <div class="strip-info">
-              {#if pendingAdjust}
+              {#if pendingAdjust?.next}
                 <button class="strip-next" on:click={nextPending}>
                   <span class="dot"></span>{pendingAdjust.text}
                   <span class="next">Next ›</span>
                 </button>
+              {:else if pendingAdjust}
+                <span class="strip-next"><span class="dot"></span>{pendingAdjust.text}</span>
               {:else if onResolve}
                 <span>{phase === 'movement' ? `You command every power · ${units.length - orders.length > 0 ? `${units.length - orders.length} units on hold` : 'all ordered'}` : phase === 'retreat' ? '✓ Every retreat is ordered' : '✓ Adjustments done'}</span>
               {:else if effectiveReady && dirtySinceSubmit}
@@ -963,18 +1101,18 @@
                   <span class="dot"></span>{unorderedUnits.length} without orders
                   <span class="next">Next ›</span>
                 </button>
-              {:else if phase === 'movement'}
-                <span class="ok">✓ Every unit has an order</span>
               {:else}
                 <span>{phase === 'retreat' ? (myDislodged.length ? 'Tap a flagged unit to retreat it' : 'No retreats') : buildPrompt}</span>
               {/if}
             </div>
+            {/if}
             <button
               class="strip-submit"
               class:done={submitDone}
               class:resubmit={!onResolve && effectiveReady && dirtySinceSubmit}
+              class:incomplete={submitWarnings.length > 0 && !submitDone}
               disabled={saving || submitDone || amIdle}
-              on:click={doSubmit}
+              on:click={requestSubmit}
             >
               {submitDone ? '✓ Submitted' : submitLabel}
             </button>
@@ -988,7 +1126,7 @@
       </div>
     </div>
 
-    <aside class="sidebar pane orders-pane" aria-hidden={$compact && tab !== 'orders'}>
+    <aside class="sidebar pane orders-pane" class:collapsed={!$compact && rightHidden} aria-hidden={$compact && tab !== 'orders'}>
       {#if !$compact}
         <PhaseHeader
           {phase}
@@ -998,9 +1136,7 @@
           {onPhaseForward}
           {canPhaseBack}
           {canPhaseForward}
-          hasMenu={hasRail}
-          menuOpen={leftOpen}
-          onToggleMenu={() => (leftOpen = !leftOpen)}
+          onHide={() => (rightHidden = true)}
         />
       {/if}
 
@@ -1015,14 +1151,15 @@
           {readOnly}
           {canAct}
           {phase}
-          {historyOrders}
-          orders={listedOrders}
+          historyOrders={shownHistory}
+          orders={shownOrders}
+          entered={isEntered}
           {copyText}
           format={formatOrder}
           describe={describeOrder}
           warn={supportWarning}
-          powerOf={controlAll ? (o) => ({ name: powerName(mapDef.powers, o.nation), color: powerColor(mapDef.powers, o.nation, '#888') }) : null}
-          drafting={Boolean(draft)}
+          powerInfo={(n) => ({ name: powerName(mapDef.powers, n), color: powerColor(mapDef.powers, n, '#888') })}
+          byPower={controlAll}
           hasDislodged={myDislodged.length > 0}
           retreating={Boolean(retreatSel)}
           {retreatLabel}
@@ -1041,10 +1178,11 @@
             dirty={dirtySinceSubmit}
             resubmitted={hasResubmitted}
             error={saveError}
+            incomplete={submitWarnings.length > 0}
             locked={submittedOrders}
             format={formatOrder}
             describe={describeOrder}
-            onSubmit={doSubmit}
+            onSubmit={requestSubmit}
             onDiscard={discardChanges}
           />
         </OrderPanel>
@@ -1055,6 +1193,10 @@
 
         <slot name="results" />
         <slot name="orders-extra" />
+
+        {#if $compact && phase !== 'lobby' && Object.keys(supplyCenters).length}
+          <SupplyCenterCard inline powers={mapDef.powers} {supplyCenters} {nation} />
+        {/if}
       </div>
     </aside>
   </div>
@@ -1070,6 +1212,18 @@
     />
   {/if}
 </div>
+
+{#if confirmingSubmit}
+  <Modal title="Submit with orders missing?" onClose={() => (confirmingSubmit = false)} top="max(48px, 18vh)">
+    <ul class="submit-warnings">
+      {#each submitWarnings as w (w)}<li>{w}</li>{/each}
+    </ul>
+    <div class="submit-confirm">
+      <button class="btn btn-primary" on:click={submitAnyway}>Submit anyway</button>
+      <button class="btn btn-ghost" on:click={() => (confirmingSubmit = false)}>Keep ordering</button>
+    </div>
+  </Modal>
+{/if}
 
 <style>
   /* Immersive in-game shell: map fills the left, a docked sidebar on the right. */
@@ -1131,6 +1285,81 @@
   }
   .compact .side-body {
     padding: 14px 16px 24px;
+  }
+
+  .sidebar.collapsed {
+    display: none;
+  }
+
+  /* Top-left of the map while the left rail is hidden: Leave, show-sidebar, game name.
+     The supply-center card moves down below it. */
+  .map-chrome {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    right: 80px;
+    z-index: 16;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .map-chrome > * {
+    pointer-events: auto;
+  }
+  .chrome-left :global(.sc-card) {
+    top: 68px;
+  }
+  .chrome-btn {
+    position: relative;
+    flex: none;
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 50%;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .chrome-btn:hover,
+  .orders-chip:hover {
+    border-color: var(--border-strong);
+  }
+  .chrome-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: var(--text-inverse);
+    font-size: 10.5px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+  }
+  .chrome-badge.inline {
+    position: static;
+    background: var(--amber);
+  }
+  /* Right sidebar hidden: the phase, unordered-unit count and a way back to it. */
+  .orders-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 42px;
+    padding: 0 12px 0 16px;
+    border-radius: var(--radius-full);
+    color: var(--text);
+    font: 600 14px var(--font);
+    cursor: pointer;
+  }
+  .chip-phase {
+    color: var(--text-secondary);
+    font-weight: 500;
   }
 
   /* Overlay action mirrored to the supply-center card, hugging the sidebar's edge. */
@@ -1294,6 +1523,11 @@
     border-radius: 16px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
   }
+  .strip.bare {
+    width: auto;
+    margin-left: auto;
+    padding: 6px;
+  }
   .strip-info {
     flex: 1;
     min-width: 0;
@@ -1303,9 +1537,6 @@
   }
   .strip-info .unsent {
     color: var(--accent);
-  }
-  .strip-info .ok {
-    color: var(--green);
   }
   .strip-next {
     display: inline-flex;
@@ -1319,6 +1550,26 @@
     color: var(--text);
     font: 600 13px var(--font);
     cursor: pointer;
+  }
+  .submit-warnings {
+    margin: 0 0 16px;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-secondary);
+  }
+  .submit-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .submit-confirm .btn {
+    min-height: 46px;
+    font-size: 15px;
+  }
+  span.strip-next {
+    cursor: default;
   }
   .strip-next .dot {
     width: 9px;
@@ -1348,6 +1599,10 @@
   }
   .strip-submit.resubmit {
     background: var(--accent);
+  }
+  /* Something still to order: yellow until it's all in (submitting asks first). */
+  .strip-submit.incomplete {
+    background: var(--amber);
   }
   .strip-submit.plain {
     background: var(--accent);

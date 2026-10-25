@@ -64,7 +64,13 @@ function seatClient(seat: number): SupabaseClient {
 async function ensureSeat(seat: number): Promise<string> {
   const client = seatClient(seat)
   const { data } = await client.auth.getSession()
-  if (data.session) return data.session.user.id
+  if (data.session) {
+    // A stored session can outlive its user (`npm run db:reset` wipes auth.users), so
+    // confirm it with the server before trusting it; a dead one is replaced below.
+    const { data: checked, error } = await client.auth.getUser()
+    if (!error && checked.user) return checked.user.id
+    await client.auth.signOut({ scope: 'local' })
+  }
   const name = `Seat ${seat}`
   const { data: signedIn, error } = await client.auth.signInAnonymously({
     options: { data: { full_name: name, name } },

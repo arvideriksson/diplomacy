@@ -110,11 +110,61 @@ export async function renameChannel(channelId: number, name: string): Promise<vo
   await rpc('rename_channel', { p_channel_id: channelId, p_name: name })
 }
 
-/** Delta history: messages in a channel, optionally only those after `sinceIso`. */
+/** Delta history: the newest 500 messages in a channel (oldest first), optionally only
+ *  those after `sinceIso`. */
 export async function fetchMessages(channelId: number, sinceIso?: string): Promise<ChatMessage[]> {
   let q = supabase.from('chat_messages').select('*').eq('channel_id', channelId)
   if (sinceIso) q = q.gt('created_at', sinceIso)
-  const { data, error } = await q.order('created_at', { ascending: true }).limit(500)
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(500)
+  if (error) throw error
+  return ((data ?? []) as ChatMessage[]).reverse()
+}
+
+/** A page of history from before `beforeIso` (oldest first), for scrolling further back. */
+export async function fetchOlder(channelId: number, beforeIso: string, limit = 200): Promise<ChatMessage[]> {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('channel_id', channelId)
+    .lt('created_at', beforeIso)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return ((data ?? []) as ChatMessage[]).reverse()
+}
+
+/** The newest message of each channel (for list previews): one single-row read per
+ *  channel, so egress stays a few rows rather than whole histories. */
+export async function latestMessages(channelIds: number[]): Promise<Record<number, ChatMessage>> {
+  const rows = await Promise.all(
+    channelIds.map(async (id) => {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('channel_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (error) throw error
+      return (data?.[0] ?? null) as ChatMessage | null
+    }),
+  )
+  const out: Record<number, ChatMessage> = {}
+  for (const m of rows) if (m) out[m.channel_id] = m
+  return out
+}
+
+/** Messages in these channels whose text contains `query` (newest first, capped) —
+ *  RLS already limits the read to channels the caller belongs to. */
+export async function searchMessages(channelIds: number[], query: string): Promise<ChatMessage[]> {
+  if (channelIds.length === 0 || !query.trim()) return []
+  const pattern = `%${query.trim().replace(/[\\%_]/g, (c) => '\\' + c)}%`
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .in('channel_id', channelIds)
+    .ilike('body', pattern)
+    .order('created_at', { ascending: false })
+    .limit(30)
   if (error) throw error
   return (data ?? []) as ChatMessage[]
 }
