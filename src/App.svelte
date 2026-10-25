@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { Router, Route, navigate } from 'svelte-routing'
-  import { initAuth, isAuthenticated, isSiteAdmin } from './lib/auth'
+  import { initAuth, isAuthenticated, isSiteAdmin, needsDisplayName } from './lib/auth'
   import { fetchGames } from './lib/game'
   import type { GameState } from './lib/game'
   import { immersive } from './lib/layout'
@@ -13,6 +13,7 @@
   import GameRoute from './components/GameRoute.svelte'
   import JoinRoute from './components/JoinRoute.svelte'
   import AdminPanel from './components/AdminPanel.svelte'
+  import NameDialog from './components/NameDialog.svelte'
   import SandboxView from './components/SandboxView.svelte'
   import { classicalMap } from './lib/maps/classical'
   import { initialBoard } from './lib/adjudicator'
@@ -105,6 +106,9 @@
       </Route>
     {/if}
   </main>
+  {#if $needsDisplayName}
+    <NameDialog firstTime />
+  {/if}
   {#if devSeats}
     {#await devSeats then { default: DevSeatSwitcher }}
       <DevSeatSwitcher />

@@ -3,9 +3,9 @@
   // act, the per-phase entry prompt (movement wizard, retreat or build) and the entered
   // orders, followed by the slotted footer (submit controls). Presentational — every
   // state change goes back to the board through the callbacks.
-  import type { AnyOrder, OrderType } from '../lib/orders/types'
-  import type { Step } from '../lib/orders/wizard'
-  import { choiceNotes, orderSource } from '../lib/orders/board'
+  import type { AnyOrder } from '../lib/orders/types'
+  import { orderSource } from '../lib/orders/board'
+  import Icon from './Icon.svelte'
 
   /** History view of a past phase: just the resolved orders, no entry. */
   export let readOnly: boolean = false
@@ -17,19 +17,29 @@
   /** The orders entered so far this phase. */
   export let orders: AnyOrder[] = []
   export let format: (o: AnyOrder) => string
+  /** The whole order set as notation (un-ordered units holding), for the copy button. */
+  export let copyText: string = ''
   /** Plain-language form, shown above the notation in the entry list. */
   export let describe: ((o: AnyOrder) => string) | null = null
 
   // movement
   /** A movement draft is open. */
   export let drafting: boolean = false
-  /** Order type of the unit being drafted. */
-  export let draftType: OrderType | undefined = undefined
-  export let draftLabel: string = ''
-  export let currentStep: Step | null = null
   /** Own units still without an order (movement), each a jump to the map. */
-  export let unordered: Array<{ source: string; label: string }> = []
-  export let onPickUnit: (source: string) => void = () => {}
+  /**
+   * What still needs doing, as groups of rows that each jump to the map: units without
+   * an order (movement), open home centers and units to remove (build). In a sandbox
+   * each power gets its own group, tagged with `power`.
+   */
+  export let todos: Array<{
+    key: string
+    title: string
+    count: number
+    go: string
+    power?: { name: string; color: string }
+    items: Array<{ id: string; label: string }>
+  }> = []
+  export let onPickTodo: (id: string) => void = () => {}
   /** A caveat to show under an order (e.g. a support that won't count), or ''. */
   export let warn: (o: AnyOrder) => string = () => ''
   /** God mode: label each order with its power (name + colour). */
@@ -42,12 +52,19 @@
   export let retreating: boolean = false
   export let retreatLabel: string = ''
   // build
-  /** Name of the center whose unit type is being picked; null when none. */
-  export let buildingAt: string | null = null
   export let buildPrompt: string = ''
 
   export let onCancel: () => void
   export let onDelete: (source: string) => void
+
+  let copied = false
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  function copyOrders() {
+    navigator.clipboard?.writeText(copyText)
+    copied = true
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied = false), 1500)
+  }
 </script>
 
 {#if readOnly}
@@ -66,25 +83,8 @@
   <div class="panel">
     <!-- per-phase entry prompt; the choices themselves are bubbles on the map -->
     {#if phase === 'movement'}
-      {#if drafting}
-        <div class="panel-head">
-          <strong>{draftLabel}{draftType ? ` · ${draftType}` : ''}</strong>
-          <button class="link" on:click={onCancel}>Cancel</button>
-        </div>
-        {#if currentStep?.kind === 'province'}
-          <p class="prompt">{currentStep.prompt}.</p>
-          {#each choiceNotes(currentStep.choices) as [note, names]}
-            <p class="choice-note"><strong>{note}:</strong> {names}</p>
-          {/each}
-        {:else}
-          <p class="prompt">Choose an order from the bubbles on the map.</p>
-        {/if}
-      {:else}
-        <p class="prompt">
-          Select a unit on the map, then pick <strong>Hold</strong>, <strong>Move</strong>,
-          <strong>Support</strong> or <strong>Convoy</strong> from the bubbles around it.
-          <span class="keys">Keys: <kbd>H</kbd> <kbd>M</kbd> <kbd>S</kbd> <kbd>C</kbd>, <kbd>Esc</kbd> cancels.</span>
-        </p>
+      {#if !drafting}
+        <p class="prompt keys">Keys: <kbd>H</kbd> <kbd>M</kbd> <kbd>S</kbd> <kbd>C</kbd>, <kbd>Esc</kbd> cancels.</p>
       {/if}
     {:else if phase === 'retreat'}
       {#if !hasDislodged}
@@ -99,34 +99,40 @@
         <p class="prompt">Select a flagged dislodged unit on the map to retreat or disband it.</p>
       {/if}
     {:else if phase === 'build'}
-      {#if buildingAt}
-        <div class="panel-head">
-          <strong>Build in {buildingAt}</strong>
-          <button class="link" on:click={onCancel}>Cancel</button>
-        </div>
-        <p class="prompt">Pick a unit type from the bubbles on the map.</p>
-      {:else}
+      {#if buildPrompt}
         <p class="prompt">{buildPrompt}</p>
       {/if}
     {/if}
 
-    {#if unordered.length}
-      <h4 class="list-head todo">Needs an order <span>{unordered.length}</span></h4>
+    {#each todos as t (t.key)}
+      <h4 class="list-head todo">
+        {#if t.power}<span class="power-chip" style="--c: {t.power.color}">{t.power.name}</span>{/if}
+        {t.title} <span class="count">{t.count}</span>
+      </h4>
       <ul class="orders">
-        {#each unordered as u (u.source)}
+        {#each t.items as u (u.id)}
           <li>
-            <button class="row-btn" on:click={() => onPickUnit(u.source)}>
+            <button class="row-btn" on:click={() => onPickTodo(u.id)}>
               <span class="dot"></span>
               <span class="row-text">{u.label}</span>
-              <span class="go">Order ›</span>
+              <span class="go">{t.go} ›</span>
             </button>
           </li>
         {/each}
       </ul>
-    {/if}
+    {/each}
 
+    {#if orders.length || (copyText && todos.length)}
+      <h4 class="list-head">
+        Your orders <span class="count">{orders.length}</span>
+        {#if copyText}
+          <button class="copy" on:click={copyOrders} aria-label="Copy all orders" title={copied ? 'Copied' : 'Copy all orders (un-ordered units hold)'}>
+            <Icon name={copied ? 'check' : 'copy'} size={15} round />
+          </button>
+        {/if}
+      </h4>
+    {/if}
     {#if orders.length}
-      <h4 class="list-head">Your orders <span>{orders.length}</span></h4>
       <ul class="orders">
         {#each orders as o (orderSource(o))}
           <li>
@@ -173,11 +179,6 @@
     margin: 0 0 8px;
     color: var(--text-secondary, #555);
   }
-  .choice-note {
-    margin: 4px 0 0;
-    font-size: 12.5px;
-    color: var(--text-secondary, #555);
-  }
   kbd {
     font: 11px/1 ui-monospace, monospace;
     padding: 1px 4px;
@@ -208,16 +209,32 @@
     text-transform: uppercase;
     color: var(--text-secondary);
   }
-  .list-head span {
+  .list-head .count {
     font-variant-numeric: tabular-nums;
     padding: 1px 7px;
     border-radius: 999px;
     background: var(--bg-hover);
   }
+  .list-head .copy {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .list-head .copy:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
   .list-head.todo {
     color: var(--amber);
   }
-  .list-head.todo span {
+  .list-head.todo .count {
     background: var(--amber-subtle);
   }
   .orders {
@@ -278,7 +295,9 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    /* Grow rather than width: 100% — the negative margin would leave the right 12px unlit. */
+    flex: 1;
+    min-width: 0;
     min-height: 40px;
     margin-left: -12px;
     padding: 0 12px;

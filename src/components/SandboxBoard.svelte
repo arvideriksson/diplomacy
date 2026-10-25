@@ -6,16 +6,14 @@
   import type { MapDefinition } from '../lib/mapDefinition'
   import GameBoard from './GameBoard.svelte'
   import VictoryBanner from './VictoryBanner.svelte'
-  import Modal from './Modal.svelte'
+  import Icon from './Icon.svelte'
   import { powerName } from '../lib/powers'
   import {
     resolveCurrent,
     setCurrentOrders,
     goBack,
     goForward,
-    resetSandbox,
     deleteSandbox,
-    exportSandbox,
     type Sandbox,
   } from '../lib/sandbox'
   import { victoryFor, type AnyOrder, type OrderResult } from '../lib/adjudicator'
@@ -74,29 +72,15 @@
     lastResults = []
     notice = ''
   }
-  function handleReset() {
-    resetSandbox(sb.id)
-    lastResults = []
-    confirmReset = false
-  }
   function handleDelete() {
     deleteSandbox(sb.id)
     onDeleted()
-  }
-  let copied = false
-  function handleExport() {
-    navigator.clipboard?.writeText(exportSandbox(sb.id))
-    copied = true
-    setTimeout(() => (copied = false), 1500)
   }
 
   // Successful holds are noise in the results; failures and moves are what you test for.
   $: shownResults = lastResults.filter((r) => r.code !== 'succeeds' || r.order.type !== 'Hold')
   $: hiddenHolds = lastResults.length - shownResults.length
 
-  // Deleting asks first; leaving (keeping the copy) is the back button.
-  let leaving = false
-  let confirmReset = false
 
   const src = (r: OrderResult): string => (r.order as { source: string }).source
 </script>
@@ -134,8 +118,11 @@
 >
   <svelte:fragment slot="left">
     <div class="no-press">
-      <p>{inGame ? 'Press belongs to the real game — nothing you send from a sandbox would make sense to the others.' : 'No press in a sandbox — you are playing every power.'}</p>
-      {#if inGame}<button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>{/if}
+      {#if inGame}
+        <button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>
+      {:else}
+        <p>No press in a sandbox — you are playing every power.</p>
+      {/if}
     </div>
   </svelte:fragment>
 
@@ -143,8 +130,8 @@
     {#if !$compact}
       <button class="glass exit-btn" on:click={onExit}>‹ {inGame ? 'Back to game' : 'Leave'}</button>
     {/if}
-    <button class="glass exit-btn trash" on:click={() => (leaving = true)} aria-label="Delete sandbox" title="Delete sandbox">
-      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+    <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
+      <Icon name="trash" size={17} round />
     </button>
   </svelte:fragment>
 
@@ -184,44 +171,7 @@
     {/if}
   </svelte:fragment>
 
-  <svelte:fragment slot="orders-extra">
-    <section class="sb-tools">
-      <h4>Sandbox</h4>
-      <p class="sb-help">
-        {#if inGame}
-          A private copy of <strong>{sb.origin?.gameName}</strong>, taken at {sb.name}. You command every
-          power; nothing here reaches the real game.
-        {:else}
-          You command every power; resolving is instant and stays on this device.
-        {/if}
-      </p>
-      <div class="sb-actions">
-        {#if inGame}
-          <button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>
-        {/if}
-        {#if confirmReset}
-          <button class="btn" on:click={handleReset}>Confirm reset</button>
-        {:else}
-          <button class="btn" on:click={() => (confirmReset = true)}>{inGame ? 'Reset to the copy' : 'Reset'}</button>
-        {/if}
-        <button class="btn" on:click={handleExport}>{copied ? 'Copied ✓' : 'Copy JSON'}</button>
-        <button class="btn btn-danger" on:click={() => (leaving = true)}>Delete sandbox</button>
-      </div>
-    </section>
-  </svelte:fragment>
 </GameBoard>
-
-{#if leaving}
-  <Modal title="Delete this sandbox?" onClose={() => (leaving = false)} top="max(48px, 18vh)">
-    <p class="leave-msg">
-      “{sb.name}” and every phase you resolved in it will be gone{inGame ? ' — the real game is untouched' : ''}.
-    </p>
-    <div class="leave">
-      <button class="btn btn-danger" on:click={handleDelete}>Delete{inGame ? ' and return to the game' : ''}</button>
-      <button class="btn btn-ghost" on:click={() => (leaving = false)}>Keep it</button>
-    </div>
-  </Modal>
-{/if}
 
 <style>
   .no-press {
@@ -256,20 +206,18 @@
     color: var(--accent);
     border-color: var(--accent);
   }
-  .exit-btn.trash {
+  .exit-btn.icon {
     width: 38px;
     height: 38px;
     padding: 0;
     justify-content: center;
+  }
+  .exit-btn.trash {
     color: var(--red);
   }
   .exit-btn.trash:hover {
     color: var(--red);
     border-color: var(--red);
-  }
-  .leave-msg {
-    margin: 0 0 14px;
-    color: var(--text-secondary);
   }
   .r-more {
     margin: 6px 0 0;
@@ -299,45 +247,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .sb-tools {
-    border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
-    background: var(--amber-subtle);
-    border-radius: 12px;
-    padding: 12px 14px;
-  }
-  .sb-tools h4 {
-    margin: 0 0 4px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    text-transform: uppercase;
-    color: var(--amber);
-  }
-  .sb-help {
-    margin: 0 0 10px;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  .sb-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .sb-actions .btn {
-    min-height: 40px;
-  }
-  .sb-actions .btn-primary {
-    flex-basis: 100%;
-  }
-  .leave {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .leave .btn {
-    min-height: 46px;
-    font-size: 15px;
   }
   /* Last-resolution results — flows in the sidebar below the order panel. */
   .results-stack {

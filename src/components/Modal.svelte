@@ -1,6 +1,7 @@
 <script lang="ts">
   // Centered dialog over a dimmed backdrop, with a title and a close ✕. Clicking the
-  // backdrop or pressing Escape closes it. The body goes in the default slot.
+  // backdrop or pressing Escape closes it. The body goes in the default slot. Without
+  // `onClose` it can't be dismissed — the body has to resolve it.
   import { fade, scale } from 'svelte/transition'
   import Icon from './Icon.svelte'
 
@@ -8,15 +9,15 @@
   export let maxWidth = '420px'
   /** Distance from the top of the viewport to the dialog. */
   export let top = '48px'
-  export let onClose: () => void
+  export let onClose: (() => void) | undefined = undefined
 
-  const onKeydown = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+  const onKeydown = (e: KeyboardEvent) => e.key === 'Escape' && onClose?.()
 </script>
 
 <svelte:window on:keydown={onKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="overlay" style:padding-top={top} transition:fade={{ duration: 150 }} on:click={onClose}>
+<div class="overlay" style:padding-top={top} transition:fade={{ duration: 150 }} on:click={() => onClose?.()}>
   <div
     class="modal"
     style:max-width={maxWidth}
@@ -29,9 +30,11 @@
   >
     <div class="modal-head">
       <h2>{title}</h2>
-      <button class="close" on:click={onClose} aria-label="Close">
-        <Icon name="close" />
-      </button>
+      {#if onClose}
+        <button class="close" on:click={onClose} aria-label="Close">
+          <Icon name="close" />
+        </button>
+      {/if}
     </div>
     <slot />
   </div>

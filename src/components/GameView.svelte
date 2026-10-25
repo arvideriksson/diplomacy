@@ -231,7 +231,6 @@
       {#if !isComplete}
         <section class="sb-launch">
           <h4>Sandbox</h4>
-          <p>Try your plans on a private copy of this board — you command every power and resolve instantly.</p>
           <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {frame.board.season} {frame.board.year}</button>
           {#if mySandboxes.length}
             <ul>
@@ -241,7 +240,9 @@
                     <span class="sb-name">From {sb.name}</span>
                     <span class="sb-at">{sb.frames[sb.cursor].board.season} {sb.frames[sb.cursor].board.year} ›</span>
                   </button>
-                  <button class="sb-del" on:click={() => deleteSandbox(sb.id)} aria-label="Delete sandbox {sb.name}">✕</button>
+                  <button class="sb-del" on:click={() => deleteSandbox(sb.id)} aria-label="Delete sandbox {sb.name}" title="Delete sandbox">
+                    <Icon name="trash" size={16} round />
+                  </button>
                 </li>
               {/each}
             </ul>
@@ -291,17 +292,12 @@
     background: var(--bg-card);
   }
   .sb-launch h4 {
-    margin: 0 0 4px;
+    margin: 0 0 8px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--amber);
-  }
-  .sb-launch p {
-    margin: 0 0 10px;
-    font-size: 13px;
-    color: var(--text-secondary);
   }
   .sb-launch .sb-new {
     width: 100%;
@@ -362,6 +358,8 @@
     flex: none;
     width: 42px;
     height: 42px;
+    display: grid;
+    place-items: center;
     border: none;
     background: none;
     color: var(--text-tertiary);

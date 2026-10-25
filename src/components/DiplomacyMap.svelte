@@ -551,6 +551,7 @@
             fill={hoveredIsSelected ? 'none' : 'rgba(255,255,255,0.55)'}
             stroke="white"
             stroke-width="5"
+            stroke-linejoin="round"
           />
         {/if}
       </svg>

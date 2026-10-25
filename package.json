@@ -5,15 +5,24 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:live": "BACKEND=live vite",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:7p": "node --experimental-strip-types scripts/seven-player-game.mjs",
+    "test:7p:live": "BACKEND=live node --experimental-strip-types scripts/seven-player-game.mjs",
     "build:edge": "esbuild src/lib/adjudicator/edge-entry.ts --bundle --format=esm --platform=neutral --outfile=supabase/functions/adjudicate/_engine.mjs",
     "map:1900": "node --experimental-strip-types tools/variants/1900/build.mjs",
-    "sql:current": "node scripts/current-sql.mjs"
+    "sql:current": "node scripts/current-sql.mjs",
+    "db:start": "npm run build:edge && supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "npm run build:edge && supabase db reset",
+    "db:status": "supabase status",
+    "live:push": "node --experimental-strip-types scripts/live.mjs push",
+    "live:deploy-functions": "npm run build:edge && node --experimental-strip-types scripts/live.mjs deploy-functions",
+    "postinstall": "node scripts/install-supabase-guard.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
@@ -23,6 +32,7 @@
     "d3-geo": "^3.1.1",
     "playwright": "^1.60.0",
     "polygon-clipping": "^0.15.7",
+    "supabase": "^2.122.0",
     "svelte": "^5.55.5",
     "svelte-check": "^4.4.8",
     "typescript": "~6.0.2",

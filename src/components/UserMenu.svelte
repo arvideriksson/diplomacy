@@ -1,10 +1,17 @@
 <script lang="ts">
-  import { user, signOut } from '../lib/auth'
+  import { user, displayName, signOut } from '../lib/auth'
   import { fade, fly } from 'svelte/transition'
   import Avatar from './Avatar.svelte'
   import Icon from './Icon.svelte'
+  import NameDialog from './NameDialog.svelte'
 
   let showMenu = false
+  let renaming = false
+
+  function rename() {
+    showMenu = false
+    renaming = true
+  }
 
   function handleClickOutside(e: MouseEvent) {
     if (showMenu) showMenu = false
@@ -20,16 +27,21 @@
       on:click|stopPropagation={() => (showMenu = !showMenu)}
       aria-expanded={showMenu}
     >
-      <Avatar src={$user.user_metadata?.avatar_url} name={$user.user_metadata?.full_name ?? $user.email} />
+      <Avatar src={$user.user_metadata?.avatar_url} name={$displayName} />
     </button>
 
     {#if showMenu}
       <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
       <div class="dropdown" transition:fly={{ y: -8, duration: 180 }} on:click|stopPropagation>
         <div class="dropdown-header">
-          {#if $user.user_metadata?.full_name}
-            <p class="name">{$user.user_metadata.full_name}</p>
-          {/if}
+          <div class="name-row">
+            <p class="name">{$displayName && $displayName !== $user.email ? $displayName : 'No name'}</p>
+            <button class="edit-name" on:click={rename} title="Change name" aria-label="Change name">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+              </svg>
+            </button>
+          </div>
           <p class="email">{$user.email}</p>
         </div>
         <div class="dropdown-divider"></div>
@@ -40,6 +52,10 @@
       </div>
     {/if}
   </div>
+
+  {#if renaming}
+    <NameDialog onClose={() => (renaming = false)} />
+  {/if}
 {/if}
 
 <style>
@@ -77,8 +93,31 @@
     padding: 14px 16px;
   }
 
+  .name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+
+  .edit-name {
+    display: flex;
+    padding: 4px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .edit-name:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
   .name {
-    margin: 0 0 2px;
+    margin: 0;
     font-size: 14px;
     font-weight: 600;
     color: var(--text);

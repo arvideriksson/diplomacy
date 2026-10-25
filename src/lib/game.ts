@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
 import { rpc } from './rpc'
+import { metaDisplayName } from './auth'
 import { getMap } from './maps'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
@@ -133,7 +134,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
 
   const playerInfo: PlayerInfo = {
     role: 'host',
-    display_name: meta.full_name ?? meta.name ?? undefined,
+    display_name: metaDisplayName(meta),
     avatar_url: meta.avatar_url ?? undefined,
     joined_at: new Date().toISOString(),
   }

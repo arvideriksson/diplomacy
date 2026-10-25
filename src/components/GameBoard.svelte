@@ -664,7 +664,18 @@
 
   // ── map footer (phones): progress, next unit, submit ──────────────────────
   // The orders list in a stable order (power, then province) so edited rows don't jump.
-  $: listedOrders = [...orders].sort((a, b) => a.nation.localeCompare(b.nation) || provinceName(orderSource(a)).localeCompare(provinceName(orderSource(b))))
+  const byNationThenProvince = (a: AnyOrder, b: AnyOrder) =>
+    a.nation.localeCompare(b.nation) || provinceName(orderSource(a)).localeCompare(provinceName(orderSource(b)))
+  $: listedOrders = [...orders].sort(byNationThenProvince)
+  // The order set as notation for the clipboard: un-ordered units hold in a game; a
+  // sandbox (one board commanding every power) copies only the entered orders, by power.
+  $: copyText = (() => {
+    if (!controlAll) return withImplicitHolds(orders, phase, ownUnits).sort(byNationThenProvince).map(formatOrder).join('\n')
+    const nations = [...new Set(listedOrders.map((o) => o.nation))]
+    return nations
+      .map((n) => [powerName(mapDef.powers, n), ...listedOrders.filter((o) => o.nation === n).map(formatOrder)].join('\n'))
+      .join('\n\n')
+  })()
 
   $: unorderedUnits = canAct && phase === 'movement' && !controlAll
     ? ownUnits.filter((u) => !orders.some((o) => orderSource(o) === u.territory))
@@ -760,9 +771,45 @@
     return d ? `${d.unit.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(retreatSel)} dislodged` : ''
   })()
 
-  $: buildPrompt = phase === 'build' && !pendingBuilds && !pendingRemovals && orders.length
-    ? 'All adjustments placed — tap a placed one to change it.'
-    : buildPromptFor(buildSituations)
+  // The to-do lists cover what's left to place; the prompt only speaks when they're empty.
+  $: buildPrompt = phase !== 'build' || todos.length || orders.length ? '' : buildPromptFor(buildSituations)
+
+  const unitLabel = (u: Unit) => `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(u.territory)}`
+  const placedFor = (type: 'Build' | 'Remove', n: string) => orders.filter((o) => o.type === type && o.nation === n).length
+  // Build-phase to-dos, one group per power (several in a sandbox), each tagged with
+  // the power when one board commands them all.
+  $: adjustTodos = !canAct || phase !== 'build'
+    ? []
+    : buildSituations.flatMap((s) => {
+        const power = controlAll ? { name: powerName(mapDef.powers, s.nation), color: powerColor(mapDef.powers, s.nation, '#888') } : undefined
+        const builds = s.delta - placedFor('Build', s.nation)
+        const removes = -s.delta - placedFor('Remove', s.nation)
+        const spots = buildSpots.filter((sp) => sp.nation === s.nation)
+        const removable = removeChoices.filter((r) => r.nation === s.nation)
+        return [
+          builds > 0 && spots.length
+            ? { key: `build:${s.nation}`, title: power ? 'Builds' : 'Builds available', count: builds, go: 'Build', power,
+                items: spots.map((sp) => ({ id: sp.province, label: provinceName(sp.province) })) }
+            : null,
+          removes > 0 && removable.length
+            ? { key: `remove:${s.nation}`, title: power ? 'Removals' : 'Units to remove', count: removes, go: 'Remove', power,
+                items: removable.map((r) => {
+                  const u = units.find((x) => x.territory === r.territory)
+                  return { id: r.territory, label: u ? unitLabel(u) : provinceName(r.territory) }
+                }) }
+            : null,
+        ].filter((t) => t !== null)
+      })
+      .sort((a, b) => (a.power?.name ?? '').localeCompare(b.power?.name ?? ''))
+  $: todos = phase === 'movement' && unorderedUnits.length
+    ? [{ key: 'unordered', title: 'Needs an order', count: unorderedUnits.length, go: 'Order', items: unorderedUnits.map((u) => ({ id: u.territory, label: unitLabel(u) })) }]
+    : adjustTodos
+  // A to-do row: open that unit's / center's bubbles on the map.
+  function pickTodo(id: string) {
+    if (phase === 'movement') return pickUnit(id)
+    tab = 'map'
+    if (!(buildSel?.province === id || removeSel?.territory === id)) handleBuildClick(toDsvgId(id))
+  }
 
   // Supports that can't count as entered: support-hold of a unit you've ordered to move,
   // or support-move that doesn't match the move you gave it.
@@ -970,21 +1017,18 @@
           {phase}
           {historyOrders}
           orders={listedOrders}
+          {copyText}
           format={formatOrder}
           describe={describeOrder}
           warn={supportWarning}
           powerOf={controlAll ? (o) => ({ name: powerName(mapDef.powers, o.nation), color: powerColor(mapDef.powers, o.nation, '#888') }) : null}
           drafting={Boolean(draft)}
-          draftType={draft?.type}
-          {draftLabel}
-          {currentStep}
           hasDislodged={myDislodged.length > 0}
           retreating={Boolean(retreatSel)}
           {retreatLabel}
-          buildingAt={buildSel ? provinceName(buildSel.province) : null}
           {buildPrompt}
-          unordered={unorderedUnits.map((u) => ({ source: u.territory, label: `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(u.territory)}` }))}
-          onPickUnit={pickUnit}
+          {todos}
+          onPickTodo={pickTodo}
           onEdit={editOrder}
           onCancel={cancel}
           onDelete={deleteOrder}

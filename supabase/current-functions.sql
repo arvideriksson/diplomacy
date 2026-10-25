@@ -487,9 +487,8 @@ returns boolean as $$
   select coalesce((p_ready ->> p_nation)::boolean, false);
 $$ language sql immutable;
 
--- ═══ public.join_public_game(uuid)  — from 20250101000138_maps_table.sql
--- ── join_public_game (re-issues 104) ───────────────────────────────────────────
--- A lobby is full at the map's power count (7 for an unknown map, as before).
+-- ═══ public.join_public_game(uuid)  — from 20250101000139_display_name.sql
+-- ── join_public_game (re-issues 138) — snapshot the chosen name ──────────────────
 create or replace function public.join_public_game(game_id uuid)
 returns jsonb as $$
 declare
@@ -528,7 +527,7 @@ begin
 
   player_info = jsonb_build_object(
     'role', 'player',
-    'display_name', coalesce(user_meta->>'full_name', user_meta->>'name'),
+    'display_name', public.user_display_name(user_meta),
     'avatar_url', user_meta->>'avatar_url',
     'joined_at', now()
   );
@@ -870,6 +869,32 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- ═══ public.set_display_name(text)  — from 20250101000139_display_name.sql
+create or replace function public.set_display_name(p_name text)
+returns text as $$
+declare
+  uid  text := auth.uid()::text;
+  name text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
+begin
+  if uid is null then raise exception 'Not signed in'; end if;
+  if char_length(name) < 2 or char_length(name) > 32 then
+    raise exception 'Name must be 2–32 characters';
+  end if;
+
+  update auth.users
+     set raw_user_meta_data = coalesce(raw_user_meta_data, '{}') || jsonb_build_object('display_name', name)
+   where id = auth.uid();
+
+  -- Roster entries are objects; a private-game invite can still hold a bare 'pending'.
+  update public.games
+     set players = jsonb_set(players, array[uid, 'display_name'], to_jsonb(name))
+   where players ? uid
+     and jsonb_typeof(players -> uid) = 'object';
+
+  return name;
+end;
+$$ language plpgsql security definer;
+
 -- ═══ public.set_grace_ends_at()  — from 20250101000134_sql_helpers.sql
 -- set_grace_ends_at (re-issues 133): body unchanged, now security definer (see above).
 create or replace function public.set_grace_ends_at()
@@ -1095,3 +1120,10 @@ begin
   where public.orders.resolved = false;
 end;
 $$ language plpgsql;
+
+-- ═══ public.user_display_name(jsonb)  — from 20250101000139_display_name.sql
+-- The name to show for a user's metadata: the chosen one, else the provider's.
+create or replace function public.user_display_name(p_meta jsonb)
+returns text as $$
+  select coalesce(p_meta ->> 'display_name', p_meta ->> 'full_name', p_meta ->> 'name');
+$$ language sql immutable;

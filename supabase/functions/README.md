@@ -14,8 +14,7 @@ migration in `supabase/migrations/`) via `pg_net` with a service-role bearer tok
 2. Enable the `pg_cron` and `pg_net` extensions (Database → Extensions).
 3. **Bundle the engine, then deploy:**
    ```sh
-   npm run build:edge                 # esbuild → adjudicate/_engine.mjs
-   supabase functions deploy adjudicate
+   npm run live:deploy-functions      # build:edge, then supabase functions deploy adjudicate
    ```
 4. Insert the engine config (out of band — never commit the key):
    ```sql
@@ -43,15 +42,13 @@ can deploy without a build, but it must stay in sync with `src/lib/adjudicator/`
 
 ### Local development
 
-Requires the `deno` and `supabase` CLIs (not installed in CI by default):
-
-```sh
-supabase start
-npm run build:edge                       # regenerate _engine.mjs first
-# apply 008–012 against the local db, then:
-supabase functions serve adjudicate --no-verify-jwt
-# POST { "game_id": "<uuid>" } with the local service key to drive a resolution
-```
+`npm run db:start` (Docker) bundles the engine and starts the local stack, which serves
+this function with `ADJUDICATOR_SECRET` from `[edge_runtime.secrets]` in
+`supabase/config.toml`; `supabase/seed.sql` points `private.engine_config` at it
+(`http://kong:8000/…`, the gateway's address inside Docker). So the local cron and
+`maybe_resolve_now` drive real resolutions — `npm run test:7p` exercises the whole loop.
+After an engine change, `npm run db:reset` (rebuilds `_engine.mjs`, reapplies migrations +
+seed); the function hot-reloads on edits to its own files.
 
 Engine correctness is covered by `npm test` (the DATC suite) — run that, not the
 function, to validate rules changes.
