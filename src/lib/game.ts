@@ -29,7 +29,6 @@ export type OrderPhase = Phase
 export interface GameSettings {
   /** No press: players cannot send chat / negotiate. The map is chosen via `map_id`. */
   gunboat: boolean
-  allow_spectators: boolean
   random_nations: boolean
   /** Resolve as soon as every power has submitted, rather than only at the deadline. */
   early_resolution: boolean
@@ -53,7 +52,6 @@ export interface GameSettings {
 
 export const DEFAULT_SETTINGS: GameSettings = {
   gunboat: false,
-  allow_spectators: true,
   random_nations: false,
   early_resolution: true,
   phase_timers: { movement: 1440, retreat: 720, build: 720 }, // 24h / 12h / 12h

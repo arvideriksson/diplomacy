@@ -17,7 +17,6 @@
   export let earlyResolution: boolean
   export let mapId: string
   export let gunboat: boolean
-  export let spectators: boolean
   export let randomNations: boolean
   export let isPrivate: boolean
   /** The host-controls toggle's value. */
@@ -31,7 +30,6 @@
   export let onEarlyChange: (v: boolean) => void
   export let onMapChange: (mapId: string) => void
   export let onGunboatChange: (v: boolean) => void
-  export let onSpectatorsChange: (v: boolean) => void
   export let onRandomNationsChange: (v: boolean) => void
   export let onTogglePrivate: () => void
   export let onHostControlsChange: (v: boolean) => void
@@ -84,12 +82,6 @@
     checked={gunboat}
     disabled={!isAdmin}
     onChange={onGunboatChange}
-  />
-  <ToggleSetting
-    label="Allow spectators"
-    checked={spectators}
-    disabled={!isAdmin}
-    onChange={onSpectatorsChange}
   />
   <ToggleSetting
     label="Random nation assignment"

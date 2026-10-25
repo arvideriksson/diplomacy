@@ -517,20 +517,6 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- ═══ public.is_current_round(uuid, integer, text, text)  — from 20250101000110_orders_rls.sql
--- Is (year, season, phase) the game's current round?
-create or replace function public.is_current_round(
-  p_game_id uuid, p_year integer, p_season text, p_phase text)
-returns boolean as $$
-  select exists (
-    select 1 from public.games g
-    where g.id = p_game_id
-      and g.year = p_year
-      and g.season = p_season
-      and g.phase = p_phase
-  );
-$$ language sql security definer stable;
-
 -- ═══ public.is_gunboat(uuid)  — from 20250101000134_sql_helpers.sql
 -- is_gunboat (re-issues 127).
 create or replace function public.is_gunboat(p_game_id uuid)
@@ -1186,9 +1172,8 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.update_game_settings(uuid, jsonb)  — from 20250101000134_sql_helpers.sql
--- update_game_settings (re-issues 130). Now takes the row lock up front via
--- lock_owned_game; the trailing UPDATE took the same lock anyway.
+-- ═══ public.update_game_settings(uuid, jsonb)  — from 20250101000144_drop_dead_settings.sql
+-- update_game_settings (re-issues 134): allow_spectators leaves the mid-game allowlist.
 create or replace function public.update_game_settings(p_game_id uuid, p_settings jsonb)
 returns void as $$
 declare
@@ -1207,7 +1192,7 @@ begin
     patch := (
       select coalesce(jsonb_object_agg(k, p_settings -> k), '{}'::jsonb)
         from jsonb_object_keys(coalesce(p_settings, '{}'::jsonb)) k
-       where k in ('phase_timers', 'early_resolution', 'allow_spectators', 'grace_period'));
+       where k in ('phase_timers', 'early_resolution', 'grace_period'));
   end if;
 
   update public.games
