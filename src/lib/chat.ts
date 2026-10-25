@@ -239,3 +239,25 @@ export async function subscribeToChannel(
     supabase.removeChannel(channel)
   }
 }
+
+/**
+ * Subscribe to the caller's private inbox for a game: every channel they belong to is
+ * broadcast here when it's created or renamed (supabase/migrations/…_chat_channel_announce.sql).
+ * Returns an unsubscribe function.
+ */
+export async function subscribeToInbox(
+  gameId: string,
+  nation: string,
+  onChannel: (c: ChatChannel) => void,
+): Promise<() => void> {
+  await ensureRealtimeAuth()
+  const channel: RealtimeChannel = supabase
+    .channel(`chat-inbox:${gameId}:${nation}`, { config: { private: true } })
+    .on('broadcast', { event: 'channel' }, (payload) => {
+      onChannel(payload.payload as ChatChannel)
+    })
+    .subscribe()
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}

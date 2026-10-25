@@ -5,7 +5,7 @@ import { metaDisplayName } from './auth'
 import { getMap } from './maps'
 import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
-import type { ResolvedOrderRow } from './history'
+import type { StampedOrderRow } from './history'
 import type { RoundKey, Season } from './adjudicator/types'
 import type { GamePhase, Phase } from './phases'
 
@@ -301,17 +301,21 @@ export async function saveDraftOrders(
 }
 
 /**
- * The full resolved-order log for a game (all nations, all past rounds). Resolved
- * orders are public, so RLS permits reading them — this is the immutable history.
+ * The resolved-order log for a game (all nations, all past rounds). Resolved orders are
+ * public, so RLS permits reading them — this is the immutable history. With `since`,
+ * only rows resolved (or re-resolved after a revert) at or after that `updated_at` —
+ * merge them into what's already loaded with `mergeLog`.
  */
-export async function fetchResolvedLog(gameId: string): Promise<ResolvedOrderRow[]> {
-  const { data, error } = await supabase
+export async function fetchResolvedLog(gameId: string, since?: string | null): Promise<StampedOrderRow[]> {
+  let q = supabase
     .from('orders')
-    .select('year, season, phase, nation, orders')
+    .select('year, season, phase, nation, orders, updated_at')
     .eq('game_id', gameId)
     .eq('resolved', true)
+  if (since) q = q.gte('updated_at', since)
+  const { data, error } = await q
   if (error) throw error
-  return (data ?? []) as ResolvedOrderRow[]
+  return (data ?? []) as StampedOrderRow[]
 }
 
 /**

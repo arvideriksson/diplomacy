@@ -12,9 +12,9 @@
   import { user } from '../lib/auth'
   import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
   import type { GameState } from '../lib/game'
-  import { replayFrames, type HistoryFrame } from '../lib/history'
+  import { replayFrames, mergeLog, newestStamp, type HistoryFrame, type StampedOrderRow } from '../lib/history'
   import { getMap } from '../lib/maps'
-  import { initialBoard, victoryFor } from '../lib/adjudicator'
+  import { initialBoard, roundRank, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
   import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
   import { powerName } from '../lib/powers'
@@ -47,9 +47,16 @@
     .filter((n) => !game.ready?.[n])
     .map((n) => powerName(map.powers, n))
 
-  let frames: HistoryFrame[] = []
-  let cursor = 0
-  let loaded = false
+  // Past phases are replayed from the resolved log, which is fetched only once someone
+  // steps back (or opens the revert menu) and from then on topped up with just the rows
+  // written since — never re-downloaded whole on each open or resolution.
+  let log: StampedOrderRow[] | null = null
+  let logSince: string | null = null
+  let logFresh = false
+  let historyLoad: Promise<void> | null = null
+  let past: HistoryFrame[] = []
+  /** Index into `frames` while browsing the past; null = following the live phase. */
+  let cursor: number | null = null
 
   // Authoritative current board: the snapshot if present. A null snapshot only occurs
   // before the first resolution, which is exactly the map's opening position.
@@ -58,20 +65,40 @@
     return initialBoard(map)
   }
 
-  async function load() {
-    let past: HistoryFrame[] = []
-    try {
-      // replayFrames' last frame is the reconstructed current board — drop it and
-      // use the authoritative live board for the frontier instead.
-      past = replayFrames(map, await fetchResolvedLog(game.id), { year: game.year, season: game.season, phase: game.phase }).slice(0, -1)
-    } catch {
-      past = []
-    }
-    frames = [...past, { board: liveBoard(), orders: [] }]
-    cursor = frames.length - 1 // default to the live phase
-    loaded = true
+  function ensureHistory(): Promise<void> {
+    if (logFresh) return Promise.resolve()
+    historyLoad ??= (async () => {
+      try {
+        // Loop in case the game advanced (or was reverted) while a fetch was in flight.
+        for (let r = ''; r !== lastRound; ) {
+          r = lastRound
+          const delta = await fetchResolvedLog(game.id, logSince)
+          log = mergeLog(log ?? [], delta, game)
+          logSince = newestStamp(delta) ?? logSince
+        }
+        // replayFrames' last frame is the reconstructed current board — drop it and
+        // use the authoritative live board for the frontier instead.
+        past = replayFrames(map, log ?? [], { year: game.year, season: game.season, phase: game.phase }).slice(0, -1)
+        logFresh = true
+      } finally {
+        historyLoad = null
+      }
+    })()
+    return historyLoad
   }
-  onMount(load)
+
+  async function phaseBack() {
+    try {
+      await ensureHistory()
+    } catch {
+      return
+    }
+    const at = cursor ?? past.length
+    if (at > 0) cursor = at - 1
+  }
+  function phaseForward() {
+    if (cursor !== null) cursor = cursor + 1 >= past.length ? null : cursor + 1
+  }
 
   // Live updates: when the adjudicator resolves a round it writes the games row, which
   // Realtime pushes here. Reassigning `game` cascades to the round-change reload below
@@ -110,15 +137,19 @@
     unsubscribe()
   })
 
-  // Reload history when the game advances to a new round (new resolved phase).
+  // A new round (resolution or revert): jump to the live phase, and if the history has
+  // been opened, top it up with the newly resolved rows.
   let lastRound = ''
   $: {
     const r = `${game.year}|${game.season}|${game.phase}`
     if (r !== lastRound) {
       lastRound = r
-      if (loaded) load()
+      cursor = null
+      logFresh = false
+      if (log) ensureHistory().catch(() => {})
     }
   }
+  $: if (showAdmin) ensureHistory().catch(() => {})
 
   // ── sandboxes copied from this game ────────────────────────────────────────
   // The open sandbox lives in the URL (?sandbox=id) so a reload or shared tab returns to
@@ -168,10 +199,13 @@
   let unread = 0
   let sandboxOpen = false
 
-  $: frame = frames[cursor]
-  $: isFrontier = cursor === frames.length - 1
-  $: canBack = cursor > 0
-  $: canForward = cursor < frames.length - 1
+  $: frames = [...past, { board: game.snapshot ? (game.snapshot as BoardState) : initialBoard(map), orders: [] } as HistoryFrame]
+  $: at = cursor ?? frames.length - 1
+  $: frame = frames[at]
+  $: isFrontier = cursor === null
+  // Before the log is fetched, any round after the opening one has a past to step into.
+  $: canBack = cursor !== null ? cursor > 0 : log ? past.length > 0 : roundRank(game) > roundRank(initialBoard(map))
+  $: canForward = cursor !== null
 </script>
 
 {#if sandbox}
@@ -202,14 +236,14 @@
     graceEndsAt={isFrontier && !isComplete ? game.grace_ends_at ?? null : null}
     historyOrders={frame.orders}
     historyResults={frame.results ?? []}
-    onPhaseBack={() => canBack && (cursor -= 1)}
-    onPhaseLatest={() => (cursor = frames.length - 1)}
+    onPhaseBack={phaseBack}
+    onPhaseLatest={() => (cursor = null)}
     onOrdersChange={(o) => (liveOrders = o)}
     pressBadge={unread}
-    onPhaseForward={() => canForward && (cursor += 1)}
+    onPhaseForward={phaseForward}
     canPhaseBack={canBack}
     canPhaseForward={canForward}
-    seedKey={String(cursor)}
+    seedKey={String(at)}
     standingsInSidebar
   >
     <svelte:fragment slot="map-action">
@@ -292,7 +326,7 @@
 {#if showAdmin}
   <GameAdminPanel
     {game}
-    pastRounds={frames.slice(0, -1).map((f) => ({ year: f.board.year, season: f.board.season, phase: f.board.phase }))}
+    pastRounds={past.map((f) => ({ year: f.board.year, season: f.board.season, phase: f.board.phase }))}
     onClose={() => (showAdmin = false)}
     onGameUpdate={(g) => (game = g)}
   />
@@ -319,7 +353,7 @@
   .sb-chip:hover {
     border-color: var(--amber);
   }
-  /* Quiet: no card, just hairline-separated rows under the order workflow. */
+  /* Quiet: no card, one hairline-bounded group of rows under the order workflow. */
   .utils {
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
@@ -330,9 +364,6 @@
   }
   .sb-launch {
     padding: 10px 14px;
-  }
-  .utils > :global(* + *) {
-    border-top: 1px solid var(--border);
   }
   .utils :global(.draw) {
     padding: 10px 14px;
