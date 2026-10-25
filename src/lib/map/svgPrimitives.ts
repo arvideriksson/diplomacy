@@ -126,6 +126,7 @@ export type CurvedArrowOptions = {
   arrowLength: number
   dash?: Dash
   endControlPoint?: Point
+  gap?: number
   renderCenter?: (x: number, y: number, angle: number) => string
 }
 
@@ -149,6 +150,7 @@ export const curvedArrow = (o: CurvedArrowOptions): string => {
     strokeWidth: o.strokeWidth,
     dash: o.dash,
     centerAt: 0.3,
+    gap: o.gap,
     renderCenter: o.renderCenter,
   })
 }
@@ -165,6 +167,7 @@ export type SupportHoldArrowOptions = {
   stroke: string
   strokeWidth: number
   dash?: Dash
+  gap?: number
   renderCenter?: (x: number, y: number, angle: number) => string
 }
 
@@ -186,6 +189,7 @@ export const supportHoldArrow = (o: SupportHoldArrowOptions): string => {
       stroke: o.stroke,
       strokeWidth: o.strokeWidth,
       dash: o.dash,
+      gap: o.gap,
       renderCenter: o.renderCenter,
     }) +
     octagon({ x: endX, y: endY, size: 8, stroke: o.stroke, fill: o.fill, strokeWidth: 3 }) +
@@ -384,24 +388,35 @@ export type RibbonArrowOptions = {
   dash?: Dash
   /** Where along the arrow `renderCenter` is placed (0–1, default the middle). */
   centerAt?: number
+  /** Break the shaft with a gap this long at the centre (a cut support). */
+  gap?: number
   fill: string
   stroke: string
   strokeWidth: number
   renderCenter?: (x: number, y: number, angle: number) => string
 }
 
-/** An order drawn as one solid outlined shape: a shaft along the points and, optionally, a broad head. */
-export const ribbonArrow = (o: RibbonArrowOptions): string => {
-  if (o.points.length < 2) {
-    return ''
+/** The polyline cut at `fraction` of its length into the part before and the part after. */
+const splitPolyline = (points: Point[], fraction: number): [Point[], Point[]] => {
+  let need = polylineLength(points) * fraction
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]
+    const b = points[i]
+    const segment = Math.hypot(b.x - a.x, b.y - a.y)
+    if (segment >= need) {
+      const at = lerp(a, b, segment ? need / segment : 0)
+      return [[...points.slice(0, i), at], [at, ...points.slice(i)]]
+    }
+    need -= segment
   }
-  const line = trimPolylineStart(trimPolylineEnd(o.points, o.offset), o.startOffset)
-  if (polylineLength(line) <= o.headLength) {
-    return ''
-  }
+  return [points.slice(), [points[points.length - 1], points[points.length - 1]]]
+}
+
+/** The outlined ribbon along an already-trimmed centre line, with a head when `headLength` is set. */
+const ribbonPath = (line: Point[], o: RibbonArrowOptions, headLength: number): string => {
   const tip = line[line.length - 1]
   // Without a head (headLength 0) the shaft simply ends square.
-  const shaft = o.headLength ? trimPolylineEnd(line, o.headLength) : line
+  const shaft = headLength ? trimPolylineEnd(line, headLength) : line
   const half = o.shaftWidth / 2
   // Each centre-line point offset sideways along the local direction.
   const side = (i: number, sign: number): Point => {
@@ -414,12 +429,32 @@ export const ribbonArrow = (o: RibbonArrowOptions): string => {
   const base = shaft[shaft.length - 1]
   const headNormal = perp(unit(sub(tip, base)))
   const wing = (sign: number): Point => add(base, scale(headNormal, o.headWidth * sign))
-  const head = o.headLength ? [wing(1), tip, wing(-1)] : []
+  const head = headLength ? [wing(1), tip, wing(-1)] : []
   const outline = [...left, ...head, ...right.reverse()]
-  const center = pointAlong(line, o.centerAt ?? 0.5)
+  return `<path d="${outline.map((p, i) => `${i === 0 ? 'M' : 'L'} ${n(p.x)} ${n(p.y)}`).join(' ')} Z" fill="${o.fill}" stroke="${o.stroke}" stroke-width="${n(o.strokeWidth)}"${o.dash ? dashAttr(o.dash) : ''} stroke-linejoin="round"/>`
+}
+
+/** An order drawn as one solid outlined shape: a shaft along the points and, optionally, a broad head. */
+export const ribbonArrow = (o: RibbonArrowOptions): string => {
+  if (o.points.length < 2) {
+    return ''
+  }
+  const line = trimPolylineStart(trimPolylineEnd(o.points, o.offset), o.startOffset)
+  if (polylineLength(line) <= o.headLength) {
+    return ''
+  }
+  const centerAt = o.centerAt ?? 0.5
+  const center = pointAlong(line, centerAt)
+  // A broken shaft: two pieces either side of the centre, the head on the second.
+  const pieces = o.gap
+    ? (() => {
+        const [before, after] = splitPolyline(line, centerAt)
+        return ribbonPath(trimPolylineEnd(before, o.gap / 2), o, 0) + ribbonPath(trimPolylineStart(after, o.gap / 2), o, o.headLength)
+      })()
+    : ribbonPath(line, o, o.headLength)
   return (
     `<g>` +
-    `<path d="${outline.map((p, i) => `${i === 0 ? 'M' : 'L'} ${n(p.x)} ${n(p.y)}`).join(' ')} Z" fill="${o.fill}" stroke="${o.stroke}" stroke-width="${n(o.strokeWidth)}"${o.dash ? dashAttr(o.dash) : ''} stroke-linejoin="round"/>` +
+    pieces +
     (o.renderCenter ? o.renderCenter(center.point.x, center.point.y, center.angle) : '') +
     `</g>`
   )
@@ -437,6 +472,7 @@ export type TributaryArrowOptions = {
   stroke: string
   strokeWidth: number
   dash?: Dash
+  gap?: number
   renderCenter?: (x: number, y: number, angle: number) => string
 }
 
@@ -460,6 +496,7 @@ export const tributaryArrow = (o: TributaryArrowOptions): string => {
     stroke: o.stroke,
     strokeWidth: o.strokeWidth,
     dash: o.dash,
+    gap: o.gap,
     renderCenter: o.renderCenter,
   })
 }

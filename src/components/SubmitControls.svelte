@@ -1,12 +1,6 @@
 <script lang="ts">
-  // Footer of the order panel: the Submit button and its committed states, the
-  // discard-edits link, and the read-only "Currently submitted" mirror of the submitted set.
+  // Footer of the order panel: the Submit button and its committed states.
   // Presentational — the parent owns the submit/load logic and passes its state in.
-  import type { AnyOrder } from '../lib/orders/types'
-  import { orderSource } from '../lib/orders/board'
-  import ListHead from './ListHead.svelte'
-  import OrderCard from './OrderCard.svelte'
-  import OrderText from './OrderText.svelte'
 
   /** Sandbox: a plain Submit that resolves locally; none of the live states apply. */
   export let sandbox: boolean = false
@@ -23,19 +17,13 @@
   export let error: string = ''
   /** Something is still left to order: Submit/Resubmit turn yellow (it would go in incomplete). */
   export let incomplete: boolean = false
-  /** The set locked in on the server, shown read-only once ready. */
-  export let locked: AnyOrder[] = []
-  export let format: (o: AnyOrder) => string
-  /** Plain-language form for the submitted list (falls back to notation). */
-  export let describe: ((o: AnyOrder) => string) | null = null
   export let onSubmit: () => void
-  export let onDiscard: () => void = () => {}
 
   // Submit-button state machine:
-  //   not submitted        → green  "Submit"
-  //   submitted, no edits   → green  "Submitted"   (pressed, inert)
-  //   submitted, edited     → blue   "Resubmit"
-  //   resubmitted, no edits → blue   "Resubmitted" (pressed, inert)
+  //   not submitted        → green  "Submit" button
+  //   submitted, no edits   → green  "✓ Submitted" status
+  //   submitted, edited     → blue   "Resubmit" button
+  //   resubmitted, no edits → blue   "✓ Resubmitted" status
   $: pressed = saving || (ready && !dirty)
   $: tone = !ready || (!dirty && !resubmitted) ? 'submit' : 'resubmit'
   // No transient "Submitting…": clicking jumps straight to the committed label.
@@ -55,59 +43,43 @@
 
 <div class="actions">
   {#if sandbox}
-    <button class="primary resolve" on:click={onSubmit}>Resolve this phase</button>
-  {:else if idle}
-    <!-- Nothing to do this phase: auto-readied server-side, just waiting on others. -->
-    <button class="primary waiting pressed" disabled>Waiting…</button>
+    <button class="primary resolve" on:click={onSubmit}>Resolve</button>
+  {:else if idle || pressed}
+    <!-- Nothing to press: committed (shown at once while the save is in flight), or nothing
+         to order this phase (auto-readied server-side). A calm confirmation, not a button. -->
+    <div class="done-bar" class:resubmit={!idle && tone === 'resubmit'} role="status">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+      <strong>{idle ? 'Nothing to order' : label}</strong>
+    </div>
   {:else}
-    <!-- Submit→Submitted (green) then Resubmit→Resubmitted (blue); pressed = committed, inert. -->
+    <!-- Submit (green, amber while units are unordered) or Resubmit (blue). -->
     <button
       class="primary"
       class:submit={tone === 'submit'}
       class:resubmit={tone === 'resubmit'}
-      class:pressed
-      class:incomplete={incomplete && !pressed}
+      class:incomplete
       on:click={onSubmit}
-      disabled={saving || pressed}
     >
       {label}
     </button>
-    {#if ready && dirty}
-      <div class="actions-secondary">
-        <button class="link" on:click={onDiscard} disabled={saving}>Discard changes</button>
-      </div>
-    {/if}
   {/if}
   {#if error}<span class="status error">{error}</span>{/if}
 </div>
-
-{#if !sandbox && ready && dirty && locked.length}
-  <!-- Read-only mirror of the set actually locked in on the server. Survives
-       Phase 2 edits so it stays the committed truth, not the live draft. -->
-  <ListHead done title="Currently submitted" />
-  <OrderCard>
-    {#each locked as o (orderSource(o))}
-      <li><OrderText order={o} {format} {describe} /></li>
-    {/each}
-  </OrderCard>
-{/if}
 
 <style>
   .actions {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border, #eee);
+  }
+  .actions .primary {
+    min-height: 46px;
   }
   /* Full-width, prominent primary action: Submit (green) / Resubmit (blue). */
   .actions .primary {
     width: 100%;
-    padding: 12px 16px;
-    /* Transparent 2px border so the committed "pressed" state (which adds a 2px
-       outline) has identical dimensions — Submitted == Submit, Resubmitted == Resubmit. */
-    border: 2px solid transparent;
+    padding: 10px 16px;
+    border: none;
     box-sizing: border-box;
     border-radius: 8px;
     color: #fff;
@@ -132,53 +104,32 @@
     opacity: 0.6;
     cursor: default;
   }
-  /* Committed state (Submitted / Resubmitted): inverted — colored outline + text on
-     the dark panel fill, rather than the solid color. Reads as "done", inert. */
-  .actions .primary.pressed,
-  .actions .primary.pressed:disabled {
-    opacity: 1;
-    cursor: default;
-    box-sizing: border-box;
-    background: transparent;
-    border: 2px solid currentColor;
-    box-shadow: none;
-    filter: none;
-  }
-  .actions .primary.submit.pressed {
-    color: var(--green, #059669);
-  }
-  .actions .primary.resubmit.pressed {
-    color: var(--accent, #2563eb);
-  }
-  /* Nothing to do this phase: amber, inverted, inert — waiting on the other powers. */
-  .actions .primary.waiting.pressed {
-    color: var(--amber, #d97706);
-  }
-  .actions-secondary {
+  /* A status, not a button: centred check + label, no slab. */
+  .done-bar {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 14px;
+    gap: 8px;
+    min-height: 40px;
+    color: var(--green);
   }
-  .actions-secondary .link {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 12px;
-    color: var(--text-secondary, #777);
-    cursor: pointer;
+  .done-bar.resubmit {
+    color: var(--accent);
   }
-  .actions-secondary .link:hover {
-    color: var(--text, #1a1a1a);
+  .done-bar svg {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
-  .actions-secondary .link:disabled {
-    opacity: 0.6;
-    cursor: default;
+  .done-bar strong {
+    font-size: 14px;
+    color: var(--text);
   }
-  /* Locked-in orders: a calm, slightly recessed card under Submit confirming what's
-     committed on the server. Green accent ties it to the "Submitted" state. */
   .status {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--text-secondary, #777);
   }
   .status.error {

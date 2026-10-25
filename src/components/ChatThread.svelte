@@ -208,9 +208,6 @@
             </li>
           {/each}
         </ul>
-        {#if !$openChan.is_public}
-          <p class="note">Only these players can read this conversation.</p>
-        {/if}
         {#if $activeDraft}
           {@const draftId = $activeDraft.id}
           <button class="action danger" on:click={() => chat.discardDraft(draftId)}>
@@ -255,7 +252,6 @@
             <p class="empty-title">{channelLabel($openChan)}</p>
             <p class="empty-sub">
               {$activeDraft ? 'Your first message starts this conversation.' : 'No messages yet — say hello.'}
-              {#if !$openChan.is_public}Only {members.map(who).join(', ')} can read it.{/if}
             </p>
           </div>
           {/if}
@@ -463,11 +459,6 @@
     color: var(--text-secondary);
   }
   .who .nation {
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  .note {
-    margin: 0 4px;
     font-size: 13px;
     color: var(--text-secondary);
   }

@@ -22,6 +22,8 @@ export interface Bubble {
 export interface BubbleMenu {
   /** dSVG id of the unit / province the bubbles circle. */
   anchor: string
+  /** The anchor unit is dislodged — drawn offset beside the occupier, not at the centre. */
+  dislodged?: boolean
   items: Bubble[]
 }
 

@@ -3,12 +3,14 @@
 import type { Point } from '../dsvgParser'
 import {
   cross,
+  minus,
   octagon,
   curvedArrow,
   supportHoldArrow,
   convoyArrow,
   ribbonArrow,
   bSplinePoints,
+  formatCoord,
   quadraticPoints,
   routeLeg,
   tributaryArrow,
@@ -40,9 +42,12 @@ import {
   SUPPORT_DASH,
   CONVOY_STUB_LENGTH,
   HOLD_OCTAGON_SIZE,
-  FAILED_CROSS_WIDTH,
-  FAILED_CROSS_LENGTH,
-  FAILED_CROSS_ANGLE,
+  FAILED_SLASH_WIDTH,
+  FAILED_SLASH_LENGTH,
+  FAILED_SLASH_LEAN,
+  FAILED_COLOR,
+  CUT_GAP,
+  CUT_JAG_HEIGHT,
   ORDER_MARKER_WIDTH,
   ORDER_MARKER_LENGTH,
   ORDER_MARKER_ANGLE,
@@ -50,18 +55,37 @@ import {
   BUILD_CROSS_OFFSET_Y,
 } from './constants'
 
-const failureCross = (x: number, y: number): string =>
-  cross({
+// A failed order is struck through: one bar across the shaft, leaning off the perpendicular
+// so it reads as a slash whichever way the arrow points. `minus` draws a vertical bar, which
+// rotated by the arrow's own heading lies square across it.
+const failureSlash = (x: number, y: number, angle = 0): string =>
+  minus({
     x,
     y,
-    width: FAILED_CROSS_WIDTH,
-    length: FAILED_CROSS_LENGTH,
-    angle: FAILED_CROSS_ANGLE,
-    fill: 'red',
+    width: FAILED_SLASH_WIDTH,
+    length: FAILED_SLASH_LENGTH,
+    angle: (angle * 180) / Math.PI + FAILED_SLASH_LEAN,
+    fill: FAILED_COLOR,
     stroke: 'black',
-    strokeWidth: 2,
+    strokeWidth: 1.5,
   })
 
+// The jag spanning a cut support's break: a zig-zag across the line, outlined like the slash.
+const cutJag = (x: number, y: number, angle = 0): string => {
+  const h = CUT_JAG_HEIGHT / 2
+  const d = `M -2 ${-h} L 2.5 ${-h / 3} L -2.5 ${h / 3} L 2 ${h}`
+  const deg = (angle * 180) / Math.PI
+  return (
+    `<g transform="translate(${formatCoord(x)}, ${formatCoord(y)}) rotate(${formatCoord(deg)})" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="${d}" stroke="black" stroke-width="6.5"/><path d="${d}" stroke="${FAILED_COLOR}" stroke-width="3.5"/></g>`
+  )
+}
+
+// How a support shows that it failed: a cut one is broken, any other is slashed.
+const supportFailure = (order: OrderState) =>
+  order.cut ? { gap: CUT_GAP, renderCenter: cutJag } : { renderCenter: order.failed ? failureSlash : undefined }
+
+// A failed hold (the unit was dislodged) is slashed straight through, like a "no" sign.
 const holdMarkup = (order: OrderState, position: Point): string =>
   octagon({
     x: position.x,
@@ -70,7 +94,7 @@ const holdMarkup = (order: OrderState, position: Point): string =>
     fill: 'transparent',
     stroke: SUCCESS_COLOR,
     strokeWidth: ORDER_LINE_WIDTH,
-    renderBottomCenter: order.failed ? failureCross : undefined,
+    renderBottomCenter: order.failed ? () => failureSlash(position.x, position.y) : undefined,
   })
 
 const buildMarkup = (
@@ -249,7 +273,7 @@ const tributaryParts = (
         strokeWidth: MOVE_OUTLINE_WIDTH,
         fill: nationColor(state, order.nation),
         dash: SUPPORT_DASH,
-        renderCenter: order.failed ? failureCross : undefined,
+        ...supportFailure(order),
       })
     )
   }
@@ -271,7 +295,7 @@ const supportOrderParts = (
     }
     const { source, target, aux } = points
     const color = nationColor(state, order.nation)
-    const renderCenter = order.failed ? failureCross : undefined
+    const failure = supportFailure(order)
 
     if (order.aux === order.target) {
       parts.push(
@@ -287,7 +311,7 @@ const supportOrderParts = (
           stroke: SUCCESS_COLOR,
           strokeWidth: MOVE_OUTLINE_WIDTH,
           dash: SUPPORT_DASH,
-          renderCenter,
+          ...failure,
         })
       )
       continue
@@ -316,7 +340,7 @@ const supportOrderParts = (
         fill: color,
         dash: SUPPORT_DASH,
         endControlPoint: moveControlPoint,
-        renderCenter,
+        ...failure,
       })
     )
   }
@@ -369,7 +393,7 @@ const moveOrderParts = (
     const off = order.dislodged ? DISLODGED_OFFSET : 0
     const source = off ? { x: rawSource.x + off, y: rawSource.y + off } : rawSource
     const color = nationColor(state, order.nation)
-    const renderCenter = order.failed ? failureCross : undefined
+    const renderCenter = order.failed ? failureSlash : undefined
 
     // A move along a drawn route (1900: around Africa) follows its waypoints. A route with two
     // legs leaves the board after the first (a headless line) and re-enters for the second.
@@ -425,7 +449,7 @@ const convoyOrderParts = (
         // With no convoyed move to join, the wave only hints at the direction and stays
         // within the fleet's own sea.
         maxLength: route ? undefined : CONVOY_STUB_LENGTH,
-        renderCenter: order.failed ? failureCross : undefined,
+        renderCenter: order.failed ? failureSlash : undefined,
       })
     )
   }

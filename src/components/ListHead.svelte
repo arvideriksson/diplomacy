@@ -3,7 +3,7 @@
   // plus slotted trailing actions. Shared by the to-do lists, the entered orders and the
   // per-country history so every group reads the same.
   export let title: string
-  export let count: number | null = null
+  export let count: number | string | null = null
   /** The country this group belongs to, shown as a chip in its colour. */
   export let power: { name: string; color: string } | null = null
   /** Something still to do: amber. */
@@ -25,7 +25,7 @@
     align-items: center;
     gap: 6px;
     margin: 14px 0 4px;
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 700;
     letter-spacing: 0.6px;
     text-transform: uppercase;
