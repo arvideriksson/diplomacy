@@ -91,6 +91,15 @@ body {
   margin: 0;
 }
 
+/* No mobile tap flash, and no focus ring on tap/click — keyboard focus still shows one. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 #app {
   min-height: 100vh;
   display: flex;
