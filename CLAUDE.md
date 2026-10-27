@@ -31,6 +31,7 @@ Develop and test against the **local** stack first; promote to **live** only onc
 
 - `supabase/config.toml` configures **only the local stack** (anonymous sign-ins on, dev adjudicator secret), and is structurally kept off the live project:
   - `node_modules/.bin/supabase` is `scripts/supabase-guard.mjs` (installed by `postinstall`, asserted by `supabaseGuard.test.ts`). It refuses `config push` and `--include-seed` always, and `link` / `--project-ref` unless called from `scripts/live.mjs`.
+  - `secrets set` also uploads `config.toml`'s `[edge_runtime.secrets]` (the dev ones), so the guard refuses it in the repo; `npm run live:secrets` / `live:rotate-adjudicator-secret` run it from an empty temp dir.
   - The checkout stays **unlinked**. `scripts/live.mjs` (behind `npm run live:*`) links, runs one allowlisted command, and unlinks in `finally`. Don't `supabase link` by hand; add a command to its allowlist instead.
 - `supabase/seed.sql` wires the local cron to the local Edge Function (`private.engine_config`). It runs on `db:start`/`db:reset`, never on `db push`.
 - Workflow for a backend change: `npm run db:reset` → `npm run test:7p` / `npm run dev` with dev seats → `npm run live:push` + `npm run live:deploy-functions`. The step-by-step versions are the **`local-test`** and **`push-live`** skills (`.claude/skills/`).
