@@ -35,14 +35,13 @@ export default defineConfig(({ command, isPreview }) => {
           start_url: '/',
           scope: '/',
           display: 'standalone',
-          // Deliberately no colors: on Android, Chrome paints an installed app's navigation
-          // bar from the manifest (which has no dark variant), leaving a cream bar under the
-          // dark theme. Without them the bar follows the phone's theme; the status bar still
-          // takes the media-aware <meta name="theme-color"> tags in index.html. `undefined`
-          // (not omitted) beats the plugin's defaults; its "missing theme_color" build
-          // warning is moot.
-          background_color: undefined,
-          theme_color: undefined,
+          // The dark --bg, in both themes: Android browsers paint an installed app's
+          // navigation bar from these (the manifest has no dark variant), and with none set
+          // Brave falls back to a white bar. A dark bar under the light theme reads fine; a
+          // light one under the dark theme doesn't. The status bar follows the media-aware
+          // <meta name="theme-color"> tags in index.html instead.
+          background_color: '#111113',
+          theme_color: '#111113',
           icons: [
             { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: '/pwa/icon-512.png', sizes: '512x512', type: 'image/png' },
