@@ -13,7 +13,6 @@ import {
   formatCoord,
   quadraticPoints,
   routeLeg,
-  tributaryArrow,
 } from '../svgPrimitives'
 import {
   headToHeadControlPoint,
@@ -230,55 +229,11 @@ const convoyRoutes = (
   return routes
 }
 
-// A support for a move that is actually ordered (and drawn as a plain move) joins that move's
-// arrow as a tributary; any other support for a move points at the target on its own.
-const joinsMove = (support: OrderState, orders: OrderState[]): boolean =>
+// A support for a move that is actually ordered is drawn headless beneath that move's arrow,
+// so it reads the same as a support for an unordered move without competing with its head.
+const supportsOrderedMove = (support: OrderState, orders: OrderState[]): boolean =>
   support.aux !== support.target &&
   orders.some((o) => o.type === 'Move' && o.source === support.aux && o.target === support.target)
-
-// Tributary supports, drawn beneath the move arrows so each join tucks under the shaft.
-// Several supports for one move join it at staggered points.
-const tributaryParts = (
-  orders: OrderState[],
-  unitPositions: Map<string, Point>,
-  state: RenderState,
-  groups: Map<string, OrderState[]>,
-  headToHead: Map<string, Point>,
-  fixedRoutes: Map<string, Point[][]>
-): string[] => {
-  const parts: string[] = []
-  for (const order of orders) {
-    if (order.type !== 'Support' || !order.target || !order.aux || !joinsMove(order, orders)) {
-      continue
-    }
-    const points = orderPoints(order, unitPositions)
-    if (!points) {
-      continue
-    }
-    const { source, target, aux } = points
-    const fixed = lookupFixedRoute(fixedRoutes, order.aux, order.target)
-    const controlPoint = headToHead.get(`${order.aux}->${order.target}`)
-    // The move's centre line (an off-board route joins on its final, on-board leg).
-    const move = fixed
-      ? bSplinePoints(onBoardLeg(fixed, aux, target))
-      : controlPoint ? quadraticPoints(aux, controlPoint, target) : [aux, target]
-    const group = groups.get(`${order.aux}->${order.target}`) ?? []
-    parts.push(
-      tributaryArrow({
-        source,
-        move,
-        joinAt: Math.min(0.5 + 0.15 * group.indexOf(order), 0.8),
-        shaftWidth: SUPPORT_SHAFT_WIDTH,
-        stroke: SUCCESS_COLOR,
-        strokeWidth: MOVE_OUTLINE_WIDTH,
-        fill: nationColor(state, order.nation),
-        dash: SUPPORT_DASH,
-        ...supportFailure(order),
-      })
-    )
-  }
-  return parts
-}
 
 const supportOrderParts = (
   orders: OrderState[],
@@ -317,9 +272,7 @@ const supportOrderParts = (
       continue
     }
 
-    if (joinsMove(order, orders)) {
-      continue
-    }
+    const headless = supportsOrderedMove(order, orders)
     const moveControlPoint = headToHead.get(`${order.aux}->${order.target}`)
     const group = groups.get(`${order.aux}->${order.target}`) ?? []
     const end = staggeredSupportEnd(aux, target, group.indexOf(order), moveControlPoint)
@@ -333,8 +286,8 @@ const supportOrderParts = (
         y3: aux.y,
         offset: UNIT_RADIUS,
         lineWidth: SUPPORT_SHAFT_WIDTH,
-        arrowWidth: SUPPORT_HEAD_WIDTH,
-        arrowLength: SUPPORT_HEAD_LENGTH,
+        arrowWidth: headless ? 0 : SUPPORT_HEAD_WIDTH,
+        arrowLength: headless ? 0 : SUPPORT_HEAD_LENGTH,
         strokeWidth: MOVE_OUTLINE_WIDTH,
         stroke: SUCCESS_COLOR,
         fill: color,
@@ -469,11 +422,7 @@ export const ordersLayer = (
   const headToHead = headToHeadControlPoints(orders, unitPositions)
   const groups = supportMoveGroups(orders)
   const routes = convoyRoutes(orders, unitPositions)
-  const behind: string[] = [
-    ...tributaryParts(orders, unitPositions, state, groups, headToHead, fixedRoutes),
-    ...supportOrderParts(orders, unitPositions, state, groups, headToHead),
-    ...moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes),
-  ]
+  const behind: string[] = supportOrderParts(orders, unitPositions, state, groups, headToHead)
   const front: string[] = []
 
   for (const order of ofType('Hold')) {
@@ -483,6 +432,8 @@ export const ordersLayer = (
     }
   }
   behind.push(...convoyOrderParts(orders, unitPositions, state, routes))
+  // Moves go last so they sit on top of every support and convoy arrow.
+  behind.push(...moveOrderParts(orders, unitPositions, state, headToHead, routes, fixedRoutes))
   for (const order of ofType('Build')) {
     const position = unitPositions.get(order.source)
     if (position) {
