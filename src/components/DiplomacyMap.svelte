@@ -10,8 +10,6 @@
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
   import { errorMessage } from '../lib/errors'
-  import type { BubbleMenu } from '../lib/orders/bubbles'
-  import ActionBubbles from './ActionBubbles.svelte'
 
   export let mapDef: MapDefinition
   export let units: Unit[] = []
@@ -40,8 +38,8 @@
   /** Fill the parent container (immersive in-game view) instead of sizing by aspect ratio. */
   export let fill: boolean = false
   /** Radial action menu around a unit/center, and its pick handler. */
-  export let bubbles: BubbleMenu | null = null
-  export let onBubble: (id: string) => void = () => {}
+  /** The unit (or center) whose actions are open, ringed on the map. */
+  export let ringed: { anchor: string; dislodged?: boolean } | null = null
   /** A tap (not a drag) that lands on nothing clickable — e.g. to dismiss a selection. */
   export let onBackgroundClick: (() => void) | null = null
   /** Open zoomed to fill the frame (cropping the long side) and centred on these dSVG
@@ -177,27 +175,27 @@
   }
 
   /** Bring a unit into the clear part of the map — away from the edges, the top overlays
-   *  and the bottom bar — so its bubbles open fully visible. */
+   *  and the action bar at the bottom. */
   export function reveal(dsvgId: string) {
     const p = renderer?.unitPosition(dsvgId)
     if (!p || !scale) return
     const at = toWrap(p, { k, tx, ty })
-    const side = 96
-    const top = 130
-    const bottom = padBottom + 70
+    const side = 48
+    const top = 90
+    const bottom = Math.max(padBottom, 70) + 80
     if (at.x < side || at.x > wrapW - side || at.y < top || at.y > wrapH - bottom) {
       glide()
-      centreOn(p, wrapW / 2, Math.max(top, (wrapH - padBottom) / 2 + 30))
+      centreOn(p, wrapW / 2, Math.max(top, (wrapH - bottom) / 2))
     }
   }
 
-  $: bubbleAnchor = bubbles && renderer && scale ? anchorPosition(bubbles) : undefined
-  function anchorPosition(menu: BubbleMenu) {
-    const p = renderer!.unitPosition(menu.anchor)
-    const off = menu.dislodged ? DISLODGED_OFFSET : 0
+  $: ringAnchor = ringed && renderer && scale ? anchorPosition(ringed) : undefined
+  function anchorPosition(r: { anchor: string; dislodged?: boolean }) {
+    const p = renderer!.unitPosition(r.anchor)
+    const off = r.dislodged ? DISLODGED_OFFSET : 0
     return p && { x: p.x + off, y: p.y + off }
   }
-  $: bubblePx = bubbleAnchor ? toWrap(bubbleAnchor, view) : null
+  $: ringPx = ringAnchor ? toWrap(ringAnchor, view) : null
 
   onMount(() => {
     if (!wrapEl) return
@@ -624,22 +622,32 @@
         {/each}
       </svg>
     </div>
-    {#if bubbles && bubblePx}
-      {#key bubbles.anchor + bubbles.items.map((b) => b.id).join()}
-        <ActionBubbles
-          items={bubbles.items}
-          x={bubblePx.x}
-          y={bubblePx.y}
-          width={wrapW}
-          height={wrapH}
-          onPick={onBubble}
-        />
-      {/key}
+    {#if ringPx}
+      <span class="ring" style="left:{ringPx.x}px; top:{ringPx.y}px"></span>
     {/if}
   {/if}
 </div>
 
 <style>
+  /* Marks the unit whose actions are open. */
+  .ring {
+    position: absolute;
+    z-index: 18;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border-radius: 50%;
+    border: 2.5px solid #fff;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35), 0 0 14px rgba(255, 255, 255, 0.7);
+    pointer-events: none;
+    animation: ring-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes ring-pulse {
+    50% {
+      transform: scale(1.18);
+      opacity: 0.7;
+    }
+  }
   .map-wrap {
     position: relative;
     width: 100%;

@@ -1,33 +1,33 @@
-// The radial action menu ("bubbles") shown around a unit or supply center on the map:
+// The action bar shown at the bottom of the map while a unit or supply center is picked:
 // order types in movement, retreat/disband in retreats, unit types in builds. Pure data —
-// GameBoard decides what to offer, ActionBubbles draws it.
+// GameBoard decides what to offer, ActionBar draws it.
 import type { OrderType } from './types'
 
-export interface Bubble {
+export interface Action {
   /** Returned to the board's pick handler. */
   id: string
   label: string
-  /** Inner markup of a 24×24 stroke icon (see BUBBLE_ICONS), or a unit token to draw. */
+  /** Inner markup of a 24×24 stroke icon (see ACTION_ICONS), or a unit token to draw. */
   icon?: string
   token?: { type: 'Army' | 'Fleet'; color: string }
   /** Desktop keyboard shortcut shown as a hint. */
   key?: string
-  /** The unit's current order — drawn filled. */
+  /** The selected action (the mode the map is in, or the placed build) — drawn filled. */
   active?: boolean
   tone?: 'danger'
   /** Shown for consistency but not available here (e.g. Convoy with no army to carry). */
   disabled?: boolean
 }
 
-export interface BubbleMenu {
-  /** dSVG id of the unit / province the bubbles circle. */
+export interface ActionMenu {
+  /** dSVG id of the unit / province the actions apply to (ringed on the map). */
   anchor: string
   /** The anchor unit is dislodged — drawn offset beside the occupier, not at the centre. */
   dislodged?: boolean
-  items: Bubble[]
+  items: Action[]
 }
 
-export const BUBBLE_ICONS = {
+export const ACTION_ICONS = {
   Move: '<path d="M4 12h14M13 6l6 6-6 6" />',
   Hold: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" />',
   Support: '<path d="M12 5v14M5 12h14" />',
@@ -37,10 +37,10 @@ export const BUBBLE_ICONS = {
   Remove: '<path d="M5 12h14" />',
 } as const
 
-/** Order-type bubbles in display order (left → right across the arc). */
-export const ORDER_BUBBLES: Array<{ type: OrderType; key: string }> = [
-  { type: 'Hold', key: 'H' },
+/** Order-type actions in display order (left → right). */
+export const ORDER_ACTIONS: Array<{ type: OrderType; key: string }> = [
   { type: 'Move', key: 'M' },
+  { type: 'Hold', key: 'H' },
   { type: 'Support', key: 'S' },
   { type: 'Convoy', key: 'C' },
 ]

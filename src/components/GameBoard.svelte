@@ -10,6 +10,7 @@
   import { sameNation } from '../lib/powers'
   import type { MapDefinition } from '../lib/mapDefinition'
   import DiplomacyMap from './DiplomacyMap.svelte'
+  import ActionBar from './ActionBar.svelte'
   import { toDsvgId, toGameId } from '../lib/map/idMap'
   import type { AnyOrder, BuildOrder, OrderType, RetreatOrder } from '../lib/orders/types'
   import { nextStep, finalize, applicableOrderTypes, type Draft, type Step, type WizardContext } from '../lib/orders/wizard'
@@ -17,11 +18,11 @@
   import { supportAux } from '../lib/orders/options'
   import { canConvoyFrom } from '../lib/adjudicator/rules'
   import type { OrderResult } from '../lib/adjudicator/types'
-  import { BUBBLE_ICONS, ORDER_BUBBLES, type Bubble, type BubbleMenu } from '../lib/orders/bubbles'
+  import { ACTION_ICONS, ORDER_ACTIONS, type Action, type ActionMenu } from '../lib/orders/actions'
   import { compact, wideLayout, type GameTab } from '../lib/layout'
   import { powerColor, powerName } from '../lib/powers'
   import {
-    orderSource, withImplicitHolds, toRenderOrders, orderFailed, supportCut, applyChoice, commitMove, ORDER_TYPE_KEYS, unorderedUnitIds,
+    orderSource, withImplicitHolds, toRenderOrders, orderFailed, supportCut, applyChoice, commitMove, unorderedUnitIds,
     retreatChoices as retreatChoicesFor, retreatMapInputs,
     openBuildSpots, openRemovals, buildMapInputs, buildPrompt as buildPromptFor, coastName,
   } from '../lib/orders/board'
@@ -113,7 +114,7 @@
   let draft: Draft | null = null // movement wizard
   let currentStep: Step | null = null
   let retreatSel: string | null = null // dislodged unit's province picked (retreat)
-  let retreatRouting = false // …and its Retreat bubble chosen: destinations highlighted
+  let retreatRouting = false // …and Retreat selected (the default): destinations highlighted
   let buildSel: { province: string; nation: string } | null = null // center awaiting unit type (build)
   let removeSel: { territory: string; nation: string } | null = null // unit offered for removal (build)
   let saving = false
@@ -348,8 +349,8 @@
     notifyOrders()
   }
 
-  // Selecting a unit opens its action bubbles (an untyped draft); a bubble or shortcut
-  // then picks the order type.
+  // Selecting a unit opens its action bar (an untyped draft, which routes a Move); an
+  // action or shortcut switches the order type.
   function startDraft(unit: Unit) {
     dismissedNotice = notice
     draft = { source: unit.territory, sourceCoast: unit.coast }
@@ -363,7 +364,7 @@
     mapRef?.reveal(dsvgId)
   }
 
-  // Back from a typed draft to the unit's bubbles.
+  // Back from a typed draft to the default (Move).
   function reopenMenu() {
     if (!draft) return
     draft = { source: draft.source, sourceCoast: draft.sourceCoast }
@@ -377,7 +378,7 @@
     recompute()
   }
 
-  // Keyboard shortcuts while a draft is active: H hold, M move, S support, C convoy.
+  // Keyboard shortcuts: Escape cancels; each open action has its own key (M move, H hold, …).
   function onKeydown(e: KeyboardEvent) {
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
@@ -394,11 +395,12 @@
       cancel()
       return
     }
-    if (!draft) return
-    const t = ORDER_TYPE_KEYS[e.key.toLowerCase()]
-    if (t && (t === 'Hold' || draftTypes.includes(t))) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    // Each action's shortcut, as hinted on its button.
+    const action = actionMenu?.items.find((a) => a.key?.toLowerCase() === e.key.toLowerCase() && !a.disabled)
+    if (action) {
       e.preventDefault()
-      setType(t)
+      onAction(action.id)
     }
   }
 
@@ -436,13 +438,7 @@
       if (unit) startDraft(unit)
       return
     }
-    if (!draft.type) {
-      // Bubbles open: the same unit again closes them, another unit switches to it.
-      if (gid === draft.source) cancel()
-      else if (unit) startDraft(unit)
-      return
-    }
-    // Mid-order, the unit itself steps back to its bubbles.
+    // Mid-order, the unit itself steps back to Move.
     if (gid === draft.source) {
       reopenMenu()
       return
@@ -479,7 +475,7 @@
     removeSel = null
   }
 
-  // Orders list / "Next": jump to a unit on the map with its bubbles open.
+  // Orders list / "Next": jump to a unit on the map with its actions open.
   async function pickUnit(territory: string) {
     const unit = ownUnits.find((u) => u.territory === territory)
     if (!unit) return
@@ -515,18 +511,8 @@
 
   function handleRetreatClick(dsvgId: string) {
     const gid = toGameId(dsvgId)
-    if (retreatSel === null || !retreatRouting) {
-      // Bubbles: pick (or switch) the dislodged unit; the same one again closes them.
-      if (gid === retreatSel) cancel()
-      else if (dislodgedAt(gid)) {
-        retreatSel = gid
-        retreatRouting = false
-        revealSoon(toDsvgId(gid))
-      }
-      return
-    }
-    const choice = retreatChoices(retreatSel).find((c) => toDsvgId(c.province, c.coast) === dsvgId)
-    if (choice) {
+    const choice = retreatSel && retreatRouting ? retreatChoices(retreatSel).find((c) => toDsvgId(c.province, c.coast) === dsvgId) : undefined
+    if (retreatSel && choice) {
       const d = dislodgedAt(retreatSel)!
       setOrder(retreatSel, {
         type: 'Retreat',
@@ -539,8 +525,17 @@
       retreatSel = null
       retreatRouting = false
     } else if (gid === retreatSel) {
-      retreatRouting = false // the unit again: back to its bubbles
+      cancel() // the open unit again closes its actions
+    } else if (dislodgedAt(gid)) {
+      selectRetreat(gid)
     }
+  }
+
+  // Pick (or switch) a dislodged unit, routing a retreat when it has anywhere to go.
+  function selectRetreat(p: string) {
+    retreatSel = p
+    retreatRouting = retreatChoices(p).length > 0
+    revealSoon(toDsvgId(p))
   }
 
   function disbandSelected() {
@@ -584,7 +579,7 @@
     )
     const same = buildSel?.province === gid || removeSel?.territory === gid
     if (existing) {
-      // A placed build/removal reopens its bubbles (change type, or cancel it).
+      // A placed build/removal reopens its actions (change type, or cancel it).
       cancel()
       if (same) return
       const b = existing as BuildOrder
@@ -594,7 +589,7 @@
       return
     }
     cancel()
-    if (same) return // the open center/unit again closes its bubbles
+    if (same) return // the open center/unit again closes its actions
     const spot = buildSpotAt(gid)
     if (spot) {
       buildSel = { province: gid, nation: spot.nation }
@@ -616,7 +611,7 @@
     notifyOrders()
   }
 
-  // Cancel the placed build/removal under the open bubbles.
+  // Cancel the placed build/removal whose actions are open.
   function undoAdjustment() {
     const at = buildSel?.province ?? removeSel?.territory
     orders = orders.filter((o) => orderSource(o) !== at)
@@ -635,38 +630,38 @@
     notifyOrders()
   }
 
-  // ── action bubbles ────────────────────────────────────────────────────────
-  // Movement: the selected unit's order types. Retreat: retreat / disband. Build: the
-  // unit types a center can raise, or Remove for a unit owed as a removal.
+  // ── action bar ────────────────────────────────────────────────────────────
+  // Movement: the selected unit's order types, Move selected until another is picked.
+  // Retreat: retreat (selected) / disband. Build: the unit types a center can raise, or
+  // Remove for a unit owed as a removal.
   const currentOrderType = (source: string): string | undefined => orders.find((o) => orderSource(o) === source)?.type
 
-  $: bubbleMenu = ((): BubbleMenu | null => {
+  $: actionMenu = ((): ActionMenu | null => {
     if (!canAct) return null
-    if (phase === 'movement' && draft && !draft.type && draftCtx) {
-      const current = currentOrderType(draft.source)
+    if (phase === 'movement' && draft && draftCtx) {
+      const selected = draft.type ?? 'Move'
       const convoySpot = draftCtx.unit.type === 'fleet' && canConvoyFrom(mapDef, draft.source)
-      const items: Bubble[] = ORDER_BUBBLES.filter(
+      const items: Action[] = ORDER_ACTIONS.filter(
         ({ type }) => type === 'Hold' || draftTypes.includes(type) || (type === 'Convoy' && convoySpot),
       ).map(({ type, key }) => ({
         id: type,
         label: type,
-        icon: BUBBLE_ICONS[type],
+        icon: ACTION_ICONS[type],
         key,
-        active: current === type,
+        active: selected === type,
         disabled: type !== 'Hold' && !draftTypes.includes(type),
       }))
       return { anchor: toDsvgId(draft.source, draft.sourceCoast), items }
     }
-    if (phase === 'retreat' && retreatSel && !retreatRouting) {
+    if (phase === 'retreat' && retreatSel) {
       const d = myDislodged.find((x) => x.unit.territory === retreatSel)
       if (!d) return null
-      const current = currentOrderType(retreatSel)
       return {
         anchor: toDsvgId(retreatSel, d.unit.coast),
         dislodged: true,
         items: [
-          { id: 'Retreat', label: 'Retreat', icon: BUBBLE_ICONS.Retreat, active: current === 'Retreat', disabled: retreatChoices(retreatSel).length === 0 },
-          { id: 'Disband', label: 'Disband', icon: BUBBLE_ICONS.Disband, active: current === 'Disband', tone: 'danger' },
+          { id: 'Retreat', label: 'Retreat', icon: ACTION_ICONS.Retreat, key: 'R', active: retreatRouting, disabled: retreatChoices(retreatSel).length === 0 },
+          { id: 'Disband', label: 'Disband', icon: ACTION_ICONS.Disband, key: 'D', active: currentOrderType(retreatSel) === 'Disband', tone: 'danger' },
         ],
       }
     }
@@ -674,16 +669,16 @@
       const color = powerColor(mapDef.powers, buildSel.nation, '#888')
       const placed = orders.find((o) => o.type === 'Build' && orderSource(o) === buildSel!.province) as BuildOrder | undefined
       const is = (t: string, c?: string) => placed?.unitType === t && (c === undefined || placed?.sourceCoast === c)
-      const items: Bubble[] = []
-      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', label: 'Army', token: { type: 'Army', color }, active: is('army') })
+      const items: Action[] = []
+      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', label: 'Army', token: { type: 'Army', color }, key: 'A', active: is('army') })
       if (buildSpotChoice.types.includes('fleet')) {
         const coasts = buildSpotChoice.coasts ?? []
         if (coasts.length > 1) {
           for (const c of coasts)
             items.push({ id: `fleet:${c}`, label: `Fleet ${coastName(mapDef, buildSel.province, c)}`, token: { type: 'Fleet', color }, active: is('fleet', c) })
-        } else items.push({ id: 'fleet', label: 'Fleet', token: { type: 'Fleet', color }, active: is('fleet') })
+        } else items.push({ id: 'fleet', label: 'Fleet', token: { type: 'Fleet', color }, key: 'F', active: is('fleet') })
       }
-      if (placed) items.push({ id: 'undo', label: 'No build', icon: BUBBLE_ICONS.Disband, tone: 'danger' })
+      if (placed) items.push({ id: 'undo', label: 'No build', icon: ACTION_ICONS.Disband, key: 'N', tone: 'danger' })
       return { anchor: toDsvgId(buildSel.province), items }
     }
     if (phase === 'build' && removeSel) {
@@ -692,14 +687,14 @@
       return {
         anchor: toDsvgId(removeSel.territory, u?.coast),
         items: placed
-          ? [{ id: 'remove', label: 'Remove', icon: BUBBLE_ICONS.Remove, tone: 'danger', active: true }, { id: 'undo', label: 'Keep', icon: BUBBLE_ICONS.Hold }]
-          : [{ id: 'remove', label: 'Remove', icon: BUBBLE_ICONS.Remove, tone: 'danger' }],
+          ? [{ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: true }, { id: 'undo', label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' }]
+          : [{ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger' }],
       }
     }
     return null
   })()
 
-  function onBubble(id: string) {
+  function onAction(id: string) {
     if (phase === 'movement') return setType(id as OrderType)
     if (phase === 'retreat') {
       if (id === 'Disband') disbandSelected()
@@ -712,29 +707,20 @@
     placeBuild(unitType, coast)
   }
 
-  // The floating map hint while an order is being routed (or its bubbles are open).
+  // The floating map hint above the action bar while a unit or center is picked.
   $: mapHint = !canAct
     ? null
-    : draft && draft.type && currentStep?.kind === 'province'
-      ? { title: `${draftLabel} · ${draft.type}`, text: currentStep.prompt, back: true }
-      : draft && !draft.type
-        ? { title: draftLabel, text: 'Choose an order', back: false }
-        : retreatSel && retreatRouting
-          ? { title: retreatLabel, text: 'Pick a highlighted province to retreat to', back: true }
-          : retreatSel
-            ? { title: retreatLabel, text: 'Retreat or disband?', back: false }
-            : buildSel
-              ? { title: `Build in ${provinceName(buildSel.province)}`, text: 'Choose a unit type', back: false }
-              : removeSel
-                ? { title: `Remove from ${provinceName(removeSel.territory)}?`, text: '', back: false }
-                : null
+    : draft
+      ? { title: draftLabel, text: routeStep?.kind === 'province' ? routeStep.prompt : '' }
+      : retreatSel
+        ? { title: retreatLabel, text: retreatRouting ? 'Pick a highlighted province to retreat to' : '' }
+        : buildSel
+          ? { title: `Build in ${provinceName(buildSel.province)}`, text: '' }
+          : removeSel
+            ? { title: `Remove from ${provinceName(removeSel.territory)}?`, text: '' }
+            : null
 
   let dismissedNotice = ''
-
-  function hintBack() {
-    if (phase === 'retreat') retreatRouting = false
-    else reopenMenu()
-  }
 
   // ── map footer (phones): progress, next unit, submit ──────────────────────
   // The orders list in a stable order (power, then province) so edited rows don't jump.
@@ -859,11 +845,12 @@
   $: moveSelectable = !draft || !draft.type
     ? ownUnits.map((u) => toDsvgId(u.territory))
     : [...moveHighlighted, toDsvgId(draft.source)]
-  // With a mouse, a selected unit is in move mode until another order type is picked: left
-  // click moves there (the unit itself holds), right click on a unit supports it.
-  let mouseInput = false
-  $: moveMode = mouseInput && phase === 'movement' && !!draft && (!draft.type || (draft.type === 'Move' && !draft.convoyPath?.length))
+  // A selected unit is in move mode until another order type is picked: a click moves
+  // there (the unit itself holds); with a mouse, right click on a unit supports it.
+  $: moveMode = phase === 'movement' && !!draft && (!draft.type || (draft.type === 'Move' && !draft.convoyPath?.length))
   $: moveModeStep = moveMode && draft && draftCtx ? nextStep({ source: draft.source, sourceCoast: draft.sourceCoast, type: 'Move' }, draftCtx) : null
+  // The step the map is waiting on: the default Move's, or the picked order type's.
+  $: routeStep = moveMode ? moveModeStep : currentStep
   $: moveModeChoices = moveModeStep?.kind === 'province' ? moveModeStep.choices.map((c) => toDsvgId(c.id, c.coast)) : []
   $: supportable = moveMode && draftCtx ? supportAux(mapDef, draftCtx.unit, units) : []
   $: movementHighlighted = moveMode ? moveModeChoices : moveHighlighted
@@ -979,16 +966,11 @@
     : phase === 'movement' && controlAll
       ? sandboxTodos
       : adjustTodos
-  // A to-do row: open that unit's / center's bubbles on the map.
+  // A to-do row: open that unit's / center's actions on the map.
   function pickTodo(id: string) {
     if (phase === 'movement') return pickUnit(id)
     tab = 'map'
-    if (phase === 'retreat') {
-      retreatSel = id
-      retreatRouting = false
-      revealSoon(toDsvgId(id))
-      return
-    }
+    if (phase === 'retreat') return selectRetreat(id)
     if (!(buildSel?.province === id || removeSel?.territory === id)) handleBuildClick(toDsvgId(id))
   }
 
@@ -1016,7 +998,7 @@
   }
 </script>
 
-<svelte:window on:keydown={onKeydown} on:pointerdown|capture={(e) => (mouseInput = e.pointerType === 'mouse')} />
+<svelte:window on:keydown={onKeydown} />
 
 <div class="game" class:compact={$compact} class:sandbox={Boolean(onResolve)} data-tab={tab}>
   {#if $compact}
@@ -1122,8 +1104,7 @@
         {spotlightNation}
         {coverFocus}
         padBottom={$compact ? 76 : 0}
-        bubbles={bubbleMenu}
-        {onBubble}
+        ringed={actionMenu}
         onBackgroundClick={canAct ? cancel : null}
         onProvinceClick={canAct ? handleProvinceClick : null}
         onProvinceAuxClick={canAct ? handleProvinceAuxClick : null}
@@ -1153,21 +1134,21 @@
           </div>
         {/if}
         {#if mapHint && !sidebarHint}
+          {#if actionMenu}<ActionBar items={actionMenu.items} onPick={onAction} />{/if}
           <div class="glass hint" role="status">
-            {#if mapHint.back}
-              <button class="hint-btn" on:click={hintBack} aria-label="Back to actions">‹</button>
-            {/if}
             <div class="hint-text">
               <strong>{mapHint.title}</strong>
               {#if mapHint.text}<span>{mapHint.text}</span>{/if}
-              {#if currentStep?.kind === 'province' && draft?.type}
-                {#each choiceNotes(currentStep.choices) as [note, names]}
+              {#if draft && routeStep?.kind === 'province'}
+                {#each choiceNotes(routeStep.choices) as [note, names]}
                   <span class="hint-note">{note}: {names}</span>
                 {/each}
               {/if}
             </div>
             <button class="hint-btn" on:click={cancel} aria-label="Cancel">✕</button>
           </div>
+        {:else if actionMenu}
+          <ActionBar items={actionMenu.items} onPick={onAction} />
         {:else if mapStrip && canAct && isOrderPhase(phase) && !submitDone}
           <!-- Submitted: no strip (the Orders tab / chip carry the state). -->
           <div class="glass strip" class:bare={stripBare} class:done-strip={amIdle}>
@@ -1266,8 +1247,7 @@
           {todos}
           onPickTodo={pickTodo}
           onEdit={editOrder}
-          activeHint={sidebarHint && !(draft && !draft.type) ? mapHint?.text ?? '' : ''}
-          onActiveBack={sidebarHint && mapHint?.back ? hintBack : null}
+          activeHint={sidebarHint ? mapHint?.text ?? '' : ''}
           submittedView={!onResolve && effectiveReady}
           ordersTitle={onResolve ? 'Your orders' : effectiveReady ? (dirtySinceSubmit ? 'Draft orders' : 'Submitted orders') : 'Draft orders'}
           ordersCount={!onResolve && !effectiveReady && phase === 'movement' ? `${ownUnits.length - unorderedUnits.length}/${ownUnits.length}` : null}
@@ -1604,7 +1584,7 @@
     width: 100%;
   }
 
-  /* Bottom of the map: the routing hint, or (phones) next unit + submit. */
+  /* Bottom of the map: the action bar over the routing hint, or (phones) next unit + submit. */
   .map-foot {
     position: absolute;
     left: 0;
