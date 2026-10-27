@@ -169,9 +169,14 @@ export async function searchMessages(channelIds: number[], query: string): Promi
   return (data ?? []) as ChatMessage[]
 }
 
-/** Count of messages after a cursor — head:true returns the count with no row egress. */
-export async function unreadCount(channelId: number, sinceIso?: string): Promise<number> {
-  let q = supabase.from('chat_messages').select('*', { count: 'exact', head: true }).eq('channel_id', channelId)
+/** Count of others' messages after a cursor — head:true returns the count with no row
+ *  egress. The caller's own messages never count, whatever the cursor says. */
+export async function unreadCount(channelId: number, nation: string, sinceIso?: string): Promise<number> {
+  let q = supabase
+    .from('chat_messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('channel_id', channelId)
+    .neq('sender', nation)
   if (sinceIso) q = q.gt('created_at', sinceIso)
   const { count, error } = await q
   if (error) throw error

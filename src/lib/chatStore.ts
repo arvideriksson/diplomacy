@@ -269,7 +269,7 @@ export function createChatStore(
     channels.set(list)
     drafts.set(await listDrafts(gameId).catch(() => []))
     myReads = await fetchMyReads(list.map((c) => c.id), nation)
-    const counts = await Promise.all(list.map((c) => unreadCount(c.id, myReads[c.id]).catch(() => 0)))
+    const counts = await Promise.all(list.map((c) => unreadCount(c.id, nation, myReads[c.id]).catch(() => 0)))
     unread.set(Object.fromEntries(list.map((c, i) => [c.id, counts[i]])))
     latest.set(await latestMessages(list.map((c) => c.id)).catch(() => ({})))
     await subscribeAll()
@@ -279,7 +279,7 @@ export function createChatStore(
   async function addChannels(added: ChatChannel[]) {
     if (added.length) {
       const reads = await fetchMyReads(added.map((c) => c.id), nation)
-      const counts = await Promise.all(added.map((c) => unreadCount(c.id, reads[c.id]).catch(() => 0)))
+      const counts = await Promise.all(added.map((c) => unreadCount(c.id, nation, reads[c.id]).catch(() => 0)))
       unread.update((u) => ({ ...u, ...Object.fromEntries(added.map((c, i) => [c.id, counts[i]])) }))
       const newest = await latestMessages(added.map((c) => c.id)).catch(() => ({}))
       latest.update((l) => ({ ...l, ...newest }))
@@ -320,7 +320,9 @@ export function createChatStore(
       }),
     )
     const others = list.filter((c) => !loaded.has(c.id))
-    const counts = await Promise.all(others.map((c) => unreadCount(c.id, myReads[c.id]).catch(() => 0)))
+    // The cursor may have moved on another device while this tab was away.
+    myReads = { ...myReads, ...(await fetchMyReads(others.map((c) => c.id), nation).catch(() => ({}))) }
+    const counts = await Promise.all(others.map((c) => unreadCount(c.id, nation, myReads[c.id]).catch(() => 0)))
     unread.update((u) => ({ ...u, ...Object.fromEntries(others.map((c, i) => [c.id, counts[i]])) }))
     const newest = await latestMessages(others.map((c) => c.id)).catch(() => ({}))
     latest.update((l) => ({ ...l, ...newest }))
