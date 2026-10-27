@@ -35,12 +35,13 @@ export default defineConfig(({ command, isPreview }) => {
           start_url: '/',
           scope: '/',
           display: 'standalone',
-          background_color: '#f5f5f0',
-          // Deliberately none: on Android, Chrome paints an installed app's navigation bar
-          // with the manifest theme_color, which has no dark variant. Without it the bar
-          // follows the phone's theme; the status bar still takes the media-aware
-          // <meta name="theme-color"> tags in index.html. `undefined` (not omitted) beats
-          // the plugin's default green; its "missing theme_color" build warning is moot.
+          // Deliberately no colors: on Android, Chrome paints an installed app's navigation
+          // bar from the manifest (which has no dark variant), leaving a cream bar under the
+          // dark theme. Without them the bar follows the phone's theme; the status bar still
+          // takes the media-aware <meta name="theme-color"> tags in index.html. `undefined`
+          // (not omitted) beats the plugin's defaults; its "missing theme_color" build
+          // warning is moot.
+          background_color: undefined,
           theme_color: undefined,
           icons: [
             { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png' },
