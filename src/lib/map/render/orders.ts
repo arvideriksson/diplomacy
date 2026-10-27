@@ -240,7 +240,8 @@ const supportOrderParts = (
   unitPositions: Map<string, Point>,
   state: RenderState,
   groups: Map<string, OrderState[]>,
-  headToHead: Map<string, Point>
+  headToHead: Map<string, Point>,
+  fixedRoutes: Map<string, Point[][]>
 ): string[] => {
   const parts: string[] = []
   for (const order of orders) {
@@ -273,17 +274,22 @@ const supportOrderParts = (
     }
 
     const headless = supportsOrderedMove(order, orders)
+    // A move along a drawn route arrives on the route's last on-board leg, not from the
+    // moving unit's own position, so the support approaches along that leg.
+    const fixed = order.aux && order.target ? lookupFixedRoute(fixedRoutes, order.aux, order.target) : undefined
+    const leg = fixed ? onBoardLeg(fixed, aux, target) : undefined
+    const from = leg ? leg[leg.length - 2] : aux
     const moveControlPoint = headToHead.get(`${order.aux}->${order.target}`)
     const group = groups.get(`${order.aux}->${order.target}`) ?? []
-    const end = staggeredSupportEnd(aux, target, group.indexOf(order), moveControlPoint)
+    const end = staggeredSupportEnd(from, target, group.indexOf(order), moveControlPoint)
     parts.push(
       curvedArrow({
         x1: source.x,
         y1: source.y,
         x2: end.x,
         y2: end.y,
-        x3: aux.x,
-        y3: aux.y,
+        x3: from.x,
+        y3: from.y,
         offset: UNIT_RADIUS,
         lineWidth: SUPPORT_SHAFT_WIDTH,
         arrowWidth: headless ? 0 : SUPPORT_HEAD_WIDTH,
@@ -422,7 +428,7 @@ export const ordersLayer = (
   const headToHead = headToHeadControlPoints(orders, unitPositions)
   const groups = supportMoveGroups(orders)
   const routes = convoyRoutes(orders, unitPositions)
-  const behind: string[] = supportOrderParts(orders, unitPositions, state, groups, headToHead)
+  const behind: string[] = supportOrderParts(orders, unitPositions, state, groups, headToHead, fixedRoutes)
   const front: string[] = []
 
   for (const order of ofType('Hold')) {
