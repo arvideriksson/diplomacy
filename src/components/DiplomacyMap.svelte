@@ -6,6 +6,7 @@
   import { loadBaseRasters, loadMap } from '../lib/map/mapCache'
   import { baseRasterScale, rasterizeSvg, type Raster } from '../lib/map/rasterize'
   import { toRenderState } from '../lib/map/renderState'
+  import { influencePaint } from '../lib/mapPrefs'
   import { DISLODGED_OFFSET } from '../lib/map/render/constants'
   import { toGameId } from '../lib/map/idMap'
   import { renderableProvinces } from '../lib/map/coasts'
@@ -324,7 +325,7 @@
   // (e.g. a selection changes `fills`/`pulse` but leaves arrows and units alone).
   $: dynamic = renderer
     ? renderer.renderDynamic(
-        toRenderState({ mapDef, units, dislodged, ownership, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders }),
+        toRenderState({ mapDef, units, dislodged, ownership, influence: $influencePaint, selectedTerritory, highlighted, buildSlots, removeSlots, unorderedSlots, orders }),
         idPrefix,
       )
     : null

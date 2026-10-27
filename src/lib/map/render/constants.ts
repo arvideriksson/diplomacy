@@ -30,8 +30,9 @@ export const INNER_STROKE_WIDTH = 9
 export const DEFAULT_STROKE_WIDTH = 1
 export const SUPPLY_CENTER_OPACITY_ACTIVE = 0.3
 export const SUPPLY_CENTER_OPACITY_DEFAULT = 0.4
-export const NON_SC_PROVINCE_OPACITY_ACTIVE = 0.3
-export const NON_SC_PROVINCE_OPACITY_DEFAULT = 0.4
+// Influence tint: well under the SC tint so owned centers still read as owned.
+export const NON_SC_PROVINCE_OPACITY_ACTIVE = 0.12
+export const NON_SC_PROVINCE_OPACITY_DEFAULT = 0.16
 
 export const UNIT_RADIUS = 11
 export const UNIT_OFFSET_RADIUS = 5

@@ -6,6 +6,7 @@
   import NameDialog from './NameDialog.svelte'
   import Toggle from './Toggle.svelte'
   import { pushSupported, pushEnabled, enablePush, disablePush } from '../lib/push'
+  import { influencePaint } from '../lib/mapPrefs'
 
   let showMenu = false
   let renaming = false
@@ -73,6 +74,16 @@
           </div>
           <div class="dropdown-divider"></div>
         {/if}
+        <div class="dropdown-item push-row">
+          <Icon name="map" size={16} />
+          <span class="push-label">Influence on map</span>
+          <Toggle
+            checked={$influencePaint}
+            label="Influence on map"
+            onChange={(on) => influencePaint.set(on)}
+          />
+        </div>
+        <div class="dropdown-divider"></div>
         <button class="dropdown-item sign-out" on:click={signOut}>
           <Icon name="logout" size={16} />
           Sign out
