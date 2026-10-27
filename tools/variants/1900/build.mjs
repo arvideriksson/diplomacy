@@ -157,6 +157,17 @@ for (const [id, g] of Object.entries(coastAreas)) {
   units[id] ??= UNITS[id] ?? classical.units[id] ?? pole(g).point
   if (!inside(id.split('/')[0], units[id])) layoutProblems.push(`coast anchor ${id} lies outside its province`)
 }
+// Anchors placed in the unit anchor editor (/editor), keyed by dSVG id: they win over all of the
+// above and are never moved off labels.
+const pinned = new Set()
+for (const [id, pt] of Object.entries(JSON.parse(readFileSync(resolve(root, 'tools/variants/1900/anchors.json'), 'utf8')))) {
+  const [base, coast] = id.split('/')
+  const source = (RENAMES[base] ?? base) + (coast ? `/${coast}` : '')
+  if (!units[source]) throw new Error(`anchors.json: no unit anchor ${id}`)
+  units[source] = pt
+  pinned.add(source)
+  if (!inside(source.split('/')[0], pt)) layoutProblems.push(`anchors.json: ${id} lies outside its province`)
+}
 
 const near = (a, b, d = 25) => Math.hypot(a[0] - b[0], a[1] - b[1]) < d
 const moved = (l) => {
@@ -215,7 +226,7 @@ const clearance = (p, id) => Math.min(
 // Relabelled provinces need a fully clear spot; every other province (classical
 // anchors) moves only when its unit would sit right on a label or bullseye.
 for (const id of visible.map((p) => p.id)) {
-  if (clearance(units[id], id) >= (LABELS[id] ? 12 : 4)) continue
+  if (pinned.has(id) || clearance(units[id], id) >= (LABELS[id] ? 12 : 4)) continue
   // Search the province's main piece only (not, say, Sicily for Naples).
   const main = [P[id].reduce((a, b) => (area([b]) > area([a]) ? b : a))]
   const pts = main[0][0], xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1])

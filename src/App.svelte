@@ -25,6 +25,8 @@
   const devSeats = import.meta.env.DEV && supabaseConfigured
     ? import('./components/DevSeatSwitcher.svelte')
     : null
+  // Unit anchor editor: local dev server only (it saves through it), never against live.
+  const anchorEditor = import.meta.env.DEV && import.meta.env.VITE_BACKEND === 'local' ? import('./components/UnitAnchorEditor.svelte') : null
 
   let ready = false
 
@@ -75,7 +77,14 @@
     <Route path="/sandbox/:id" let:params>
       <SandboxView sandboxId={params.id} onBack={handleBackToList} />
     </Route>
-    {#if !$isAuthenticated && !location.pathname.startsWith('/sandbox/')}
+    {#if anchorEditor}
+      <Route path="/editor">
+        {#await anchorEditor then { default: UnitAnchorEditor }}
+          <UnitAnchorEditor />
+        {/await}
+      </Route>
+    {/if}
+    {#if !$isAuthenticated && !location.pathname.startsWith('/sandbox/') && !location.pathname.startsWith('/editor')}
       <div class="auth-page" in:fade={{ duration: 200 }}>
         <div class="auth-card">
           <div class="auth-hero">
