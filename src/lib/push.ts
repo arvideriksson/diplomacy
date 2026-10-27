@@ -8,6 +8,30 @@ import { rpc } from './rpc'
 
 const VAPID_PUBLIC_KEY: string | undefined = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
+// On by default: a device subscribes unless its user switched notifications off here.
+const OPT_OUT_KEY = 'push-opted-out'
+
+function optedOut(): boolean {
+  try { return localStorage.getItem(OPT_OUT_KEY) === '1' } catch { return false }
+}
+
+function setOptedOut(on: boolean) {
+  try { on ? localStorage.setItem(OPT_OUT_KEY, '1') : localStorage.removeItem(OPT_OUT_KEY) } catch {}
+}
+
+// The permission prompt needs a user gesture (strictly so on iOS), so the default-on
+// subscribe waits for the first tap anywhere.
+let promptArmed = false
+
+function armPromptOnFirstTap() {
+  if (promptArmed) return
+  promptArmed = true
+  window.addEventListener('click', () => {
+    promptArmed = false
+    if (Notification.permission === 'default' && !optedOut()) enablePush().catch(() => {})
+  }, { once: true, capture: true })
+}
+
 /** null until checked; false where this device can't do push. */
 export const pushSupported = writable<boolean | null>(null)
 export const pushEnabled = writable(false)
@@ -33,20 +57,33 @@ async function save(sub: PushSubscription) {
   })
 }
 
-/** Check support and, if this device is already subscribed, re-claim it for the signed-in user. */
+/**
+ * Check support, re-claim an existing subscription for the signed-in user, or (unless
+ * this device opted out) subscribe: silently if permission is already granted, else on
+ * the first tap.
+ */
 export async function initPush() {
   const reg = await registration()
   pushSupported.set(!!reg)
   if (!reg) return
   const sub = await reg.pushManager.getSubscription()
-  const on = !!sub && Notification.permission === 'granted'
-  pushEnabled.set(on)
-  if (on) await save(sub!).catch(() => {})
+  if (sub && Notification.permission === 'granted') {
+    pushEnabled.set(true)
+    await save(sub).catch(() => {})
+    return
+  }
+  pushEnabled.set(false)
+  if (optedOut()) return
+  if (Notification.permission === 'granted') await enablePush().catch(() => {})
+  else if (Notification.permission === 'default') armPromptOnFirstTap()
 }
 
 export async function enablePush(): Promise<boolean> {
+  // Ask first, while the tap that triggered this still counts as a user gesture.
+  const permission = await Notification.requestPermission()
   const reg = await registration()
-  if (!reg || (await Notification.requestPermission()) !== 'granted') return false
+  if (!reg || permission !== 'granted') return false
+  setOptedOut(false)
   const sub = (await reg.pushManager.getSubscription())
     ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC_KEY!) }))
   await save(sub)
@@ -54,7 +91,9 @@ export async function enablePush(): Promise<boolean> {
   return true
 }
 
-export async function disablePush() {
+/** Unsubscribe this device; `optOut` (the menu switch) keeps it off until switched back on. */
+export async function disablePush(optOut = false) {
+  if (optOut) setOptedOut(true)
   const sub = await (await registration())?.pushManager.getSubscription()
   pushEnabled.set(false)
   if (!sub) return

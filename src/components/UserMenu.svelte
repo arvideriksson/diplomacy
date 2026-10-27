@@ -22,7 +22,7 @@
     pushBusy = true
     try {
       if (on) pushBlocked = !(await enablePush())
-      else await disablePush()
+      else await disablePush(true)
     } finally {
       pushBusy = false
     }
