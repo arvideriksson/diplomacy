@@ -23,7 +23,7 @@ A web application for playing the board game **Diplomacy** online.
 - `npm run check` — type-check Svelte + TypeScript
 - `npm run db:start` / `db:stop` / `db:reset` / `db:status` — local Supabase stack in Docker (migrations + `supabase/seed.sql`, adjudicator served locally)
 - `npm run test:7p` — seven-player end-to-end game against the local stack (`test:7p:live` for the cloud)
-- `npm run live:push` (`-- --dry-run`) / `live:deploy-functions` — ship migrations / the adjudicator to the cloud project (the only way to reach it; see below)
+- `npm run live:push` (`-- --dry-run`) / `live:deploy-functions` — ship migrations / the Edge Functions (adjudicator + notify) to the cloud project (the only way to reach it; see below)
 
 ## Local vs live backend
 
@@ -93,6 +93,10 @@ Each surviving power holds one **secret** vote in `draw_votes` (`20250101000141_
 ### Host controls (private games, opt-in in the lobby)
 
 `settings.host_controls` is set in the lobby, is fixed once the game starts, and requires (and locks) `is_private` — enforced by a trigger (`20250101000129_host_controls.sql`). Only then does the creator get the in-game admin menu: deadline override, pacing settings, **force-resolve** (`host_force_resolve` — fires the adjudicator now, unready nations hold) and **revert** (`host_revert_to` — the Edge Function replays the log to the target round and commits via `apply_revert`, deleting later rounds and reopening that round's orders as drafts). Both go through the Edge Function, so it stays the sole board writer.
+
+### Push notifications
+
+Web Push (`20250101000147_push_notifications.sql`, `src/lib/push.ts`, `public/push-sw.js`) for a new press message, a new round to order for, and a reminder an hour before the deadline while unready. SQL picks recipients and builds the payload (`push_notify`, called from a `chat_messages` trigger, a round-change trigger on `games`, and `tick_due_games`); the **`notify`** Edge Function only looks up `push_subscriptions` and sends. It shares `ADJUDICATOR_SECRET` and is reached through `private.engine_config` (its URL with the last segment swapped to `notify`). VAPID keys: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` function secrets, and `VITE_VAPID_PUBLIC_KEY` for the client (local pair in `config.toml` / `scripts/backend.ts`).
 
 ### Free-tier shape (Supabase)
 

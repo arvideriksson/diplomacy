@@ -2,6 +2,7 @@ import { writable, derived } from 'svelte/store'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { rpc } from './rpc'
+import { disablePush } from './push'
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS ?? '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean)
 
@@ -89,6 +90,8 @@ export async function setDisplayName(name: string) {
 }
 
 export async function signOut() {
+  // This device shouldn't keep buzzing for an account that left it.
+  await disablePush().catch(() => {})
   const { error } = await supabase.auth.signOut()
   if (error) throw error
 }

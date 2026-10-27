@@ -18,6 +18,7 @@
     reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />',
     check: '<path d="M20 6L9 17l-5-5" />',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />',
     // The game sections (phone tab bar, and the map buttons for hidden sidebars).
     press: '<path d="M4 20h14a2 2 0 0 0 2-2V4H7v14a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-8h4" /><path d="M11 8h5M11 12h5M11 16h3" />',
     map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" />',

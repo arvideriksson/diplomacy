@@ -17,7 +17,14 @@ export interface Backend {
   name: BackendName
   url: string
   anonKey: string
+  /** Web Push application server key; the private half lives with the notify function. */
+  vapidPublicKey: string | undefined
 }
+
+// Public half of the local-only key pair in supabase/config.toml [edge_runtime.secrets].
+const LOCAL_VAPID_PUBLIC_KEY =
+  'BLcd0EsMMx9WnWGlZ1DAXWQsHI9EvdyVP_os99Pc8Zt5A-gJhXCJD392MGShxOYhsm5c9JtLx58zLUqqhqKmkb0'
+
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -46,7 +53,7 @@ function localBackend(): Backend {
     )
   }
   const env = parseEnv(out)
-  return { name: 'local', url: env.API_URL, anonKey: env.ANON_KEY }
+  return { name: 'local', url: env.API_URL, anonKey: env.ANON_KEY, vapidPublicKey: LOCAL_VAPID_PUBLIC_KEY }
 }
 
 function liveBackend(): Backend {
@@ -55,7 +62,8 @@ function liveBackend(): Backend {
   const url = process.env.VITE_SUPABASE_URL ?? env.VITE_SUPABASE_URL
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY
   if (!url || !anonKey) throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY for the live backend (.env)')
-  return { name: 'live', url, anonKey }
+  const vapidPublicKey = process.env.VITE_VAPID_PUBLIC_KEY ?? env.VITE_VAPID_PUBLIC_KEY
+  return { name: 'live', url, anonKey, vapidPublicKey }
 }
 
 function parseEnv(text: string): Record<string, string> {

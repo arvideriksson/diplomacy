@@ -66,8 +66,16 @@ deno_version = 2
 # Local-only shared secret; seed.sql puts the same value in private.engine_config.
 # The live project's secret is set with `supabase secrets set` and never lives here.
 ADJUDICATOR_SECRET = "local-dev-adjudicator-secret"
+# Local-only Web Push key pair (the public half is LOCAL_VAPID_PUBLIC_KEY in
+# scripts/backend.ts). The live pair is set with `supabase secrets set`.
+VAPID_PUBLIC_KEY = "BLcd0EsMMx9WnWGlZ1DAXWQsHI9EvdyVP_os99Pc8Zt5A-gJhXCJD392MGShxOYhsm5c9JtLx58zLUqqhqKmkb0"
+VAPID_PRIVATE_KEY = "kK8_v3sGP6c-LVZEEGe2Zgmu2LqfAiou05vKMNgp9jk"
 
 # The cron → function call authenticates with ADJUDICATOR_SECRET itself,
 # so JWT verification is disabled for this function.
 [functions.adjudicate]
+verify_jwt = false
+
+# Called only by Postgres (public.push_notify) with the same shared secret.
+[functions.notify]
 verify_jwt = false
