@@ -60,7 +60,6 @@
     font-family: var(--font);
     cursor: pointer;
     pointer-events: auto;
-    -webkit-tap-highlight-color: transparent;
     transition: transform 0.1s ease, background 0.1s ease;
   }
   @media (hover: hover) {

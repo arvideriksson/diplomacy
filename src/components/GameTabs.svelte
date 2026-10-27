@@ -65,7 +65,6 @@
     color: var(--text-tertiary);
     font: 600 11.5px var(--font);
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
   }
   .tab.on {
     color: var(--accent);
