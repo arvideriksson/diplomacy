@@ -460,47 +460,6 @@ export const ribbonArrow = (o: RibbonArrowOptions): string => {
   )
 }
 
-export type TributaryArrowOptions = {
-  /** The supporting unit. */
-  source: Point
-  /** Centre line of the supported move, from the moving unit to its target. */
-  move: Point[]
-  /** Where along the move the support joins it (0–1). */
-  joinAt: number
-  shaftWidth: number
-  fill: string
-  stroke: string
-  strokeWidth: number
-  dash?: Dash
-  gap?: number
-  renderCenter?: (x: number, y: number, angle: number) => string
-}
-
-/** A support that curves in and merges into the move it supports, like a stream joining a
- *  river. It ends on the move's centre line, so drawn beneath the move arrow the join is hidden. */
-export const tributaryArrow = (o: TributaryArrowOptions): string => {
-  const join = pointAlong(o.move, o.joinAt)
-  const dir = { x: Math.cos(join.angle), y: Math.sin(join.angle) }
-  const end = join.point
-  const lead = Math.min(22, Math.hypot(end.x - o.source.x, end.y - o.source.y) / 2)
-  const cp1 = lerp(o.source, end, 0.45)
-  const cp2 = sub(end, scale(dir, lead))
-  return ribbonArrow({
-    points: Array.from({ length: 33 }, (_, i) => cubicBezierPoint(i / 32, o.source, cp1, cp2, end)),
-    shaftWidth: o.shaftWidth,
-    headWidth: 0,
-    headLength: 0,
-    offset: 0,
-    startOffset: 0,
-    fill: o.fill,
-    stroke: o.stroke,
-    strokeWidth: o.strokeWidth,
-    dash: o.dash,
-    gap: o.gap,
-    renderCenter: o.renderCenter,
-  })
-}
-
 /** A headless order line through waypoints: the leg of a route that runs off the board. */
 export const routeLeg = (o: RouteLegOptions): string => {
   if (o.waypoints.length < 2) {
