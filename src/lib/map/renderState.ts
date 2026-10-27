@@ -7,6 +7,7 @@ import type { MapTheme } from './theme'
 import { DEFAULT_THEME } from './theme'
 import { toDsvgId } from './idMap'
 import { powerColor } from '../powers'
+import { influencedProvinces } from './influence'
 
 export type ToRenderStateInput = {
   mapDef: MapDefinition
@@ -15,6 +16,8 @@ export type ToRenderStateInput = {
    *  the new occupier that has taken their province (retreat phase only). */
   dislodged?: Unit[]
   ownership?: Record<string, string>
+  /** Tint non-SC provinces by the power holding a majority of their adjacent centers. */
+  influence?: boolean
   selectedTerritory?: string | null
   highlighted?: string[]
   buildSlots?: string[]
@@ -33,6 +36,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     units = [],
     dislodged = [],
     ownership = {},
+    influence = false,
     selectedTerritory,
     highlighted = [],
     buildSlots = [],
@@ -80,6 +84,14 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
       nation: register(power),
     }))
 
+  const nonScProvinceColors = influence
+    ? Object.fromEntries(
+        Object.entries(influencedProvinces(mapDef, ownership))
+          .map(([territory, power]) => [toDsvgId(territory), nationColors[register(power)]] as const)
+          .filter(([, color]) => Boolean(color)),
+      )
+    : undefined
+
   if (orders) {
     for (const order of orders) {
       register(order.nation)
@@ -90,6 +102,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
     nationColors,
     units: unitStates,
     supplyCenters,
+    nonScProvinceColors,
     orders,
     selected: selectedTerritory ? [toDsvgId(selectedTerritory)] : [],
     highlighted: highlighted.map((id) => toDsvgId(id)),
