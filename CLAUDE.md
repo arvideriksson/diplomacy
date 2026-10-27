@@ -96,7 +96,7 @@ Each surviving power holds one **secret** vote in `draw_votes` (`20250101000141_
 
 ### Push notifications
 
-Web Push (`20250101000147_push_notifications.sql`, `src/lib/push.ts`, `public/push-sw.js`) for a new press message, a new round to order for, and a reminder an hour before the deadline while unready. SQL picks recipients and builds the payload (`push_notify`, called from a `chat_messages` trigger, a round-change trigger on `games`, and `tick_due_games`); the **`notify`** Edge Function only looks up `push_subscriptions` and sends. It shares `ADJUDICATOR_SECRET` and is reached through `private.engine_config` (its URL with the last segment swapped to `notify`). VAPID keys: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` function secrets, and `VITE_VAPID_PUBLIC_KEY` for the client (local pair in `config.toml` / `scripts/backend.ts`).
+Web Push (`20250101000147_push_notifications.sql`, `src/lib/push.ts`, `public/push-sw.js`) for a new press message, a new round to order for, and a reminder an hour before the deadline while unready. SQL picks recipients and builds the payload (`push_notify`, called from a `chat_messages` trigger, a round-change trigger on `games`, and `tick_due_games`); the **`notify`** Edge Function only looks up `push_subscriptions` and sends. It shares `ADJUDICATOR_SECRET` and is reached through `private.engine_config` (its URL with the last segment swapped to `notify`). VAPID keys: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` function secrets (live: kept in the gitignored `.env.functions.local`, set with `npm run live:secrets`), and `VITE_VAPID_PUBLIC_KEY` for the client (local pair in `config.toml` / `scripts/backend.ts`).
 
 ### Free-tier shape (Supabase)
 

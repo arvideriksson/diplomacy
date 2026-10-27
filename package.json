@@ -22,6 +22,7 @@
     "db:status": "supabase status",
     "live:push": "node --experimental-strip-types scripts/live.mjs push",
     "live:deploy-functions": "npm run build:edge && node --experimental-strip-types scripts/live.mjs deploy-functions",
+    "live:secrets": "node --experimental-strip-types scripts/live.mjs secrets",
     "postinstall": "node scripts/install-supabase-guard.mjs"
   },
   "devDependencies": {
