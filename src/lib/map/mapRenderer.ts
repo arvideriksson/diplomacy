@@ -44,6 +44,10 @@ export class DiplicityMap {
     return this.parsed.namedCoastPaths
   }
 
+  get unitPositions() {
+    return this.parsed.unitPositions
+  }
+
   /** Where a unit in `dsvgId` (a province or named coast) is drawn, in board units. */
   unitPosition(dsvgId: string): { x: number; y: number } | undefined {
     return this.parsed.unitPositions.get(dsvgId)
