@@ -16,7 +16,8 @@ self.addEventListener('push', (event) => {
         tag: data.tag,
         renotify: !!data.tag,
         icon: '/pwa/icon-192.png',
-        badge: '/pwa/icon-192.png',
+        // Android draws the badge as a silhouette of its alpha: the dove alone, not the tile.
+        badge: '/pwa/badge-96.png',
         data: { url: data.url ?? '/' },
       })
     })(),
