@@ -50,10 +50,8 @@
   export let byPower: boolean = false
   /** The unit (or center) being ordered on the map right now, highlighted in the lists. */
   export let activeSource: string = ''
-  /** What the map is asking for on that unit (e.g. "Choose an order"), shown in its row. */
+  /** What the map is asking for on that unit (e.g. "Choose destination"), shown in its row. */
   export let activeHint: string = ''
-  /** Step back from routing to the order types, or null when there's nothing to go back to. */
-  export let onActiveBack: (() => void) | null = null
   /** Heading of the entered list ("Your orders", "Submitted orders", "Draft changes"). */
   export let ordersTitle: string = 'Your orders'
   /** Count shown beside that heading; null counts the entered orders. */
@@ -80,13 +78,14 @@
   export let onRevert: (source: string) => void = () => {}
 
   let lockedOpen = false
-  let copied = false
+  // Which copy button last fired: 'all', or a nation's key for its group's own button.
+  let copied = ''
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
-  function copyOrders() {
-    navigator.clipboard?.writeText(copyText)
-    copied = true
+  function copyOrders(text: string, key: string) {
+    navigator.clipboard?.writeText(text)
+    copied = key
     if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => (copied = false), 1500)
+    copiedTimer = setTimeout(() => (copied = ''), 1500)
   }
 
   // Orders split per country, countries alphabetical by display name.
@@ -106,7 +105,6 @@
   <li class="detail" class:changed-li={changedRow}>
     {#if activeHint}
       <span class="detail-hint">
-        {#if onActiveBack}<button class="detail-back" on:click={onActiveBack} aria-label="Back to order types">‹</button>{/if}
         {activeHint}
       </span>
     {/if}
@@ -170,15 +168,19 @@
     {#if orders.length || (copyText && todos.length)}
       <ListHead title={ordersTitle} count={ordersCount ?? orders.filter(entered).length}>
         {#if copyText}
-          <button class="copy" on:click={copyOrders} aria-label="Copy all orders" title={copied ? 'Copied' : 'Copy all orders (un-ordered units hold)'}>
-            <Icon name={copied ? 'check' : 'copy'} size={15} round />
+          <button class="copy" on:click={() => copyOrders(copyText, 'all')} aria-label="Copy all orders" title={copied === 'all' ? 'Copied' : 'Copy all orders (un-ordered units hold)'}>
+            <Icon name={copied === 'all' ? 'check' : 'copy'} size={15} round />
           </button>
         {/if}
       </ListHead>
     {/if}
     {#each orders.length ? orderGroups : [] as g (g.nation)}
       {#if g.power}
-        <ListHead power={g.power} title="Orders" />
+        <ListHead power={g.power} title="Orders">
+          <button class="copy" on:click={() => copyOrders(g.list.map(format).join('\n'), g.nation)} aria-label="Copy {g.power.name} orders" title={copied === g.nation ? 'Copied' : `Copy ${g.power.name} orders`}>
+            <Icon name={copied === g.nation ? 'check' : 'copy'} size={15} round />
+          </button>
+        </ListHead>
       {/if}
       <OrderCard>
         {#each g.list as o (orderSource(o))}
@@ -404,17 +406,6 @@
     gap: 6px;
     font-size: 13px;
     color: var(--text-secondary);
-  }
-  .detail-back {
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 6px;
-    background: var(--bg-hover);
-    color: var(--text);
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
   }
   /* Expands the row's order types; turns down while open. */
   .row-btn .go {

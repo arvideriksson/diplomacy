@@ -8,7 +8,7 @@ import type { OrderState } from '../map/mapRenderer'
 import { toDsvgId } from '../map/idMap'
 import { toOrderStates, type Draft, type Step } from './wizard'
 import { retreatTargets, type BuildSituation, type BuildSpot } from './adjustments'
-import type { AnyOrder, BuildOrder, Order, OrderType, RetreatOrder } from './types'
+import type { AnyOrder, BuildOrder, Order, RetreatOrder } from './types'
 
 /** The province an order is keyed by (every order kind has one). */
 export const orderSource = (o: AnyOrder): string => (o as { source: string }).source
@@ -174,7 +174,8 @@ export function retreatMapInputs(
   if (selected) {
     const d = dislodged.find((x) => x.unit.territory === selected)
     const highlighted = retreatChoices(map, d, units, contested).map((c) => toDsvgId(c.province, c.coast))
-    return { highlighted, selectable: [...highlighted, toDsvgId(selected)] }
+    // The other dislodged units stay pickable, to switch to them.
+    return { highlighted, selectable: [...new Set([...highlighted, ...dislodged.map((x) => toDsvgId(x.unit.territory))])] }
   }
   return {
     highlighted: dislodged
@@ -206,8 +207,6 @@ export const unorderedUnitIds = (units: Unit[], orders: AnyOrder[], drafting?: s
     .filter((u) => u.territory !== drafting && !orders.some((o) => orderSource(o) === u.territory))
     .map((u) => toDsvgId(u.territory))
 
-/** Keyboard shortcuts while a movement draft is open: H hold, M move, S support, C convoy. */
-export const ORDER_TYPE_KEYS: Record<string, OrderType> = { h: 'Hold', m: 'Move', s: 'Support', c: 'Convoy' }
 
 /**
  * Apply a clicked province (dSVG id) to a movement draft at a province step. A target
