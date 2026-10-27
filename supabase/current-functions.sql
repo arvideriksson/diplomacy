@@ -707,10 +707,10 @@ returns uuid[] as $$
    where value ->> 'nation' = any(p_nations);
 $$ language sql immutable;
 
--- ═══ public.notify_chat_message()  — from 20250101000147_push_notifications.sql
--- ── press ───────────────────────────────────────────────────────────────────────
--- Every other member of the channel; one notification per channel (the tag), so a
--- burst of messages stacks into the latest.
+-- ═══ public.notify_chat_message()  — from 20250101000148_chat_push_no_details.sql
+-- ── notify_chat_message (re-issues 147): no sender or text in the push ──────────
+-- A notification shows on the lock screen, so press stays private: only which game
+-- has a new message. Still one notification per channel (the tag).
 create or replace function public.notify_chat_message()
 returns trigger as $$
 declare
@@ -724,7 +724,7 @@ begin
     public.nation_users(g.players, array_remove(c.members, new.sender)),
     jsonb_build_object(
       'title', g.name,
-      'body',  initcap(new.sender) || ': ' || left(new.body, 200),
+      'body',  'New message!',
       'url',   '/game/' || g.id,
       'tag',   'chat:' || c.id));
   return null;
