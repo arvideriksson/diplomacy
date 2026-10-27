@@ -11,7 +11,7 @@ import { audit } from './lib/audit.mjs'
 import { drawBoard, geomPath, label, coastMark, offBoardNote } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
-import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
+import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, MOVE_LABELS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
 // The app's own data, loaded as TypeScript (type-only imports, stripped by Node).
 import { GAME_TO_DSVG_OVERRIDES } from '../../../src/lib/map/idOverrides.ts'
 import { classicalMap } from '../../../src/lib/maps/classical.ts'
@@ -159,7 +159,14 @@ for (const [id, g] of Object.entries(coastAreas)) {
 }
 
 const near = (a, b, d = 25) => Math.hypot(a[0] - b[0], a[1] - b[1]) < d
-const kept = classical.labels.filter((l) => !DROP_LABELS.has(l.text) && !DROP_COAST_MARKS.some(([t, at]) => t === l.text && near(l.at, at)))
+const moved = (l) => {
+  const m = MOVE_LABELS[l.text]
+  if (!m) return l
+  const [dx, dy] = [m.at[0] - l.at[0], m.at[1] - l.at[1]], angle = m.angle ?? l.angle
+  const turn = angle === l.angle ? '' : ` rotate(${(angle - l.angle).toFixed(2)} ${l.at[0].toFixed(2)} ${l.at[1].toFixed(2)})`
+  return { ...l, at: m.at, angle, markup: `<g transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)})${turn}">${l.markup}</g>` }
+}
+const kept = classical.labels.filter((l) => !DROP_LABELS.has(l.text) && !DROP_COAST_MARKS.some(([t, at]) => t === l.text && near(l.at, at))).map(moved)
 // Classical upright names follow the same bold rule as the new ones (coast marks stay bold).
 const COAST_TEXT = new Set(['NC', 'SC', 'EC', 'WC'])
 const reweight = (l) => {

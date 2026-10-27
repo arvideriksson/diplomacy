@@ -6,6 +6,9 @@
 export const DROP_LABELS = new Set(['N. Africa', 'Tunis', 'Tuscany', 'Venice', 'Albania', 'Holland', 'Ruhr', 'Smyrna', 'Syria', 'LVN', 'Livonia', 'Greece', 'Trieste', 'Burgundy', 'Rome', 'Piedmont', 'Sevastopol', 'LVP'])
 // Classical coast markers to drop, identified by text and approximate position.
 export const DROP_COAST_MARKS = [['SC', [1005, 1117]], ['EC', [1071, 1033]], ['SC', [220, 1204]]]
+// Classical labels moved to a new centre (and optionally a new angle): the seas that
+// grew south with the board.
+export const MOVE_LABELS = { 'EAST MED': { at: [1168, 1366] }, 'IONIAN SEA': { at: [815, 1345], angle: 0 } }
 
 // New and replacement labels. kind: sc (bold), land (italic), sea (italic caps).
 export const LABELS = {
