@@ -130,8 +130,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          455,
-          1318
+          453.9,
+          1294.4
         ]
       }
     },
@@ -149,7 +149,7 @@ export const map1900: MapDefinition = {
       "render": {
         "center": [
           531.1,
-          898.8
+          883.7
         ]
       }
     },
@@ -296,8 +296,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          534.2,
-          800.3
+          529.8,
+          789
         ]
       }
     },
@@ -358,8 +358,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          748.8,
-          856.4
+          743.4,
+          851
         ]
       }
     },
@@ -381,7 +381,7 @@ export const map1900: MapDefinition = {
       "render": {
         "center": [
           856.4,
-          1039.6
+          1042.3
         ]
       }
     },
@@ -468,8 +468,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          482.2,
-          936.7
+          494.1,
+          913
         ]
       }
     },
@@ -493,8 +493,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          367,
-          572.6
+          365.3,
+          562.1
         ]
       }
     },
@@ -512,8 +512,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          565.4,
-          814.4
+          566,
+          816.9
         ]
       }
     },
@@ -659,8 +659,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          381.1,
-          537.8
+          409.3,
+          504.2
         ]
       }
     },
@@ -705,8 +705,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          376.7,
-          768.1
+          384.2,
+          764.9
         ]
       }
     },
@@ -909,8 +909,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          262,
-          180
+          272.8,
+          175.4
         ]
       }
     },
@@ -1077,8 +1077,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          945,
-          600
+          956.8,
+          594.6
         ]
       }
     },
@@ -1103,8 +1103,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          386.4,
-          602.2
+          389.1,
+          617.4
         ]
       }
     },
@@ -1224,8 +1224,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          605.9,
-          981.2
+          607.7,
+          978.5
         ]
       }
     },
@@ -1314,8 +1314,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          723.6,
-          1131
+          780,
+          1221.6
         ]
       }
     },
@@ -1453,8 +1453,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          1347.2,
-          1405.8
+          1345.1,
+          1423
         ]
       }
     },
@@ -1724,8 +1724,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          330,
-          1470
+          338.5,
+          1473.3
         ]
       }
     },
@@ -1887,7 +1887,7 @@ export const map1900: MapDefinition = {
       "render": {
         "center": [
           593.8,
-          900.9
+          903
         ]
       }
     },
@@ -1934,8 +1934,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          689.4,
-          1528.5
+          716.2,
+          1526.4
         ]
       }
     },
@@ -2082,8 +2082,8 @@ export const map1900: MapDefinition = {
       ],
       "render": {
         "center": [
-          354.8,
-          657.7
+          353,
+          660.4
         ]
       }
     },
