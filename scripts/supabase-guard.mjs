@@ -9,6 +9,7 @@
 // scripts/live.mjs, which links, runs one allowlisted command, and unlinks again.
 
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const args = process.argv.slice(2)
@@ -22,6 +23,8 @@ function refuse(why) {
 
 if (words.includes('config') && words.includes('push'))
   refuse('supabase/config.toml configures only the local stack; pushing it would overwrite live settings. Change live settings in the dashboard.')
+if (words[0] === 'secrets' && words[1] === 'set' && existsSync('supabase/config.toml'))
+  refuse('`secrets set` also uploads supabase/config.toml [edge_runtime.secrets] — the local dev secrets. Use `npm run live:secrets`, which runs it outside the repo.')
 if (args.includes('--include-seed'))
   refuse('supabase/seed.sql is local-only wiring and must never reach the live database.')
 if (!viaLiveScript && words[0] === 'link')

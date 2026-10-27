@@ -22,6 +22,11 @@
     "db:status": "supabase status",
     "live:push": "node --experimental-strip-types scripts/live.mjs push",
     "live:deploy-functions": "npm run build:edge && node --experimental-strip-types scripts/live.mjs deploy-functions",
+    "live:diagnose-push": "node --experimental-strip-types scripts/live.mjs diagnose-push",
+    "live:functions-list": "node --experimental-strip-types scripts/live.mjs functions-list",
+    "live:ping-notify": "node --experimental-strip-types scripts/live.mjs ping-notify",
+    "live:secrets-list": "node --experimental-strip-types scripts/live.mjs secrets-list",
+    "live:rotate-adjudicator-secret": "node --experimental-strip-types scripts/live.mjs rotate-adjudicator-secret",
     "live:secrets": "node --experimental-strip-types scripts/live.mjs secrets",
     "postinstall": "node scripts/install-supabase-guard.mjs"
   },
