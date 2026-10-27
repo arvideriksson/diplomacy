@@ -4,6 +4,8 @@
   import Avatar from './Avatar.svelte'
   import Icon from './Icon.svelte'
   import NameDialog from './NameDialog.svelte'
+  import Toggle from './Toggle.svelte'
+  import { pushSupported, pushEnabled, enablePush, disablePush } from '../lib/push'
 
   let showMenu = false
   let renaming = false
@@ -11,6 +13,19 @@
   function rename() {
     showMenu = false
     renaming = true
+  }
+
+  let pushBusy = false
+  let pushBlocked = false
+
+  async function setPush(on: boolean) {
+    pushBusy = true
+    try {
+      if (on) pushBlocked = !(await enablePush())
+      else await disablePush()
+    } finally {
+      pushBusy = false
+    }
   }
 
   function handleClickOutside(e: MouseEvent) {
@@ -45,6 +60,19 @@
           <p class="email">{$user.email}</p>
         </div>
         <div class="dropdown-divider"></div>
+        {#if $pushSupported}
+          <div class="dropdown-item push-row">
+            <Icon name="bell" size={16} />
+            <span class="push-label">{pushBlocked ? 'Notifications blocked' : 'Notifications'}</span>
+            <Toggle
+              checked={$pushEnabled}
+              disabled={pushBusy}
+              label="Notifications"
+              onChange={setPush}
+            />
+          </div>
+          <div class="dropdown-divider"></div>
+        {/if}
         <button class="dropdown-item sign-out" on:click={signOut}>
           <Icon name="logout" size={16} />
           Sign out
@@ -151,6 +179,19 @@
 
   .dropdown-item:hover {
     background: var(--bg-hover);
+  }
+
+  .push-row {
+    cursor: default;
+    color: var(--text);
+  }
+
+  .push-row:hover {
+    background: none;
+  }
+
+  .push-label {
+    flex: 1;
   }
 
   .sign-out {

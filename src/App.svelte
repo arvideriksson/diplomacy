@@ -19,6 +19,7 @@
   import { initialBoard } from './lib/adjudicator'
   import { createSandbox } from './lib/sandbox'
   import { supabaseConfigured } from './lib/supabase'
+  import { initPush } from './lib/push'
 
   // Dev-only test-seat switcher; a dynamic import so production builds never ship it.
   const devSeats = import.meta.env.DEV && supabaseConfigured
@@ -54,6 +55,7 @@
 
   $: if ($isAuthenticated && ready) {
     fetchGames().catch(() => {})
+    initPush().catch(() => {})
   }
 </script>
 

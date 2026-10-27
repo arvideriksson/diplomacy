@@ -4,7 +4,7 @@
 // etc. have no project to reach (scripts/supabase-guard.mjs blocks re-linking).
 //
 //   npm run live:push [-- --dry-run]       apply pending migrations
-//   npm run live:deploy-functions          bundle the engine and deploy the adjudicator
+//   npm run live:deploy-functions          bundle the engine and deploy the adjudicator + notify
 
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ import { resolveBackend } from './backend.ts'
 
 const COMMANDS = {
   push: { args: ['db', 'push', '--linked'], extra: ['--dry-run'] },
-  'deploy-functions': { args: ['functions', 'deploy', 'adjudicate'], extra: [] },
+  'deploy-functions': { args: ['functions', 'deploy', 'adjudicate', 'notify'], extra: [] },
 }
 
 const [name, ...rest] = process.argv.slice(2)
