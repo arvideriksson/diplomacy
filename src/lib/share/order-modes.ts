@@ -14,11 +14,12 @@ import {
   MoveOrderCodec,
   RetreatOrderCodec,
   type WireOrder,
+  unitSource,
 } from './order-codecs'
 import {
   readList,
   writeList,
-  shortest,
+  writeShortest,
   AUX_ACTIONS,
   BUILD_TYPES,
   COAST_ACTIONS,
@@ -131,9 +132,7 @@ class OrderContext {
     )
   }
 
-  unitSource(unit: Unit): WireSource {
-    return { nation: unit.nation, source: unit.territory, ...(unit.coast ? { sourceCoast: unit.coast } : {}) }
-  }
+
 }
 
 type ActionContext = FieldContext & { phase: Phase }
@@ -246,7 +245,7 @@ class GenericOrderCodec {
   private readIndexedSource(stream: Bits, roster: Unit[], width: number): WireSource {
     const unit = roster[stream.get(width)]
     assert(unit)
-    return { nation: unit.nation, source: unit.territory, ...(unit.coast ? { sourceCoast: unit.coast } : {}) }
+    return unitSource(unit)
   }
 
   encode(stream: Bits, board: BoardState, orders: WireOrder[]): void {
@@ -254,8 +253,7 @@ class GenericOrderCodec {
     const sparse = this.sparseOrders(board.phase, roster, orders)
     const indexes = orders.map((order) => this.context.sourceIndex(roster, order))
     const dense = this.context.orderedIndexes(indexes) ? this.denseOrders(board, roster, orders, indexes) : undefined
-    const selected = shortest(sparse, dense)
-    stream.data.push(...selected.data)
+    writeShortest(stream, sparse, dense)
   }
 
   private sparseOrders(phase: Phase, roster: Unit[], orders: WireOrder[]): Bits {
@@ -289,7 +287,7 @@ class GenericOrderCodec {
     const orders: AnyOrder[] = []
     for (const unit of roster) {
       if (!stream.get(WireBit.One)) continue
-      const source = this.context.unitSource(unit)
+      const source = unitSource(unit)
       const action = this.actions.decode(stream, board.phase)
       orders.push({ ...source, ...action } as AnyOrder)
     }
@@ -354,7 +352,7 @@ class CompactOrderCodec {
   }
 
   private readMovement(stream: Bits, board: BoardState, unit: Unit, viaSet?: Set<string>): AnyOrder {
-    const source = this.context.unitSource(unit)
+    const source = unitSource(unit)
     const type = this.readMovementType(stream)
     if (type === OrderKind.Move)
       return {
@@ -451,8 +449,7 @@ export class OrderCodec {
     generic.put(WireBit.Zero, WireBit.One)
     this.generic.encode(generic, board, orders)
     const compact = this.compactCandidate(board, orders)
-    const selected = shortest(generic, compact)
-    stream.data.push(...selected.data)
+    writeShortest(stream, generic, compact)
   }
 
   private compactCandidate(board: BoardState, orders: WireOrder[]): Bits | undefined {

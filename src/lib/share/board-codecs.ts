@@ -6,7 +6,7 @@ import { CanonicalValue } from './canonical'
 import {
   readList,
   writeList,
-  shortest,
+  writeShortest,
   WireIndex,
   WireStream as Bits,
   OwnerMode,
@@ -26,8 +26,7 @@ export class BoardUnitsCodec {
     const ordered = sortUnits(units)
     const complete = this.completeUnits(ordered)
     const changes = this.changedUnits(ordered)
-    const selected = shortest(complete, force ? undefined : changes)
-    stream.data.push(...selected.data)
+    writeShortest(stream, complete, force ? undefined : changes)
   }
 
   private completeUnits(units: Unit[]): Bits {
@@ -79,8 +78,7 @@ export class BoardOwnersCodec {
   encode(stream: Bits, owners: Record<string, string>, force: boolean): void {
     const complete = this.completeOwners(owners)
     const changes = this.changedOwners(owners)
-    const selected = shortest(complete, force ? undefined : changes)
-    stream.data.push(...selected.data)
+    writeShortest(stream, complete, force ? undefined : changes)
   }
 
   private completeOwners(owners: Record<string, string>): Bits {
