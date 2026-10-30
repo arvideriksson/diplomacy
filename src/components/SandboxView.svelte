@@ -84,7 +84,7 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 5px 5px 5px 14px;
+    padding: 2px 2px 2px 14px;
     border-radius: 999px;
     color: var(--text);
     font-size: 13px;
