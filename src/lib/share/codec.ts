@@ -4,6 +4,7 @@ import { adjudicate, initialBoard } from '../adjudicator'
 import { sortUnits } from '../adjudicator/state'
 import { maps } from '../maps'
 import { choice } from './bits'
+import { countryCodec, provinceCodec, optionalPlace, coastCodec, unitCodec } from './fields'
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { AdjudicationResult, AnyOrder, BoardState, Phase } from '../adjudicator'
@@ -39,15 +40,12 @@ import {
   BUILD_TYPES,
   COAST_ACTIONS,
   TARGET_ACTIONS,
-  COAST_IDS,
   PHASE_IDS,
-  POWER_IDS,
   RULES_ID,
   requireEqual as assertEqual,
   requireWire as assert,
   WireChecksum,
   WireStream as Bits,
-  CoastKind,
   ListMode,
   MapKind,
   MovementCode,
@@ -56,7 +54,6 @@ import {
   OwnerMode,
   PhaseKind,
   PowerKind,
-  PowerCode,
   SeasonKind,
   UnitKind,
   WireBit,
@@ -66,8 +63,6 @@ import {
   WireSize,
 } from './wire'
 
-const nations: readonly string[] = POWER_IDS
-const coasts: readonly (string | undefined)[] = COAST_IDS
 const phases: readonly Phase[] = PHASE_IDS
 const crc32 = WireChecksum.calculate
 
@@ -88,102 +83,6 @@ class BoardCodec {
     this.centerBits = Math.ceil(Math.log2(this.centers.length))
     this.opening = initialBoard(map)
   }
-  province(stream: Bits): string
-  province(stream: Bits, province: string): void
-  province(stream: Bits, province?: string): string | void {
-    if (province !== undefined) return this.writeProvince(stream, province)
-    return this.readProvince(stream)
-  }
-
-  private writeProvince(stream: Bits, province: string): void {
-    const index = this.provinces.indexOf(province)
-    stream.put(index, this.provinceBits)
-  }
-
-  private readProvince(stream: Bits): string {
-    const index = stream.get(this.provinceBits)
-    const province = this.provinces[index]
-    assert(province)
-    return province
-  }
-
-  optionalProvince(stream: Bits, province?: string, read = false): string | undefined {
-    if (read) return this.readOptionalProvince(stream)
-    this.writeOptionalProvince(stream, province)
-  }
-
-  private readOptionalProvince(stream: Bits): string | undefined {
-    if (stream.get(WireBit.One)) return this.province(stream)
-    return undefined
-  }
-
-  private writeOptionalProvince(stream: Bits, province?: string): void {
-    const present = province ? WireBit.One : WireBit.Zero
-    stream.put(present, WireBit.One)
-    if (province) this.province(stream, province)
-  }
-
-  country(stream: Bits): string
-  country(stream: Bits, nation: string): void
-  country(stream: Bits, nation?: string): string | void {
-    if (nation !== undefined) return this.writeCountry(stream, nation)
-    return this.readCountry(stream)
-  }
-
-  private writeCountry(stream: Bits, nation: string): void {
-    const power = nation === PowerKind.Britain ? PowerKind.England : nation
-    const index = power === PowerKind.Neutral ? PowerCode.Neutral : nations.indexOf(power)
-    stream.put(index, WireSize.Power)
-  }
-
-  private readCountry(stream: Bits): string {
-    const index = stream.get(WireSize.Power)
-    const nation = nations[index] ?? PowerKind.Neutral
-    const british = this.map.id === MapKind.Variant1900 && nation === PowerKind.England
-    return british ? PowerKind.Britain : nation
-  }
-
-  coast(stream: Bits, coast?: string, read = false): string | undefined {
-    const choices = this.coastChoices()
-    const width = Math.ceil(Math.log2(choices.length))
-    if (read) return this.readCoast(stream, choices, width)
-    stream.put(choices.indexOf(coast), width)
-  }
-
-  private coastChoices(): Array<string | undefined> {
-    if (this.map.id === MapKind.Variant1900) return [...coasts, CoastKind.West]
-    return [...coasts]
-  }
-
-  private readCoast(stream: Bits, choices: Array<string | undefined>, width: number): string | undefined {
-    const index = stream.get(width)
-    assert(index < choices.length)
-    return choices[index]
-  }
-
-  unit(stream: Bits): Unit
-  unit(stream: Bits, unit: Unit): void
-  unit(stream: Bits, unit?: Unit): Unit | void {
-    if (unit) return this.writeUnit(stream, unit)
-    return this.readUnit(stream)
-  }
-
-  private writeUnit(stream: Bits, unit: Unit): void {
-    this.country(stream, unit.nation)
-    const type = unit.type === UnitKind.Fleet ? WireBit.One : WireBit.Zero
-    stream.put(type, WireBit.One)
-    this.province(stream, unit.territory)
-    if (unit.type === UnitKind.Fleet) this.coast(stream, unit.coast)
-  }
-
-  private readUnit(stream: Bits): Unit {
-    const nation = this.country(stream)
-    const type = stream.get(WireBit.One) ? UnitKind.Fleet : UnitKind.Army
-    const territory = this.province(stream)
-    const coast = type === UnitKind.Fleet ? this.coast(stream, undefined, true) : undefined
-    return { nation, type, territory, ...(coast ? { coast } : {}) }
-  }
-
   unitList(stream: Bits): Unit[]
   unitList(stream: Bits, units: Unit[], force?: boolean): void
   unitList(stream: Bits, units?: Unit[], force = false): Unit[] | void {
@@ -204,7 +103,7 @@ class BoardCodec {
     const stream = new Bits()
     stream.put(WireBit.Zero, WireBit.One)
     stream.integer(units.length)
-    for (const unit of units) this.unit(stream, unit)
+    for (const unit of units) unitCodec.write(stream, unit, this)
     return stream
   }
 
@@ -216,7 +115,7 @@ class BoardCodec {
     stream.integer(removed.length)
     this.writeUnitIndexes(stream, removed)
     stream.integer(added.length)
-    for (const unit of added) this.unit(stream, unit)
+    for (const unit of added) unitCodec.write(stream, unit, this)
     return stream
   }
 
@@ -238,7 +137,7 @@ class BoardCodec {
 
   private readUnits(stream: Bits): Unit[] {
     const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => this.unit(stream))
+    return Array.from({ length: count }, () => unitCodec.read(stream, this))
   }
 
   private readChangedUnits(stream: Bits): Unit[] {
@@ -268,7 +167,7 @@ class BoardCodec {
   private completeOwners(owners: Record<string, string>): Bits {
     const stream = new Bits()
     stream.put(OwnerMode.Complete, WireSize.Mode)
-    for (const center of this.centers) this.country(stream, owners[center] ?? PowerKind.Neutral)
+    for (const center of this.centers) countryCodec.write(stream, owners[center] ?? PowerKind.Neutral, this)
     return stream
   }
 
@@ -286,7 +185,7 @@ class BoardCodec {
     const index = this.centers.indexOf(center)
     const owner = owners[center] ?? PowerKind.Neutral
     stream.put(index, this.centerBits)
-    this.country(stream, owner)
+    countryCodec.write(stream, owner, this)
   }
 
   private readOwners(stream: Bits): Record<string, string> {
@@ -300,7 +199,7 @@ class BoardCodec {
 
   private readCompleteOwners(stream: Bits, owners: Record<string, string>): void {
     for (const center of this.centers) {
-      const owner = this.country(stream)
+      const owner = countryCodec.read(stream, this)
       if (owner !== PowerKind.Neutral) owners[center] = owner
     }
   }
@@ -312,7 +211,7 @@ class BoardCodec {
 
   private readOwnerChange(stream: Bits, owners: Record<string, string>): void {
     const center = this.centers[stream.get(this.centerBits)]
-    const owner = this.country(stream)
+    const owner = countryCodec.read(stream, this)
     assert(center)
     if (owner === PowerKind.Neutral) delete owners[center]
     else owners[center] = owner
@@ -341,14 +240,14 @@ class BoardCodec {
   private writeDislodged(stream: Bits, units: BoardState['dislodged']): void {
     stream.integer(units.length)
     for (const entry of units) {
-      this.unit(stream, entry.unit)
-      this.optionalProvince(stream, entry.attackedFrom)
+      unitCodec.write(stream, entry.unit, this)
+      optionalPlace.write(stream, entry.attackedFrom, this)
     }
   }
 
   private writeContested(stream: Bits, regions: string[]): void {
     stream.integer(regions.length)
-    for (const region of [...regions].sort()) this.province(stream, region)
+    for (const region of [...regions].sort()) provinceCodec.write(stream, region, this)
   }
 
   private readBoard(stream: Bits): BoardState {
@@ -370,14 +269,14 @@ class BoardCodec {
   }
 
   private readDislodgedUnit(stream: Bits): BoardState['dislodged'][number] {
-    const unit = this.unit(stream)
-    const attackedFrom = this.optionalProvince(stream, undefined, true) ?? EMPTY_TEXT
+    const unit = unitCodec.read(stream, this)
+    const attackedFrom = optionalPlace.read(stream, this) ?? EMPTY_TEXT
     return { unit, attackedFrom }
   }
 
   private readContested(stream: Bits): string[] {
     const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => this.province(stream))
+    return Array.from({ length: count }, () => provinceCodec.read(stream, this))
   }
 
   boardChecksum(board: BoardState): number {
@@ -415,17 +314,17 @@ class OrderCodec extends BoardCodec {
       stream.put(index, width)
       return
     }
-    this.country(stream, order.nation)
-    this.province(stream, order.source)
-    this.coast(stream, order.sourceCoast)
+    countryCodec.write(stream, order.nation, this)
+    provinceCodec.write(stream, order.source, this)
+    coastCodec.write(stream, order.sourceCoast, this)
   }
 
   private readSource(stream: Bits, roster: Unit[]): WireSource {
     const width = Math.ceil(Math.log2(Math.max(WireBit.One, roster.length)))
     if (stream.get(WireBit.One)) return this.readIndexedSource(stream, roster, width)
-    const nation = this.country(stream)
-    const source = this.province(stream)
-    const coast = this.coast(stream, undefined, true)
+    const nation = countryCodec.read(stream, this)
+    const source = provinceCodec.read(stream, this)
+    const coast = coastCodec.read(stream, this)
     return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
   }
 
@@ -461,12 +360,12 @@ class OrderCodec extends BoardCodec {
   }
 
   private writeActionTargets(stream: Bits, order: WireOrder): void {
-    if (AUX_ACTIONS.includes(order.type)) this.optionalProvince(stream, order.aux)
-    if (TARGET_ACTIONS.includes(order.type)) this.optionalProvince(stream, order.target)
+    if (AUX_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.aux, this)
+    if (TARGET_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.target, this)
   }
 
   private writeActionOptions(stream: Bits, order: WireOrder): void {
-    if (COAST_ACTIONS.includes(order.type)) this.coast(stream, order.targetCoast)
+    if (COAST_ACTIONS.includes(order.type)) coastCodec.write(stream, order.targetCoast, this)
     if (order.type === OrderKind.Move) stream.put(order.viaConvoy ? WireBit.One : WireBit.Zero, WireBit.One)
     if (order.type === OrderKind.Build) stream.put(BUILD_TYPES.indexOf(order.unitType), WireSize.UnitType)
   }
@@ -482,12 +381,12 @@ class OrderCodec extends BoardCodec {
   }
 
   private readActionTargets(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (AUX_ACTIONS.includes(order.type)) order.aux = this.optionalProvince(stream, undefined, true)
-    if (TARGET_ACTIONS.includes(order.type)) order.target = this.optionalProvince(stream, undefined, true)
+    if (AUX_ACTIONS.includes(order.type)) order.aux = optionalPlace.read(stream, this)
+    if (TARGET_ACTIONS.includes(order.type)) order.target = optionalPlace.read(stream, this)
   }
 
   private readActionOptions(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (COAST_ACTIONS.includes(order.type)) order.targetCoast = this.coast(stream, undefined, true)
+    if (COAST_ACTIONS.includes(order.type)) order.targetCoast = coastCodec.read(stream, this)
     if (order.type === OrderKind.Move && stream.get(WireBit.One)) order.viaConvoy = true
     if (order.type !== OrderKind.Build) return
     const unitType = BUILD_TYPES[stream.get(WireSize.Mode)]
@@ -723,13 +622,13 @@ class OrderCodec extends BoardCodec {
   private writeTargetCoast(stream: Bits, unit: Unit, target: string, coast?: string): void {
     if (unit.type !== UnitKind.Fleet) return
     if (!this.map.territories[target].coasts) return
-    this.coast(stream, coast)
+    coastCodec.write(stream, coast, this)
   }
 
   private readTargetCoast(stream: Bits, unit: Unit, target: string): string | undefined {
     if (unit.type !== UnitKind.Fleet) return undefined
     if (!this.map.territories[target].coasts) return undefined
-    return this.coast(stream, undefined, true)
+    return coastCodec.read(stream, this)
   }
 
   convoyList(stream: Bits, board: BoardState, orders?: WireOrder[]): Set<string> {

@@ -6,6 +6,8 @@ The envelope begins with `0x10` (raw) or `0x11` (raw DEFLATE), followed by the b
 
 The body is packed most-significant-bit first. `U(n)` means Elias gamma of `n + 1`. A string is its UTF-8 byte length as `U`, then its bytes. Province IDs are indexed in sorted map-key order; supply centers have their own sorted dictionary. The province and center indexes use the minimum fixed width for their dictionary. Powers are England (Britain on 1900), France, Italy, Germany, Austria, Turkey, Russia and neutral, in that order, with three bits. A coast is unspecified, north, south, east (two bits); 1900 adds west and uses three bits.
 
+The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. They use the map context to select the correct dictionaries and widths.
+
 The body contains:
 
 1. Map bit (Classical / 1900), 32-bit rules identifier, name string, frame count `U`, cursor `U`.

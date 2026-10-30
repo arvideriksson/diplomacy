@@ -138,6 +138,13 @@ export class WireStream {
     if (bytes) this.load(bytes)
   }
 
+  uint(width: number): number
+  uint(value: number, width: number): void
+  uint(value: number, width?: number): number | void {
+    if (width === undefined) return this.get(value)
+    this.put(value, width)
+  }
+
   private load(bytes: Uint8Array): void {
     for (const byte of bytes) this.loadByte(byte)
   }

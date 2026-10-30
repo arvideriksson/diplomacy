@@ -16,6 +16,23 @@ export interface Codec<T, C = void> {
   write(writer: Pick<BitWriter, 'uint'>, value: T, context: C): void
 }
 
+/** Maps a value to a fixed-width integer, optionally using the current context. */
+export function fixedBits<T, C>(spec: {
+  size: number | ((context: C) => number)
+  encode: (value: T, context: C) => number
+  decode: (value: number, context: C) => T
+}): Codec<T, C> {
+  const width = (context: C) => {
+    const size = typeof spec.size === 'number' ? spec.size : spec.size(context)
+    if (!Number.isInteger(size) || size < WireBit.Zero || size > WireSize.Checksum) throw Error(INVALID_FIELD)
+    return size
+  }
+  return {
+    read: (reader, context) => spec.decode(reader.uint(width(context)), context),
+    write: (writer, value, context) => writer.uint(spec.encode(value, context), width(context)),
+  }
+}
+
 /** Writes bounded unsigned values to a bit-packed buffer. */
 export class BitWriter {
   private data: number[] = []
@@ -180,7 +197,7 @@ export class Struct<T extends object, C> implements Codec<T, C> {
     return new Struct([...this.fields, field])
   }
 
-  read(reader: BitReader, context: C): T {
+  read(reader: Pick<BitReader, 'uint'>, context: C): T {
     const previous: RecordValue = {}
     for (const field of this.fields) {
       const codec = field.resolve(context, previous)
@@ -189,7 +206,7 @@ export class Struct<T extends object, C> implements Codec<T, C> {
     return previous as T
   }
 
-  write(writer: BitWriter, value: T, context: C): void {
+  write(writer: Pick<BitWriter, 'uint'>, value: T, context: C): void {
     const previous: RecordValue = {}
     const record = value as RecordValue
     for (const field of this.fields) {
