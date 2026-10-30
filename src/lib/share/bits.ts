@@ -38,7 +38,7 @@ export class BitWriter {
   private readonly stream = new WireStream()
 
   get bitLength(): number {
-    return this.stream.data.length
+    return this.stream.length
   }
 
   uint(value: number, width: number): void {
@@ -62,13 +62,13 @@ export class BitReader {
 
   uint(width: number): number {
     if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(TRUNCATED_BITS)
-    if (this.stream.pos + width > this.stream.data.length) throw Error(TRUNCATED_BITS)
+    if (this.stream.pos + width > this.stream.length) throw Error(TRUNCATED_BITS)
     return this.stream.get(width)
   }
 
   finish(): void {
-    if (this.stream.data.length - this.stream.pos >= WireSize.Byte) throw Error(TRAILING_BYTES)
-    while (this.stream.pos < this.stream.data.length) {
+    if (this.stream.length - this.stream.pos >= WireSize.Byte) throw Error(TRAILING_BYTES)
+    while (this.stream.pos < this.stream.length) {
       if (this.uint(WireBit.One)) throw Error(NONZERO_PADDING)
     }
   }
