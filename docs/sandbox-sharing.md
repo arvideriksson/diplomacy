@@ -8,6 +8,8 @@ The body is packed most-significant-bit first. `U(n)` means Elias gamma of `n + 
 
 The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. They use the map context to select the correct dictionaries and widths.
 
+The sandbox codec composes metadata, frame, board, order, and field codecs over a shared bitstream. Each frame supplies its board as context for the order codecs. Movement, support, convoy, retreat, and build codecs own their respective representations; convoyed-army lists have a separate codec that selects sparse or bitmap encoding.
+
 The body contains:
 
 1. Map bit (Classical / 1900), 32-bit rules identifier, name string, frame count `U`, cursor `U`.
