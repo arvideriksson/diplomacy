@@ -1110,6 +1110,8 @@
         onProvinceAuxClick={canAct ? handleProvinceAuxClick : null}
       />
 
+      <slot name="map-overlay" />
+
       <div class="map-action">
         {#if !$compact && rightHidden}
           <button class="glass orders-chip" on:click={() => (rightHidden = false)} title="Show orders (])" aria-label="Show orders sidebar">

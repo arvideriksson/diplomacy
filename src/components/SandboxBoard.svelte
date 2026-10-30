@@ -142,6 +142,13 @@
   {notice}
   leftWidth="320px"
 >
+  <svelte:fragment slot="map-overlay">
+    {#if preview}
+      <div class="preview-overlay" class:compact={$compact}>
+        <slot name="preview-banner" />
+      </div>
+    {/if}
+  </svelte:fragment>
   <svelte:fragment slot="left">
     <div class="no-press">
       {#if !preview}
@@ -208,6 +215,18 @@
 </GameBoard>
 
 <style>
+  .preview-overlay {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    z-index: 18;
+    width: max-content;
+    max-width: calc(100% - 24px);
+    transform: translateX(-50%);
+  }
+  .preview-overlay.compact {
+    top: 12px;
+  }
   .no-press {
     margin: auto;
     padding: 24px;

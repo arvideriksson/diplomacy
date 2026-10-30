@@ -49,14 +49,13 @@
 
 {#if isShare}
   {#if shared}
-    <div class="shared-layout">
-      <div class="shared-bar">
-        <strong>Shared sandbox</strong>
-        <button class="btn btn-primary" on:click={saveShared}>Save to continue editing</button>
-      </div>
-      <div class="sandbox-stage">
-        <SandboxBoard sandbox={{ ...shared, id: '', createdAt: '' }} map={getMap(shared.mapId)} onExit={onBack} onDeleted={onBack} preview onPreviewStep={stepShared} />
-      </div>
+    <div class="sandbox-stage">
+      <SandboxBoard sandbox={{ ...shared, id: '', createdAt: '' }} map={getMap(shared.mapId)} onExit={onBack} onDeleted={onBack} preview onPreviewStep={stepShared}>
+        <div slot="preview-banner" class="shared-bar">
+          <strong>Shared sandbox</strong>
+          <button class="btn btn-primary" on:click={saveShared}>Save to continue editing</button>
+        </div>
+      </SandboxBoard>
     </div>
   {:else}
     <StatusPage loading={!shareError} message={shareError} actionLabel={shareError ? 'Back' : ''} onAction={onBack} />
@@ -74,24 +73,23 @@
     position: relative;
     height: 100%;
   }
-  .shared-layout {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-  .shared-layout .sandbox-stage {
-    flex: 1;
-    min-height: 0;
-  }
   .shared-bar {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    padding: 8px 16px;
+    gap: 10px;
+    padding: 5px 5px 5px 14px;
     background: var(--bg-card);
-    border-bottom: 1px solid var(--border);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .shared-bar .btn {
+    border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 12px;
   }
 </style>
