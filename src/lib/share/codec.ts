@@ -1,25 +1,19 @@
-import { adjudicate, initialBoard } from '../adjudicator'
+import { adjudicate } from '../adjudicator'
 import { maps } from '../maps'
 import { OrderCodec } from './order-modes'
-import { dislodgedCodec, provinceCodec } from './fields'
-import { BoardOwnersCodec, BoardUnitsCodec } from './board-codecs'
-import type { MapDefinition } from '../mapDefinition'
-import type { BoardState, Phase } from '../adjudicator'
+import { BoardCodec } from './board-codecs'
+import type { BoardState } from '../adjudicator'
 import type { ShareTimeline, TimelineEntry } from './timeline'
 import { CanonicalValue } from './canonical'
 
 import {
-  readList,
-  writeList,
   WireIndex,
-  PHASE_IDS,
   RULES_ID,
   requireEqual as assertEqual,
   requireWire as assert,
   WireChecksum,
   WireStream as Bits,
   MapKind,
-  SeasonKind,
   WireBit,
   WireError,
   WireHeader as PayloadKind,
@@ -27,60 +21,9 @@ import {
   WireSize,
 } from './wire'
 
-const phases: readonly Phase[] = PHASE_IDS
 const crc32 = WireChecksum.calculate
 
 const equal = CanonicalValue.equal.bind(CanonicalValue)
-export class BoardCodec {
-  map: MapDefinition
-  provinces: string[]
-  centers: string[]
-  provinceBits: number
-  centerBits: number
-  opening: BoardState
-  private readonly units = new BoardUnitsCodec(this)
-  private readonly owners = new BoardOwnersCodec(this)
-  constructor(map: MapDefinition) {
-    this.map = map
-    this.provinces = Object.keys(map.territories).sort()
-    this.centers = this.provinces.filter((province) => map.territories[province].supplyCenter)
-    this.provinceBits = Math.ceil(Math.log2(this.provinces.length))
-    this.centerBits = Math.ceil(Math.log2(this.centers.length))
-    this.opening = initialBoard(map)
-  }
-  encode(stream: Bits, board: BoardState, force = false): void {
-    const opening = !force && equal(board, this.opening)
-    stream.put(opening ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (opening) return
-    stream.writeInteger(board.year)
-    stream.put(board.season === SeasonKind.Fall ? WireBit.One : WireBit.Zero, WireBit.One)
-    stream.put(phases.indexOf(board.phase), WireSize.Phase)
-    this.units.encode(stream, board.units, force)
-    this.owners.encode(stream, board.supplyCenters, force)
-    writeList(stream, board.dislodged, (entry) => dislodgedCodec.encode(stream, entry, this))
-    writeList(stream, [...board.contested].sort(), (region) => provinceCodec.encode(stream, region, this))
-  }
-
-  decode(stream: Bits): BoardState {
-    if (stream.get(WireBit.One)) return structuredClone(this.opening)
-    const year = stream.readInteger()
-    const season = stream.get(WireBit.One) ? SeasonKind.Fall : SeasonKind.Spring
-    const phase = phases[stream.get(WireSize.Mode)]
-    assert(phase)
-    const units = this.units.decode(stream)
-    const supplyCenters = this.owners.decode(stream)
-    const dislodged = readList(stream, () => dislodgedCodec.decode(stream, this))
-    const contested = readList(stream, () => provinceCodec.decode(stream, this))
-    return { mapId: this.map.id, year, season, phase, units, supplyCenters, dislodged, contested }
-  }
-
-  boardChecksum(board: BoardState): number {
-    const stream = new Bits()
-    this.encode(stream, board, true)
-    return crc32(stream.bytes())
-  }
-}
-
 /** Envelope used by the raw version 1 encoder and decoder. */
 class WireEnvelope {
   static encode(raw: Uint8Array): Uint8Array {

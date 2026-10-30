@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import { initialBoard } from '../adjudicator'
-import { BoardCodec } from './codec'
+import { BoardCodec } from './board-codecs'
 import { OrderCodec } from './order-modes'
 import { convoyBoard, TestPlace } from './fixtures.test-helper'
 import { ConvoyOrderCodec, ConvoyedArmiesCodec, type WireOrder } from './order-codecs'
