@@ -49,13 +49,13 @@ export const provinceCodec = fixedBits<string, FieldContext>({
 })
 
 export const optionalPlace: Codec<string | undefined, FieldContext> = {
-  read(reader, context) {
-    if (reader.uint(WireBit.One)) return provinceCodec.read(reader, context)
+  decode(reader, context) {
+    if (reader.get(WireBit.One)) return provinceCodec.decode(reader, context)
     return undefined
   },
-  write(writer, province, context) {
-    writer.uint(province ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (province) provinceCodec.write(writer, province, context)
+  encode(writer, province, context) {
+    writer.put(province ? WireBit.One : WireBit.Zero, WireBit.One)
+    if (province) provinceCodec.encode(writer, province, context)
   },
 }
 
@@ -90,11 +90,11 @@ const unitFields = struct<FieldContext>()
 
 /** An army omits the coast property; fleets include it only when specified. */
 export const unitCodec: Codec<Unit, FieldContext> = {
-  read(reader, context) {
-    const { coast, ...unit } = unitFields.read(reader, context)
+  decode(reader, context) {
+    const { coast, ...unit } = unitFields.decode(reader, context)
     return coast ? { ...unit, coast } : unit
   },
-  write(writer, unit, context) {
-    unitFields.write(writer, { ...unit, coast: unit.type === UnitKind.Fleet ? unit.coast : undefined }, context)
+  encode(writer, unit, context) {
+    unitFields.encode(writer, { ...unit, coast: unit.type === UnitKind.Fleet ? unit.coast : undefined }, context)
   },
 }

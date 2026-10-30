@@ -5,13 +5,13 @@ import { OrderCodec } from './order-modes'
 import { countryCodec, provinceCodec, optionalPlace, unitCodec } from './fields'
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import type { AdjudicationResult, AnyOrder, BoardState, Phase } from '../adjudicator'
-import type { SandboxContent, ShareTimeline, TimelineEntry } from './timeline'
-import type { Frame } from '../sandbox'
+import type { BoardState, Phase } from '../adjudicator'
+import type { ShareTimeline, TimelineEntry } from './timeline'
 import { CanonicalValue } from './canonical'
 
 import {
   bounded,
+  shortest,
   EMPTY_TEXT,
   WireIndex,
   PHASE_IDS,
@@ -50,27 +50,19 @@ export class BoardCodec {
     this.centerBits = Math.ceil(Math.log2(this.centers.length))
     this.opening = initialBoard(map)
   }
-  unitList(stream: Bits): Unit[]
-  unitList(stream: Bits, units: Unit[], force?: boolean): void
-  unitList(stream: Bits, units?: Unit[], force = false): Unit[] | void {
-    if (units) return this.writeUnitList(stream, units, force)
-    return this.readUnitList(stream)
-  }
-
   private writeUnitList(stream: Bits, units: Unit[], force: boolean): void {
     const ordered = sortUnits(units)
     const complete = this.completeUnits(ordered)
     const changes = this.changedUnits(ordered)
-    const useChanges = !force && changes.data.length < complete.data.length
-    const selected = useChanges ? changes : complete
+    const selected = shortest(complete, force ? undefined : changes)
     stream.data.push(...selected.data)
   }
 
   private completeUnits(units: Unit[]): Bits {
     const stream = new Bits()
     stream.put(WireBit.Zero, WireBit.One)
-    stream.integer(units.length)
-    for (const unit of units) unitCodec.write(stream, unit, this)
+    stream.writeInteger(units.length)
+    for (const unit of units) unitCodec.encode(stream, unit, this)
     return stream
   }
 
@@ -79,10 +71,10 @@ export class BoardCodec {
     const removed = this.removedUnits(units)
     const added = units.filter((unit) => !this.opening.units.some((start) => equal(start, unit)))
     stream.put(WireBit.One, WireBit.One)
-    stream.integer(removed.length)
+    stream.writeInteger(removed.length)
     this.writeUnitIndexes(stream, removed)
-    stream.integer(added.length)
-    for (const unit of added) unitCodec.write(stream, unit, this)
+    stream.writeInteger(added.length)
+    for (const unit of added) unitCodec.encode(stream, unit, this)
     return stream
   }
 
@@ -103,12 +95,12 @@ export class BoardCodec {
   }
 
   private readUnits(stream: Bits): Unit[] {
-    const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => unitCodec.read(stream, this))
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
+    return Array.from({ length: count }, () => unitCodec.decode(stream, this))
   }
 
   private readChangedUnits(stream: Bits): Unit[] {
-    const count = bounded(stream.integer(), WireLimit.ListItems)
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
     const width = Math.ceil(Math.log2(this.opening.units.length))
     const removed = Array.from({ length: count }, () => stream.get(width))
     const remaining = this.opening.units.filter((_unit, index) => !removed.includes(index))
@@ -116,25 +108,17 @@ export class BoardCodec {
     return sortUnits([...remaining, ...added])
   }
 
-  owners(stream: Bits): Record<string, string>
-  owners(stream: Bits, owners: Record<string, string>, force?: boolean): void
-  owners(stream: Bits, owners?: Record<string, string>, force = false): Record<string, string> | void {
-    if (owners) return this.writeOwners(stream, owners, force)
-    return this.readOwners(stream)
-  }
-
   private writeOwners(stream: Bits, owners: Record<string, string>, force: boolean): void {
     const complete = this.completeOwners(owners)
     const changes = this.changedOwners(owners)
-    const useChanges = !force && changes.data.length < complete.data.length
-    const selected = useChanges ? changes : complete
+    const selected = shortest(complete, force ? undefined : changes)
     stream.data.push(...selected.data)
   }
 
   private completeOwners(owners: Record<string, string>): Bits {
     const stream = new Bits()
     stream.put(OwnerMode.Complete, WireSize.Mode)
-    for (const center of this.centers) countryCodec.write(stream, owners[center] ?? PowerKind.Neutral, this)
+    for (const center of this.centers) countryCodec.encode(stream, owners[center] ?? PowerKind.Neutral, this)
     return stream
   }
 
@@ -143,7 +127,7 @@ export class BoardCodec {
     const changes = this.centers.filter((center) => owners[center] !== this.opening.supplyCenters[center])
     stream.put(changes.length ? OwnerMode.Changes : OwnerMode.Opening, WireSize.Mode)
     if (!changes.length) return stream
-    stream.integer(changes.length)
+    stream.writeInteger(changes.length)
     for (const center of changes) this.writeOwnerChange(stream, center, owners)
     return stream
   }
@@ -152,7 +136,7 @@ export class BoardCodec {
     const index = this.centers.indexOf(center)
     const owner = owners[center] ?? PowerKind.Neutral
     stream.put(index, this.centerBits)
-    countryCodec.write(stream, owner, this)
+    countryCodec.encode(stream, owner, this)
   }
 
   private readOwners(stream: Bits): Record<string, string> {
@@ -166,19 +150,19 @@ export class BoardCodec {
 
   private readCompleteOwners(stream: Bits, owners: Record<string, string>): void {
     for (const center of this.centers) {
-      const owner = countryCodec.read(stream, this)
+      const owner = countryCodec.decode(stream, this)
       if (owner !== PowerKind.Neutral) owners[center] = owner
     }
   }
 
   private readChangedOwners(stream: Bits, owners: Record<string, string>): void {
-    const count = stream.integer()
+    const count = stream.readInteger()
     for (let index = WireBit.Zero; index < count; index++) this.readOwnerChange(stream, owners)
   }
 
   private readOwnerChange(stream: Bits, owners: Record<string, string>): void {
     const center = this.centers[stream.get(this.centerBits)]
-    const owner = countryCodec.read(stream, this)
+    const owner = countryCodec.decode(stream, this)
     assert(center)
     if (owner === PowerKind.Neutral) delete owners[center]
     else owners[center] = owner
@@ -188,55 +172,55 @@ export class BoardCodec {
     const opening = !force && equal(board, this.opening)
     stream.put(opening ? WireBit.One : WireBit.Zero, WireBit.One)
     if (opening) return
-    stream.integer(board.year)
+    stream.writeInteger(board.year)
     stream.put(board.season === SeasonKind.Fall ? WireBit.One : WireBit.Zero, WireBit.One)
     stream.put(phases.indexOf(board.phase), WireSize.Phase)
-    this.unitList(stream, board.units, force)
-    this.owners(stream, board.supplyCenters, force)
+    this.writeUnitList(stream, board.units, force)
+    this.writeOwners(stream, board.supplyCenters, force)
     this.writeDislodged(stream, board.dislodged)
     this.writeContested(stream, board.contested)
   }
 
   private writeDislodged(stream: Bits, units: BoardState['dislodged']): void {
-    stream.integer(units.length)
+    stream.writeInteger(units.length)
     for (const entry of units) {
-      unitCodec.write(stream, entry.unit, this)
-      optionalPlace.write(stream, entry.attackedFrom, this)
+      unitCodec.encode(stream, entry.unit, this)
+      optionalPlace.encode(stream, entry.attackedFrom, this)
     }
   }
 
   private writeContested(stream: Bits, regions: string[]): void {
-    stream.integer(regions.length)
-    for (const region of [...regions].sort()) provinceCodec.write(stream, region, this)
+    stream.writeInteger(regions.length)
+    for (const region of [...regions].sort()) provinceCodec.encode(stream, region, this)
   }
 
   decode(stream: Bits): BoardState {
     if (stream.get(WireBit.One)) return structuredClone(this.opening)
-    const year = stream.integer()
+    const year = stream.readInteger()
     const season = stream.get(WireBit.One) ? SeasonKind.Fall : SeasonKind.Spring
     const phase = phases[stream.get(WireSize.Mode)]
     assert(phase)
-    const units = this.unitList(stream)
-    const supplyCenters = this.owners(stream)
+    const units = this.readUnitList(stream)
+    const supplyCenters = this.readOwners(stream)
     const dislodged = this.readDislodged(stream)
     const contested = this.readContested(stream)
     return { mapId: this.map.id, year, season, phase, units, supplyCenters, dislodged, contested }
   }
 
   private readDislodged(stream: Bits): BoardState['dislodged'] {
-    const count = bounded(stream.integer(), WireLimit.ListItems)
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
     return Array.from({ length: count }, () => this.readDislodgedUnit(stream))
   }
 
   private readDislodgedUnit(stream: Bits): BoardState['dislodged'][number] {
-    const unit = unitCodec.read(stream, this)
-    const attackedFrom = optionalPlace.read(stream, this) ?? EMPTY_TEXT
+    const unit = unitCodec.decode(stream, this)
+    const attackedFrom = optionalPlace.decode(stream, this) ?? EMPTY_TEXT
     return { unit, attackedFrom }
   }
 
   private readContested(stream: Bits): string[] {
-    const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => provinceCodec.read(stream, this))
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
+    return Array.from({ length: count }, () => provinceCodec.decode(stream, this))
   }
 
   boardChecksum(board: BoardState): number {
@@ -280,21 +264,21 @@ interface FrameHeader {
 
 /** Map and timeline metadata, before the first board. */
 class MetadataCodec {
-  encode(stream: Bits, sandbox: SandboxContent): void {
-    const mapCode = sandbox.mapId === MapKind.Variant1900 ? WireBit.One : WireBit.Zero
+  encode(stream: Bits, timeline: ShareTimeline): void {
+    const mapCode = timeline.mapId === MapKind.Variant1900 ? WireBit.One : WireBit.Zero
     stream.put(mapCode, WireBit.One)
     stream.put(RULES_ID, WireSize.Checksum)
-    stream.text(sandbox.name)
-    stream.integer(sandbox.frames.length)
-    stream.integer(sandbox.cursor)
+    stream.writeString(timeline.name)
+    stream.writeInteger(timeline.entries.length)
+    stream.writeInteger(timeline.cursor)
   }
 
   decode(stream: Bits): FrameHeader {
     const mapId = stream.get(WireBit.One) ? MapKind.Variant1900 : MapKind.Classical
     assertEqual(stream.get(WireSize.Checksum), RULES_ID)
-    const name = stream.text()
-    const count = stream.integer()
-    const cursor = stream.integer()
+    const name = stream.readString()
+    const count = stream.readInteger()
+    const cursor = stream.readInteger()
     assert(count > WireBit.Zero && count <= WireLimit.Frames && cursor < count && name.length <= WireLimit.StringChars)
     return { mapId, name, count, cursor }
   }
@@ -304,139 +288,69 @@ class MetadataCodec {
 class FrameCodec {
   constructor(private readonly format: OrderCodec) {}
 
-  encode(stream: Bits, frame: Frame, entry: TimelineEntry, hasNext: boolean): void {
+  encode(stream: Bits, entry: TimelineEntry, hasNext: boolean): void {
     assert(entry.orders.length <= WireLimit.Orders)
-    this.format.encode(stream, frame.board, entry.orders)
+    this.format.encode(stream, entry.board, entry.orders)
     stream.put(entry.showResults ? WireBit.One : WireBit.Zero, WireBit.One)
     if (!hasNext) return
     stream.put(entry.checkpoint ? WireBit.One : WireBit.Zero, WireBit.One)
     if (entry.checkpoint) this.format.boards.encode(stream, entry.checkpoint)
   }
 
-  decode(stream: Bits, board: BoardState, hasNext: boolean): { frame: Frame; next?: BoardState } {
+  decode(stream: Bits, board: BoardState, hasNext: boolean): { entry: TimelineEntry; next?: BoardState } {
     const orders = this.format.decode(stream, board)
     assert(orders.length <= WireLimit.Orders)
-    const show = stream.get(WireBit.One)
-    const result = show || hasNext ? adjudicate(this.format.map, board, orders) : undefined
-    const frame = this.frame(board, orders, show, result)
-    const next = hasNext ? this.readNext(stream, result) : undefined
-    return { frame, next }
-  }
-
-  private frame(board: BoardState, orders: AnyOrder[], show: number, result?: AdjudicationResult): Frame {
-    if (show) assert(result)
-    const results = show && result ? { results: result.results } : {}
-    return { board, orders, ...results }
-  }
-
-  private readNext(stream: Bits, result?: AdjudicationResult): BoardState {
-    assert(result)
-    return stream.get(WireBit.One) ? this.format.boards.decode(stream) : result.newBoardState
+    const showResults = Boolean(stream.get(WireBit.One))
+    const result = showResults || hasNext ? adjudicate(this.format.map, board, orders) : undefined
+    const checkpoint = hasNext && stream.get(WireBit.One) ? this.format.boards.decode(stream) : undefined
+    const next = checkpoint ?? (hasNext ? result?.newBoardState : undefined)
+    const entry = { board, orders, showResults, ...(checkpoint ? { checkpoint } : {}) }
+    return { entry, next }
   }
 }
 
-/** Write a snapshot and each subsequent frame without changing their stored order. */
-class SandboxWriter {
-  private readonly stream = new Bits()
-  private readonly format: OrderCodec
-  private readonly metadata = new MetadataCodec()
-  private readonly frameCodec: FrameCodec
-
-  constructor(
-    private readonly sandbox: SandboxContent,
-    private readonly timeline: ShareTimeline,
-  ) {
-    const validMap = sandbox.mapId === MapKind.Classical || sandbox.mapId === MapKind.Variant1900
-    assert(validMap)
-    this.format = new OrderCodec(new BoardCodec(maps[sandbox.mapId]))
-    this.frameCodec = new FrameCodec(this.format)
+/** Encode a prepared timeline to a checksummed versioned envelope. */
+function encodeSandbox(timeline: ShareTimeline): Uint8Array {
+  const { mapId, cursor, entries, initialBoard } = timeline
+  assert(mapId === MapKind.Classical || mapId === MapKind.Variant1900)
+  assert(
+    entries.length > WireBit.Zero &&
+      entries.length <= WireLimit.Frames &&
+      cursor >= WireBit.Zero &&
+      cursor < entries.length,
+  )
+  const stream = new Bits()
+  const format = new OrderCodec(new BoardCodec(maps[mapId]))
+  const frames = new FrameCodec(format)
+  new MetadataCodec().encode(stream, timeline)
+  format.boards.encode(stream, initialBoard)
+  for (const [index, entry] of entries.entries()) {
+    frames.encode(stream, entry, index + WireBit.One < entries.length)
   }
-
-  encode(): Uint8Array {
-    this.validateCursor()
-    this.writeHeader()
-    this.writeFrames()
-    this.writeChecksum()
-    const raw = this.stream.bytes()
-    return WireEnvelope.encode(raw)
-  }
-
-  private validateCursor(): void {
-    const count = this.sandbox.frames.length
-    const cursor = this.sandbox.cursor
-    assert(count > WireBit.Zero && count <= WireLimit.Frames && cursor >= WireBit.Zero && cursor < count)
-  }
-
-  private writeHeader(): void {
-    this.metadata.encode(this.stream, this.sandbox)
-    this.format.boards.encode(this.stream, this.sandbox.frames[WireBit.Zero].board)
-  }
-
-  private writeFrames(): void {
-    const frames = this.sandbox.frames
-    for (let index = WireBit.Zero; index < frames.length; index++) {
-      const hasNext = index + WireBit.One < frames.length
-      this.frameCodec.encode(this.stream, frames[index], this.timeline.entries[index], hasNext)
-    }
-  }
-
-  private writeChecksum(): void {
-    const frame = this.sandbox.frames.at(WireIndex.Missing)
-    assert(frame)
-    const checksum = this.format.boards.boardChecksum(frame.board)
-    this.stream.put(checksum, WireSize.Checksum)
-  }
+  const last = entries.at(WireIndex.Missing)
+  assert(last)
+  stream.put(format.boards.boardChecksum(last.board), WireSize.Checksum)
+  return WireEnvelope.encode(stream.bytes())
 }
 
-/** Read a version 1 stream and reconstruct frames using the existing adjudicator. */
-class SandboxReader {
-  private readonly format: OrderCodec
-  private readonly frames: SandboxContent['frames'] = []
-  private readonly frameCodec: FrameCodec
-  private board: BoardState
-
-  constructor(
-    private readonly stream: Bits,
-    private readonly header: FrameHeader,
-  ) {
-    this.format = new OrderCodec(new BoardCodec(maps[header.mapId]))
-    this.frameCodec = new FrameCodec(this.format)
-    this.board = this.format.boards.decode(stream)
+/** Decode metadata and each phase while replaying boards for order context. */
+function decodeSandbox(envelope: Uint8Array): ShareTimeline {
+  const stream = new Bits(WireEnvelope.decode(envelope))
+  const { name, mapId, count, cursor } = new MetadataCodec().decode(stream)
+  const format = new OrderCodec(new BoardCodec(maps[mapId]))
+  const frames = new FrameCodec(format)
+  const initialBoard = format.boards.decode(stream)
+  const entries: TimelineEntry[] = []
+  let board = initialBoard
+  for (let index = WireBit.Zero; index < count; index++) {
+    const result = frames.decode(stream, board, index + WireBit.One < count)
+    entries.push(result.entry)
+    if (result.next) board = result.next
   }
-
-  static decode(envelope: Uint8Array): SandboxContent {
-    const raw = WireEnvelope.decode(envelope)
-    const stream = new Bits(raw)
-    const header = new MetadataCodec().decode(stream)
-    const reader = new SandboxReader(stream, header)
-    return reader.read()
-  }
-
-  private read(): SandboxContent {
-    for (let index = WireBit.Zero; index < this.header.count; index++) this.readFrame(index)
-    this.checkResult()
-    const { name, mapId, cursor } = this.header
-    return { name, mapId, frames: this.frames, cursor }
-  }
-
-  private readFrame(index: number): void {
-    const hasNext = index < this.header.count - WireBit.One
-    const result = this.frameCodec.decode(this.stream, this.board, hasNext)
-    this.frames.push(result.frame)
-    if (result.next) this.board = result.next
-  }
-
-  private checkResult(): void {
-    const actual = this.format.boards.boardChecksum(this.board)
-    const expected = this.stream.get(WireSize.Checksum)
-    assertEqual(actual, expected)
-    assert(this.stream.data.length - this.stream.pos < WireSize.Byte)
-    while (this.stream.pos < this.stream.data.length) assertEqual(this.stream.get(WireBit.One), WireBit.Zero)
-  }
+  assertEqual(format.boards.boardChecksum(board), stream.get(WireSize.Checksum))
+  assert(stream.data.length - stream.pos < WireSize.Byte)
+  while (stream.pos < stream.data.length) assertEqual(stream.get(WireBit.One), WireBit.Zero)
+  return { name, mapId, initialBoard, entries, cursor }
 }
-
-const encodeSandbox = (sandbox: SandboxContent, timeline: ShareTimeline): Uint8Array =>
-  new SandboxWriter(sandbox, timeline).encode()
-const decodeSandbox = (envelope: Uint8Array): SandboxContent => SandboxReader.decode(envelope)
 
 export { decodeSandbox, encodeSandbox, equal }

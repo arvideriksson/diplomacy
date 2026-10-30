@@ -138,13 +138,6 @@ export class WireStream {
     if (bytes) this.load(bytes)
   }
 
-  uint(width: number): number
-  uint(value: number, width: number): void
-  uint(value: number, width?: number): number | void {
-    if (width === undefined) return this.get(value)
-    this.put(value, width)
-  }
-
   private load(bytes: Uint8Array): void {
     for (const byte of bytes) this.loadByte(byte)
   }
@@ -185,14 +178,7 @@ export class WireStream {
     return value
   }
 
-  integer(): number
-  integer(value: number): void
-  integer(value?: number): number | void {
-    if (value === undefined) return this.readInteger()
-    this.writeInteger(value)
-  }
-
-  private writeInteger(value: number): void {
+  writeInteger(value: number): void {
     const next = value + WireBit.One
     const binary = next.toString(WireMath.Radix)
     const prefix = binary.length - WireBit.One
@@ -200,7 +186,7 @@ export class WireStream {
     this.put(next, binary.length)
   }
 
-  private readInteger(): number {
+  readInteger(): number {
     let prefix = WireBit.Zero
     while (this.get(WireBit.One) === WireBit.Zero) {
       prefix++
@@ -210,21 +196,14 @@ export class WireStream {
     return bounded(value, WireLimit.Integer)
   }
 
-  text(): string
-  text(value: string): void
-  text(value?: string): string | void {
-    if (value === undefined) return this.readString()
-    this.writeString(value)
-  }
-
-  private writeString(value: string): void {
+  writeString(value: string): void {
     const bytes = new TextEncoder().encode(value)
-    this.integer(bytes.length)
+    this.writeInteger(bytes.length)
     for (const byte of bytes) this.put(byte, WireSize.Byte)
   }
 
-  private readString(): string {
-    const count = this.integer()
+  readString(): string {
+    const count = this.readInteger()
     const bytes = Array.from({ length: count }, () => this.get(WireSize.Byte))
     const data = Uint8Array.from(bytes)
     return new TextDecoder('utf-8', { fatal: true }).decode(data)
@@ -242,6 +221,12 @@ export class WireStream {
     const shift = WireSize.Byte - WireBit.One - (index % WireSize.Byte)
     bytes[byte] |= bit << shift
   }
+}
+
+/** Keep the first representation on ties, making output deterministic. */
+export function shortest(first: WireStream, alternative?: WireStream): WireStream {
+  if (alternative && alternative.data.length < first.data.length) return alternative
+  return first
 }
 
 /** CRC-32/IEEE used for transport and final-board verification. */

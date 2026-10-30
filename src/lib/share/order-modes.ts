@@ -3,10 +3,10 @@ import { sortUnits } from '../adjudicator/state'
 import type { AnyOrder, BoardState, Phase } from '../adjudicator'
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import { sortedChoices } from './bits'
+import { fixedBits, literal, sortedChoices, struct, type Codec } from './bits'
 import { CanonicalValue } from './canonical'
 import type { BoardCodec } from './codec'
-import { countryCodec, provinceCodec, optionalPlace, coastCodec } from './fields'
+import { countryCodec, provinceCodec, optionalPlace, coastCodec, type FieldContext } from './fields'
 import {
   ConvoyOrderCodec,
   SupportOrderCodec,
@@ -17,6 +17,7 @@ import {
 } from './order-codecs'
 import {
   bounded,
+  shortest,
   AUX_ACTIONS,
   BUILD_TYPES,
   COAST_ACTIONS,
@@ -90,14 +91,14 @@ class BuildOrdersCodec {
 
   encode(stream: Bits, board: BoardState, orders: WireOrder[]): void {
     const choices = this.buildChoices(board)
-    stream.integer(orders.length)
-    for (const order of orders) sortedChoices(choices).write(stream, JSON.stringify(stable(order)), undefined)
+    stream.writeInteger(orders.length)
+    for (const order of orders) sortedChoices(choices).encode(stream, JSON.stringify(stable(order)), undefined)
   }
 
   decode(stream: Bits, board: BoardState): AnyOrder[] {
     const choices = this.buildChoices(board)
-    const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => JSON.parse(sortedChoices(choices).read(stream, undefined)) as AnyOrder)
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
+    return Array.from({ length: count }, () => JSON.parse(sortedChoices(choices).decode(stream, undefined)) as AnyOrder)
   }
 }
 
@@ -129,9 +130,92 @@ class OrderContext {
   }
 }
 
+type ActionContext = FieldContext & { phase: Phase }
+type Action = Pick<WireOrder, 'type'> & Partial<WireOrder>
+
+function actionTypes(phase: Phase): WireOrder['type'][] {
+  if (phase === PhaseKind.Movement) return [OrderKind.Hold, OrderKind.Support, OrderKind.Move, OrderKind.Convoy]
+  if (phase === PhaseKind.Retreat) return [OrderKind.Disband, OrderKind.Retreat]
+  return [OrderKind.Remove, OrderKind.Build]
+}
+
+const actionType = fixedBits<WireOrder['type'], ActionContext>({
+  size: ({ phase }) => (phase === PhaseKind.Movement ? WireSize.Movement : WireBit.One),
+  encode: (type, { phase }) => actionTypes(phase).indexOf(type),
+  decode: (code, { phase }) => {
+    const type = actionTypes(phase)[code]
+    assert(type)
+    return type
+  },
+})
+
+const convoyFlag: Codec<boolean | undefined, ActionContext> = {
+  encode(writer, value) {
+    writer.put(value ? WireBit.One : WireBit.Zero, WireBit.One)
+  },
+  decode(reader) {
+    return reader.get(WireBit.One) ? true : undefined
+  },
+}
+
+const buildType = fixedBits<Unit['type'] | undefined, ActionContext>({
+  size: WireSize.UnitType,
+  encode: (type) => BUILD_TYPES.indexOf(type),
+  decode: (code) => BUILD_TYPES[code],
+})
+
+/** Generic actions retain optional and incomplete draft-order fields. */
+const actionFields = struct<ActionContext>()
+  .field('type', actionType)
+  .field('aux', (_context, action) =>
+    AUX_ACTIONS.includes(action.type) ? optionalPlace : literal<string | undefined, ActionContext>(undefined),
+  )
+  .field('target', (_context, action) =>
+    TARGET_ACTIONS.includes(action.type) ? optionalPlace : literal<string | undefined, ActionContext>(undefined),
+  )
+  .field('targetCoast', (_context, action) =>
+    COAST_ACTIONS.includes(action.type) ? coastCodec : literal<string | undefined, ActionContext>(undefined),
+  )
+  .field('viaConvoy', (_context, action) =>
+    action.type === OrderKind.Move ? convoyFlag : literal<boolean | undefined, ActionContext>(undefined),
+  )
+  .field('unitType', (_context, action) =>
+    action.type === OrderKind.Build ? buildType : literal<Unit['type'] | undefined, ActionContext>(undefined),
+  )
+
+class GenericActionCodec {
+  constructor(private readonly fields: FieldContext) {}
+
+  encode(stream: Bits, phase: Phase, order: WireOrder): void {
+    const type = order.type
+    const aux = AUX_ACTIONS.includes(type) ? order.aux : undefined
+    const target = TARGET_ACTIONS.includes(type) ? order.target : undefined
+    const targetCoast = COAST_ACTIONS.includes(type) ? order.targetCoast : undefined
+    const viaConvoy = type === OrderKind.Move ? order.viaConvoy : undefined
+    const unitType = type === OrderKind.Build ? order.unitType : undefined
+    actionFields.encode(stream, { type, aux, target, targetCoast, viaConvoy, unitType }, { ...this.fields, phase })
+  }
+
+  decode(stream: Bits, phase: Phase): Action {
+    const fields = actionFields.decode(stream, { ...this.fields, phase })
+    const { type, aux, target, targetCoast, viaConvoy, unitType } = fields
+    const action: Action = { type }
+    if (AUX_ACTIONS.includes(type)) action.aux = aux
+    if (TARGET_ACTIONS.includes(type)) action.target = target
+    if (COAST_ACTIONS.includes(type)) action.targetCoast = targetCoast
+    if (viaConvoy) action.viaConvoy = true
+    if (unitType) action.unitType = unitType
+    return action
+  }
+}
+
 /** Fallback representation preserves incomplete or illegal draft orders. */
 class GenericOrderCodec {
-  constructor(private readonly context: OrderContext) {}
+  private readonly actions: GenericActionCodec
+
+  constructor(private readonly context: OrderContext) {
+    this.actions = new GenericActionCodec(context.boards)
+  }
 
   private writeSource(stream: Bits, roster: Unit[], order: WireOrder): void {
     const width = Math.ceil(Math.log2(Math.max(WireBit.One, roster.length)))
@@ -141,17 +225,17 @@ class GenericOrderCodec {
       stream.put(index, width)
       return
     }
-    countryCodec.write(stream, order.nation, this.context.boards)
-    provinceCodec.write(stream, order.source, this.context.boards)
-    coastCodec.write(stream, order.sourceCoast, this.context.boards)
+    countryCodec.encode(stream, order.nation, this.context.boards)
+    provinceCodec.encode(stream, order.source, this.context.boards)
+    coastCodec.encode(stream, order.sourceCoast, this.context.boards)
   }
 
   private readSource(stream: Bits, roster: Unit[]): WireSource {
     const width = Math.ceil(Math.log2(Math.max(WireBit.One, roster.length)))
     if (stream.get(WireBit.One)) return this.readIndexedSource(stream, roster, width)
-    const nation = countryCodec.read(stream, this.context.boards)
-    const source = provinceCodec.read(stream, this.context.boards)
-    const coast = coastCodec.read(stream, this.context.boards)
+    const nation = countryCodec.decode(stream, this.context.boards)
+    const source = provinceCodec.decode(stream, this.context.boards)
+    const coast = coastCodec.decode(stream, this.context.boards)
     return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
   }
 
@@ -161,75 +245,22 @@ class GenericOrderCodec {
     return { nation: unit.nation, source: unit.territory, ...(unit.coast ? { sourceCoast: unit.coast } : {}) }
   }
 
-  private actionTypes(phase: Phase): WireOrder['type'][] {
-    if (phase === PhaseKind.Movement) return [OrderKind.Hold, OrderKind.Support, OrderKind.Move, OrderKind.Convoy]
-    if (phase === PhaseKind.Retreat) return [OrderKind.Disband, OrderKind.Retreat]
-    return [OrderKind.Remove, OrderKind.Build]
-  }
-
-  private actionWidth(phase: Phase): number {
-    return phase === PhaseKind.Movement ? WireSize.Movement : WireBit.One
-  }
-
-  private writeAction(stream: Bits, phase: Phase, order: WireOrder): void {
-    const types = this.actionTypes(phase)
-    const code = types.indexOf(order.type)
-    stream.put(code, this.actionWidth(phase))
-    this.writeActionTargets(stream, order)
-    this.writeActionOptions(stream, order)
-  }
-
-  private writeActionTargets(stream: Bits, order: WireOrder): void {
-    if (AUX_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.aux, this.context.boards)
-    if (TARGET_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.target, this.context.boards)
-  }
-
-  private writeActionOptions(stream: Bits, order: WireOrder): void {
-    if (COAST_ACTIONS.includes(order.type)) coastCodec.write(stream, order.targetCoast, this.context.boards)
-    if (order.type === OrderKind.Move) stream.put(order.viaConvoy ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (order.type === OrderKind.Build) stream.put(BUILD_TYPES.indexOf(order.unitType), WireSize.UnitType)
-  }
-
-  private readAction(stream: Bits, phase: Phase): Pick<WireOrder, 'type'> & Partial<WireOrder> {
-    const types = this.actionTypes(phase)
-    const type = types[stream.get(this.actionWidth(phase))]
-    assert(type)
-    const order: Pick<WireOrder, 'type'> & Partial<WireOrder> = { type }
-    this.readActionTargets(stream, order)
-    this.readActionOptions(stream, order)
-    return order
-  }
-
-  private readActionTargets(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (AUX_ACTIONS.includes(order.type)) order.aux = optionalPlace.read(stream, this.context.boards)
-    if (TARGET_ACTIONS.includes(order.type)) order.target = optionalPlace.read(stream, this.context.boards)
-  }
-
-  private readActionOptions(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (COAST_ACTIONS.includes(order.type)) order.targetCoast = coastCodec.read(stream, this.context.boards)
-    if (order.type === OrderKind.Move && stream.get(WireBit.One)) order.viaConvoy = true
-    if (order.type !== OrderKind.Build) return
-    const unitType = BUILD_TYPES[stream.get(WireSize.Mode)]
-    if (unitType) order.unitType = unitType
-  }
-
   encode(stream: Bits, board: BoardState, orders: WireOrder[]): void {
     const roster = this.context.roster(board)
     const sparse = this.sparseOrders(board.phase, roster, orders)
     const indexes = orders.map((order) => this.context.sourceIndex(roster, order))
     const dense = this.context.orderedIndexes(indexes) ? this.denseOrders(board, roster, orders, indexes) : undefined
-    const useDense = Boolean(dense && dense.data.length < sparse.data.length)
-    const selected = useDense && dense ? dense : sparse
+    const selected = shortest(sparse, dense)
     stream.data.push(...selected.data)
   }
 
   private sparseOrders(phase: Phase, roster: Unit[], orders: WireOrder[]): Bits {
     const stream = new Bits()
     stream.put(WireBit.Zero, WireBit.One)
-    stream.integer(orders.length)
+    stream.writeInteger(orders.length)
     for (const order of orders) {
       this.writeSource(stream, roster, order)
-      this.writeAction(stream, phase, order)
+      this.actions.encode(stream, phase, order)
     }
     return stream
   }
@@ -240,7 +271,7 @@ class GenericOrderCodec {
     for (let index = WireBit.Zero; index < roster.length; index++) {
       const position = indexes.indexOf(index)
       stream.put(position >= WireBit.Zero ? WireBit.One : WireBit.Zero, WireBit.One)
-      if (position >= WireBit.Zero) this.writeAction(stream, board.phase, orders[position])
+      if (position >= WireBit.Zero) this.actions.encode(stream, board.phase, orders[position])
     }
     return stream
   }
@@ -248,7 +279,7 @@ class GenericOrderCodec {
   decode(stream: Bits, board: BoardState): AnyOrder[] {
     const roster = this.context.roster(board)
     if (stream.get(WireBit.One)) return this.readDenseOrders(stream, board, roster)
-    const count = bounded(stream.integer(), WireLimit.ListItems)
+    const count = bounded(stream.readInteger(), WireLimit.ListItems)
     return Array.from({ length: count }, () => this.readSparseOrder(stream, board.phase, roster))
   }
 
@@ -257,7 +288,7 @@ class GenericOrderCodec {
     for (const unit of roster) {
       if (!stream.get(WireBit.One)) continue
       const source = this.context.unitSource(unit)
-      const action = this.readAction(stream, board.phase)
+      const action = this.actions.decode(stream, board.phase)
       orders.push({ ...source, ...action } as AnyOrder)
     }
     return orders
@@ -265,7 +296,7 @@ class GenericOrderCodec {
 
   private readSparseOrder(stream: Bits, phase: Phase, roster: Unit[]): AnyOrder {
     const source = this.readSource(stream, roster)
-    const action = this.readAction(stream, phase)
+    const action = this.actions.decode(stream, phase)
     return { ...source, ...action } as AnyOrder
   }
 }
@@ -418,7 +449,7 @@ export class OrderCodec {
     generic.put(WireBit.Zero, WireBit.One)
     this.generic.encode(generic, board, orders)
     const compact = this.compactCandidate(board, orders)
-    const selected = compact && compact.data.length < generic.data.length ? compact : generic
+    const selected = shortest(generic, compact)
     stream.data.push(...selected.data)
   }
 
