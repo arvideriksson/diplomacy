@@ -1,218 +1,190 @@
-import { describe, expect, it } from 'vitest'
-import { choice, encode, decode } from './bits'
-import { toTimeline, fromTimeline } from './timeline'
-import { initialBoard, adjudicate } from '../adjudicator'
+import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
-
-describe('sandbox sharing primitives', () => {
-  it('round trips bounded choices and rejects invalid input', () => {
-    for (let count = 1; count <= 100; count++) {
-      const values = Array.from({ length: count }, (_, i) => i)
-      for (const value of values) {
-        const encoded = encode(choice(values), value, undefined)
-        expect(decode(choice(values), encoded.bytes, undefined)).toBe(value)
-      }
-    }
-    expect(() => decode(choice([0, 1]), new Uint8Array(), undefined)).toThrow()
-    expect(() => decode(choice([0, 1]), Uint8Array.of(1), undefined)).toThrow()
-  })
-
-  it('preserves a retained future after editing an earlier phase', () => {
-    const board = initialBoard(classicalMap)
-    const order = { type: 'Move' as const, nation: 'germany', source: 'MUN', target: 'TYR' }
-    const next = adjudicate(classicalMap, board, [order]).newBoardState
-    const sandbox = {
-      name: 'Fork',
-      mapId: 'classical',
-      cursor: 0,
-      frames: [
-        { board, orders: [] },
-        { board: next, orders: [] },
-      ],
-    }
-    const timeline = toTimeline(sandbox)
-    expect(timeline.entries[0].checkpoint).toEqual(next)
-    expect(fromTimeline(timeline)).toEqual(sandbox)
-    expect(() => fromTimeline({ ...timeline, cursor: 5 })).toThrow()
-  })
-})
-
-import { encodeSandbox, decodeSandbox } from './index'
 import { map1900 } from '../maps/1900'
-import type { AnyOrder, BoardState } from '../adjudicator'
+import { choice, decode, encode, flag, literal, struct } from './bits'
+import { decodeSandbox, encodeSandbox } from './index'
+import type { SandboxContent } from './timeline'
+import { fromTimeline, toTimeline } from './timeline'
+import {
+  coastGame,
+  convoyGame,
+  DRAFT_MOVE,
+  DUPLICATE_HOLD,
+  FORK_MOVE,
+  game,
+  GOLDEN_NAME,
+  GOLDEN_PAYLOAD,
+  INVALID_MOVE,
+  OPEN_HOLD,
+  OPEN_MOVE,
+  retreatGame,
+  TestLimit,
+} from './fixtures.test-helper'
+import { Base64Char, DEFLATE_FORMAT, MapKind, PhaseKind, WireBit, WireHeader, WireSize } from './wire'
 
-function game(map = classicalMap, rounds: AnyOrder[][] = []) {
-  let board = initialBoard(map)
-  const frames = rounds.map((orders) => {
-    const before = board
-    const result = adjudicate(map, board, orders)
-    board = result.newBoardState
-    return { board: before, orders, results: result.results }
-  })
-  return {
-    name: 'Shared game',
-    mapId: map.id,
-    cursor: frames.length,
-    frames: [...frames, { board, orders: [], results: undefined }],
+const FIRST_INDEX = 0
+const LAST_INDEX = 1
+const BAD_PAYLOAD = 'not a payload!'
+const SAMPLE_ZERO = 'A'
+const SAMPLE_ONE = 'B'
+const BASE64_PLUS = /\+/g
+const BASE64_SLASH = /\//g
+const BASE64_PADDING = /=+$/
+const URL_MINUS = /-/g
+const URL_UNDERLINE = /_/g
+
+async function expectRoundTrip(sandbox: SandboxContent): Promise<void> {
+  const payload = await encodeSandbox(sandbox)
+  const restored = await decodeSandbox(payload)
+  expect(restored).toEqual(sandbox)
+}
+
+function checkChoiceCount(count: number): void {
+  const values = Array.from({ length: count }, (_entry, index) => index)
+  const schema = choice(values)
+  for (const value of values) {
+    const encoded = encode(schema, value, undefined)
+    const restored = decode(schema, encoded.bytes, undefined)
+    expect(restored).toBe(value)
   }
 }
 
-describe('shared sandbox payload', () => {
-  it('keeps the version 1 opening payload stable', async () => {
-    const sandbox = {
-      name: 'Opening',
-      mapId: 'classical',
-      cursor: 0,
-      frames: [{ board: initialBoard(classicalMap), orders: [] }],
-    }
-    const payload = 'EAVN5RuIT3BlbmluZ1kSc-3agK2UXms'
-    expect(await encodeSandbox(sandbox)).toBe(payload)
-    expect(await decodeSandbox(payload)).toEqual(sandbox)
-  })
+function checkpointGame(): SandboxContent {
+  const sandbox = game(classicalMap, [[FORK_MOVE]])
+  sandbox.frames[FIRST_INDEX].orders = []
+  sandbox.frames[FIRST_INDEX].results = undefined
+  sandbox.cursor = FIRST_INDEX
+  return sandbox
+}
 
-  it('round trips both map openings and a resolved history with draft orders', async () => {
-    for (const sandbox of [
-      game(),
-      game(map1900),
-      game(classicalMap, [
-        [{ type: 'Move', nation: 'england', source: 'LON', target: 'NTH' }],
-        [{ type: 'Hold', nation: 'england', source: 'NTH' }],
-      ]),
-    ]) {
-      sandbox.frames[sandbox.frames.length - 1].orders = [{ type: 'Move', nation: 'france', source: 'PAR' }]
-      expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-    }
-  })
+function payloadBytes(payload: string): Uint8Array {
+  const normal = payload.replace(URL_MINUS, Base64Char.Plus).replace(URL_UNDERLINE, Base64Char.Slash)
+  const binary = atob(normal)
+  return Uint8Array.from(binary, (char) => char.charCodeAt(FIRST_INDEX))
+}
 
-  it('preserves edited past frames with a checkpoint', async () => {
-    const sandbox = game(classicalMap, [[{ type: 'Move', nation: 'germany', source: 'MUN', target: 'TYR' }]])
-    sandbox.frames[0].orders = []
-    sandbox.frames[0].results = undefined
-    sandbox.cursor = 0
-    expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-  })
+function base64Url(bytes: Uint8Array): string {
+  const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join(Base64Char.Empty)
+  return btoa(binary)
+    .replace(BASE64_PLUS, Base64Char.Minus)
+    .replace(BASE64_SLASH, Base64Char.Underline)
+    .replace(BASE64_PADDING, Base64Char.Empty)
+}
 
-  it('replays supported attacks, retreats and convoys', async () => {
-    const opening = initialBoard(classicalMap)
-    const base: BoardState = {
-      ...opening,
-      units: [
-        { nation: 'germany', type: 'army', territory: 'BEL' },
-        { nation: 'france', type: 'army', territory: 'BUR' },
-        { nation: 'france', type: 'army', territory: 'PIC' },
-      ],
-      supplyCenters: { BEL: 'germany', PAR: 'france', BRE: 'france', MAR: 'france' },
-    }
-    const attacks: AnyOrder[] = [
-      { type: 'Hold', nation: 'germany', source: 'BEL' },
-      { type: 'Move', nation: 'france', source: 'BUR', target: 'BEL' },
-      { type: 'Support', nation: 'france', source: 'PIC', aux: 'BUR', target: 'BEL' },
-    ]
-    const first = adjudicate(classicalMap, base, attacks)
-    expect(first.newBoardState.phase).toBe('retreat')
-    const retreats: AnyOrder[] = [{ type: 'Retreat', nation: 'germany', source: 'BEL', target: 'HOL' }]
-    const second = adjudicate(classicalMap, first.newBoardState, retreats)
-    const sandbox = {
-      name: 'Retreat',
-      mapId: 'classical',
-      cursor: 1,
-      frames: [
-        { board: base, orders: attacks, results: first.results },
-        { board: first.newBoardState, orders: retreats, results: second.results },
-        { board: second.newBoardState, orders: [] },
-      ],
-    }
-    expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-    const convoyBoard: BoardState = {
-      ...opening,
-      units: [
-        { nation: 'france', type: 'army', territory: 'BRE' },
-        { nation: 'france', type: 'fleet', territory: 'ENG' },
-      ],
-      supplyCenters: { BRE: 'france' },
-    }
-    const convoy: AnyOrder[] = [
-      { type: 'Move', nation: 'france', source: 'BRE', target: 'BEL', viaConvoy: true },
-      { type: 'Convoy', nation: 'france', source: 'ENG', aux: 'BRE', target: 'BEL' },
-    ]
-    const resolved = adjudicate(classicalMap, convoyBoard, convoy)
-    const convoyGame = {
-      name: 'Convoy',
-      mapId: 'classical',
-      cursor: 1,
-      frames: [
-        { board: convoyBoard, orders: convoy, results: resolved.results },
-        { board: resolved.newBoardState, orders: [] },
-      ],
-    }
-    expect(await decodeSandbox(await encodeSandbox(convoyGame))).toEqual(convoyGame)
-  })
+async function oversizedPayload(): Promise<string> {
+  const bytes = new Uint8Array(TestLimit.OverflowBytes)
+  const source = new Blob([bytes]).stream()
+  const stream = source.pipeThrough(new CompressionStream(DEFLATE_FORMAT))
+  const buffer = await new Response(stream).arrayBuffer()
+  const body = new Uint8Array(buffer)
+  const size = body.length + WireSize.Header + WireSize.Trailer
+  const envelope = new Uint8Array(size)
+  envelope[FIRST_INDEX] = WireHeader.Deflate
+  envelope.set(body, WireSize.Header)
+  return base64Url(envelope)
+}
 
-  it('preserves builds, removals and western coasts on 1900', async () => {
-    const board: BoardState = {
-      ...initialBoard(map1900),
-      year: 1903,
-      season: 'Fall',
-      phase: 'build',
-      units: [{ nation: 'france', type: 'fleet', territory: 'SPA', coast: 'wc' }],
-      supplyCenters: { BRE: 'france', PAR: 'france' },
-      dislodged: [],
-      contested: [],
-    }
-    const orders: AnyOrder[] = [{ type: 'Build', nation: 'france', source: 'BRE', unitType: 'fleet' }]
-    const next = adjudicate(map1900, board, orders)
-    const sandbox = {
-      name: '1900 coast',
-      mapId: '1900',
-      cursor: 1,
-      frames: [
-        { board, orders, results: next.results },
-        { board: next.newBoardState, orders: [] },
-      ],
-    }
-    expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-  })
+it('round trips bounded choices and rejects invalid input', () => {
+  for (let count = WireBit.One; count <= TestLimit.Dictionary; count++) checkChoiceCount(count)
+  const schema = choice([WireBit.Zero, WireBit.One])
+  expect(() => decode(schema, new Uint8Array(), undefined)).toThrow()
+  expect(() => decode(schema, Uint8Array.of(WireBit.One), undefined)).toThrow()
+})
 
-  it('rejects corrupt, truncated and oversized links', async () => {
-    const payload = await encodeSandbox(game())
-    const changed = (payload[0] === 'A' ? 'B' : 'A') + payload.slice(1)
-    for (const invalid of [changed, payload.slice(0, -5), 'not a payload!', 'A'.repeat(44001)]) {
-      await expect(decodeSandbox(invalid)).rejects.toThrow()
-    }
-  })
+it('round trips typed fields and validates literal values', () => {
+  const schema = struct<void>().field('active', flag).field('kind', literal(SAMPLE_ZERO))
+  const value = { active: true, kind: SAMPLE_ZERO }
+  const encoded = encode(schema, value, undefined)
+  expect(encoded.bitLength).toBe(WireBit.One)
+  expect(decode(schema, encoded.bytes, undefined)).toEqual(value)
+  const invalid = { active: true, kind: SAMPLE_ONE }
+  expect(() => encode(schema, invalid, undefined)).toThrow()
+})
 
-  it('compresses and reconstructs a longer history', async () => {
-    const sandbox = game(
-      classicalMap,
-      Array.from({ length: 60 }, () => []),
-    )
-    const payload = await encodeSandbox(sandbox)
-    expect(atob(payload.replace(/-/g, '+').replace(/_/g, '/')).charCodeAt(0)).toBe(0x11)
-    expect(await decodeSandbox(payload)).toEqual(sandbox)
-  })
+it('selects a field dictionary using earlier decoded values', () => {
+  const schema = struct<void>()
+    .field('active', flag)
+    .field('kind', (_context, previous) => choice(previous.active ? [SAMPLE_ONE] : [SAMPLE_ZERO]))
+  const value = { active: true, kind: SAMPLE_ONE }
+  const encoded = encode(schema, value, undefined)
+  expect(decode(schema, encoded.bytes, undefined)).toEqual(value)
+  const invalid = { active: false, kind: SAMPLE_ONE }
+  expect(() => encode(schema, invalid, undefined)).toThrow()
+})
 
-  it('rejects a compressed body that expands beyond the limit', async () => {
-    const body = new Uint8Array(
-      await new Response(
-        new Blob([new Uint8Array(32769)]).stream().pipeThrough(new CompressionStream('deflate-raw')),
-      ).arrayBuffer(),
-    )
-    const envelope = new Uint8Array(body.length + 5)
-    envelope[0] = 0x11
-    envelope.set(body, 1)
-    const payload = btoa(Array.from(envelope, (value) => String.fromCharCode(value)).join(''))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '')
-    await expect(decodeSandbox(payload)).rejects.toThrow()
-  })
+it('preserves a retained future after editing an earlier phase', () => {
+  const sandbox = checkpointGame()
+  const timeline = toTimeline(sandbox)
+  const next = sandbox.frames[LAST_INDEX].board
+  expect(timeline.entries[FIRST_INDEX].checkpoint).toEqual(next)
+  expect(fromTimeline(timeline)).toEqual(sandbox)
+  expect(() => fromTimeline({ ...timeline, cursor: TestLimit.BadCursor })).toThrow()
+})
 
-  it('retains duplicate and illegal orders without inventing results', async () => {
-    const sandbox = game()
-    sandbox.frames[0].orders = [
-      { type: 'Move', nation: 'england', source: 'LON', target: 'MOS' },
-      { type: 'Hold', nation: 'england', source: 'LON' },
-    ]
-    expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-  })
+it('keeps the version 1 opening payload stable', async () => {
+  const sandbox = game()
+  sandbox.name = GOLDEN_NAME
+  sandbox.mapId = MapKind.Classical
+  const payload = await encodeSandbox(sandbox)
+  expect(payload).toBe(GOLDEN_PAYLOAD)
+  const restored = await decodeSandbox(GOLDEN_PAYLOAD)
+  expect(restored).toEqual(sandbox)
+})
+
+it('round trips both map openings and a resolved history with draft orders', async () => {
+  const games = [game(), game(map1900), game(classicalMap, [[OPEN_MOVE], [OPEN_HOLD]])]
+  for (const sandbox of games) {
+    const index = sandbox.frames.length - LAST_INDEX
+    sandbox.frames[index].orders = [DRAFT_MOVE]
+    await expectRoundTrip(sandbox)
+  }
+})
+
+it('preserves edited past frames with a checkpoint', async () => {
+  const sandbox = checkpointGame()
+  await expectRoundTrip(sandbox)
+})
+
+it('replays supported attacks, retreats and convoys', async () => {
+  const retreat = retreatGame()
+  const convoy = convoyGame()
+  expect(retreat.frames[LAST_INDEX].board.phase).toBe(PhaseKind.Retreat)
+  await expectRoundTrip(retreat)
+  await expectRoundTrip(convoy)
+})
+
+it('preserves builds and western coasts on 1900', async () => {
+  const sandbox = coastGame()
+  await expectRoundTrip(sandbox)
+})
+
+it('rejects corrupt, truncated and oversized links', async () => {
+  const payload = await encodeSandbox(game())
+  const prefix = payload[FIRST_INDEX] === SAMPLE_ZERO ? SAMPLE_ONE : SAMPLE_ZERO
+  const changed = prefix + payload.slice(LAST_INDEX)
+  const trimmed = payload.slice(FIRST_INDEX, -TestLimit.BadCursor)
+  const oversized = SAMPLE_ZERO.repeat(TestLimit.TooManyChars)
+  const invalid = [changed, trimmed, BAD_PAYLOAD, oversized]
+  for (const entry of invalid) await expect(decodeSandbox(entry)).rejects.toThrow()
+})
+
+it('compresses and reconstructs a longer history', async () => {
+  const rounds = Array.from({ length: TestLimit.LongGame }, () => [])
+  const sandbox = game(classicalMap, rounds)
+  const payload = await encodeSandbox(sandbox)
+  const header = payloadBytes(payload)[FIRST_INDEX]
+  expect(header).toBe(WireHeader.Deflate)
+  const restored = await decodeSandbox(payload)
+  expect(restored).toEqual(sandbox)
+})
+
+it('rejects a compressed body that expands beyond the limit', async () => {
+  const payload = await oversizedPayload()
+  await expect(decodeSandbox(payload)).rejects.toThrow()
+})
+
+it('retains duplicate and illegal orders without inventing results', async () => {
+  const sandbox = game()
+  sandbox.frames[FIRST_INDEX].orders = [INVALID_MOVE, DUPLICATE_HOLD]
+  await expectRoundTrip(sandbox)
 })

@@ -83,7 +83,7 @@ Compact build list:
   count:U, indexes into sorted complete build/remove candidates
 ```
 
-For compact movement, convoy eligibility is an army with at least one reachable destination through fleets present on the board. A Move reads its target index from direct `moveTargets`, or `convoyReach` when its convoy flag is set. Support uses `supportAux` then `supportTargets`; Convoy uses `convoyAux` then `convoyTargets`. Retreat uses `retreatTargets` for that dislodged unit. Candidate province lists are sorted, de-duplicated, and indexed using truncated binary. Compact builds sort canonical JSON representations of candidate records; their indexes use the same truncated-binary rule. The implementation of the versioned candidate lists is in `src/lib/share/codec.js` and the existing order-option helpers.
+For compact movement, convoy eligibility is an army with at least one reachable destination through fleets present on the board. A Move reads its target index from direct `moveTargets`, or `convoyReach` when its convoy flag is set. Support uses `supportAux` then `supportTargets`; Convoy uses `convoyAux` then `convoyTargets`. Retreat uses `retreatTargets` for that dislodged unit. Candidate province lists are sorted, de-duplicated, and indexed using truncated binary. Compact builds sort canonical JSON representations of candidate records; their indexes use the same truncated-binary rule. The implementation of the versioned candidate lists is in `src/lib/share/codec.ts` and the existing order-option helpers.
 
 ## Version 1 map dictionaries
 

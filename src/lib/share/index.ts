@@ -1,95 +1,167 @@
+import { decodeSandbox as decode, encodeSandbox as encode, equal } from './codec'
 import type { SandboxContent } from './timeline'
 import { toTimeline } from './timeline'
-import { encodeSandbox as encode, decodeSandbox as decode, equal } from './codec.js'
+import {
+  Base64Char,
+  CompressionMode,
+  DEFLATE_FORMAT,
+  PAYLOAD_PATTERN,
+  WireBit,
+  WireHeader,
+  WireError,
+  WireLimit,
+  WireSize,
+} from './wire'
 
-const MAX_BYTES = 32768
-const toBase64 = (bytes: Uint8Array) =>
-  btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-const fromBase64 = (text: string) =>
-  Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))
+const ENVELOPE_BYTES = WireSize.Header + WireSize.Trailer
 
-async function transform(bytes: Uint8Array, mode: 'compress' | 'decompress'): Promise<Uint8Array> {
-  const stream = mode === 'compress' ? new CompressionStream('deflate-raw') : new DecompressionStream('deflate-raw')
-  const writer = stream.writable.getWriter()
-  const writing = writer.write(Uint8Array.from(bytes)).then(() => writer.close())
-  const reader = stream.readable.getReader(),
-    chunks: Uint8Array[] = []
-  let size = 0
-  try {
+/** URL-safe, unpadded Base64 used by share links. */
+class Base64Url {
+  static encode(bytes: Uint8Array): string {
+    const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join(Base64Char.Empty)
+    return btoa(binary)
+      .replace(/\+/g, Base64Char.Minus)
+      .replace(/\//g, Base64Char.Underline)
+      .replace(/=+$/, Base64Char.Empty)
+  }
+
+  static decode(text: string): Uint8Array {
+    const base64 = text.replace(/-/g, Base64Char.Plus).replace(/_/g, Base64Char.Slash)
+    const binary = atob(base64)
+    return Uint8Array.from(binary, (char) => char.charCodeAt(WireBit.Zero))
+  }
+}
+
+/** Compression is optional when writing and bounded while reading. */
+class StreamTransform {
+  static async convert(bytes: Uint8Array, mode: CompressionMode): Promise<Uint8Array> {
+    const stream = this.createStream(mode)
+    const writer = stream.writable.getWriter()
+    const writing = writer.write(Uint8Array.from(bytes)).then(() => writer.close())
+    const reader = stream.readable.getReader()
+    try {
+      return await this.collect(reader, writing)
+    } catch (error) {
+      await this.cancel(reader, writing)
+      throw error
+    }
+  }
+
+  private static createStream(mode: CompressionMode): CompressionStream | DecompressionStream {
+    if (mode === CompressionMode.Compress) return new CompressionStream(DEFLATE_FORMAT)
+    return new DecompressionStream(DEFLATE_FORMAT)
+  }
+
+  private static async collect(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    writing: Promise<void>,
+  ): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = []
+    let size = WireBit.Zero
     for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      size += value.length
-      if (size > MAX_BYTES) throw new Error('Sandbox payload is too large')
-      chunks.push(value)
+      const result = await reader.read()
+      if (result.done) break
+      size += result.value.length
+      if (size > WireLimit.PayloadBytes) throw new Error(WireError.TooLarge)
+      chunks.push(result.value)
     }
     await writing
-  } catch (error) {
+    return this.join(chunks, size)
+  }
+
+  private static async cancel(reader: ReadableStreamDefaultReader<Uint8Array>, writing: Promise<void>): Promise<void> {
     await reader.cancel().catch(() => {
       /* Preserve the original error. */
     })
     await writing.catch(() => {
       /* Preserve the original error. */
     })
-    throw error
   }
-  const result = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    result.set(chunk, offset)
-    offset += chunk.length
+
+  private static join(chunks: Uint8Array[], size: number): Uint8Array {
+    const result = new Uint8Array(size)
+    let offset = WireBit.Zero
+    for (const chunk of chunks) {
+      result.set(chunk, offset)
+      offset += chunk.length
+    }
+    return result
   }
-  return result
 }
 
-/** Convert only if the codec can reproduce all current sandbox data. */
-export async function encodeSandbox(sandbox: SandboxContent): Promise<string> {
-  toTimeline(sandbox)
-  const payload = encode(sandbox)
-  const result = decode(payload) as SandboxContent
-  if (
-    !equal(result, {
-      name: sandbox.name,
-      mapId: sandbox.mapId,
-      frames: sandbox.frames,
-      cursor: sandbox.cursor,
-    })
-  )
-    throw new Error('This sandbox contains data that cannot be shared yet.')
-  const envelope = fromBase64(payload)
-  try {
-    const compressed = await transform(envelope.subarray(1, -4), 'compress')
-    if (compressed.length < envelope.length - 5) {
-      const packed = new Uint8Array(compressed.length + 5)
-      packed[0] = 0x11
-      packed.set(compressed, 1)
-      packed.set(envelope.subarray(-4), packed.length - 4)
-      return toBase64(packed)
-    }
-  } catch {
-    /* Raw payloads work even without browser compression support. */
+/** Convert between the local sandbox model and a portable, checksummed payload. */
+class SandboxTransport {
+  static async encode(sandbox: SandboxContent): Promise<string> {
+    toTimeline(sandbox)
+    const payload = encode(sandbox)
+    this.checkRoundTrip(sandbox, payload)
+    const envelope = Base64Url.decode(payload)
+    return this.compress(envelope, payload)
   }
-  return payload
+
+  private static checkRoundTrip(sandbox: SandboxContent, payload: string): void {
+    const result = decode(payload)
+    const { name, mapId, frames, cursor } = sandbox
+    if (!equal(result, { name, mapId, frames, cursor })) {
+      throw new Error('This sandbox contains data that cannot be shared yet.')
+    }
+  }
+
+  private static async compress(envelope: Uint8Array, fallback: string): Promise<string> {
+    try {
+      const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
+      const compressed = await StreamTransform.convert(body, CompressionMode.Compress)
+      if (compressed.length >= body.length) return fallback
+      const packed = this.makeEnvelope(envelope, compressed, WireHeader.Deflate)
+      return Base64Url.encode(packed)
+    } catch {
+      return fallback
+    }
+  }
+
+  static async decode(payload: string): Promise<SandboxContent> {
+    this.checkPayload(payload)
+    const envelope = Base64Url.decode(payload)
+    this.checkEnvelope(envelope)
+    const raw = await this.uncompress(envelope, payload)
+    const sandbox = decode(raw)
+    toTimeline(sandbox)
+    return sandbox
+  }
+
+  private static checkPayload(payload: string): void {
+    if (!payload || payload.length > WireLimit.PayloadChars || !PAYLOAD_PATTERN.test(payload)) {
+      throw new Error(WireError.Invalid)
+    }
+  }
+
+  private static checkEnvelope(envelope: Uint8Array): void {
+    const minimum = ENVELOPE_BYTES + WireBit.One
+    const maximum = WireLimit.PayloadBytes + ENVELOPE_BYTES
+    if (envelope.length < minimum || envelope.length > maximum) throw new Error(WireError.Invalid)
+  }
+
+  private static async uncompress(envelope: Uint8Array, fallback: string): Promise<string> {
+    if (envelope[WireBit.Zero] !== WireHeader.Deflate) return fallback
+    const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
+    const raw = await StreamTransform.convert(body, CompressionMode.Decompress)
+    const unpacked = this.makeEnvelope(envelope, raw, WireHeader.Raw)
+    return Base64Url.encode(unpacked)
+  }
+
+  private static makeEnvelope(source: Uint8Array, body: Uint8Array, kind: WireHeader): Uint8Array {
+    const result = new Uint8Array(body.length + ENVELOPE_BYTES)
+    result[WireBit.Zero] = kind
+    result.set(body, WireSize.Header)
+    result.set(source.subarray(-WireSize.Trailer), result.length - WireSize.Trailer)
+    return result
+  }
+}
+
+export async function encodeSandbox(sandbox: SandboxContent): Promise<string> {
+  return SandboxTransport.encode(sandbox)
 }
 
 export async function decodeSandbox(payload: string): Promise<SandboxContent> {
-  if (!payload || payload.length > 44000 || !/^[A-Za-z0-9_-]+$/.test(payload))
-    throw new Error('Invalid sandbox payload')
-  const envelope = fromBase64(payload)
-  if (envelope.length < 6 || envelope.length > MAX_BYTES + 5) throw new Error('Invalid sandbox payload')
-  let raw = payload
-  if (envelope[0] === 0x11) {
-    const body = await transform(envelope.subarray(1, -4), 'decompress')
-    const unpacked = new Uint8Array(body.length + 5)
-    unpacked[0] = 0x10
-    unpacked.set(body, 1)
-    unpacked.set(envelope.subarray(-4), unpacked.length - 4)
-    raw = toBase64(unpacked)
-  }
-  const sandbox = decode(raw) as SandboxContent
-  toTimeline(sandbox)
-  return sandbox
+  return SandboxTransport.decode(payload)
 }
