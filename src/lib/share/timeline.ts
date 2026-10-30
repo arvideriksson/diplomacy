@@ -5,6 +5,7 @@ import { getMap } from '../maps'
 import type { Frame, Sandbox } from '../sandbox'
 import type { Unit } from '../types'
 import { CanonicalValue } from './canonical'
+import { countryCodec, provinceCodec } from './fields'
 import { OrderKind, PhaseKind, SeasonKind, UnitKind, WireBit, WireLimit } from './wire'
 
 /** Portable content is independent of local sandbox identity and storage. */
@@ -52,11 +53,9 @@ function checkCursor(cursor: number, count: number): void {
 
 /** Validate board structure independently of the encoded representation. */
 class BoardValidator {
-  private readonly powers: Set<string>
   private readonly limit: number
 
   constructor(private readonly map: MapDefinition) {
-    this.powers = new Set(map.powers.map((power) => power.id))
     this.limit = Object.keys(map.territories).length
   }
 
@@ -85,7 +84,7 @@ class BoardValidator {
 
   private validUnit(unit: Unit): boolean {
     const territory = this.map.territories[unit.territory]
-    if (!territory || !this.powers.has(unit.nation)) return false
+    if (!territory || !countryCodec.validate(unit.nation, this.map)) return false
     if (!UNIT_TYPES.includes(unit.type)) return false
     if (unit.type === UnitKind.Army && territory.type === 'sea') return false
     if (unit.type === UnitKind.Fleet && territory.type === 'land') return false
@@ -97,7 +96,7 @@ class BoardValidator {
     if (!owners) throw Error(INVALID_BOARD)
     for (const [province, nation] of Object.entries(owners)) {
       if (!this.map.territories[province]?.supplyCenter) throw Error(INVALID_BOARD)
-      if (!this.powers.has(nation)) throw Error(INVALID_BOARD)
+      if (!countryCodec.validate(nation, this.map)) throw Error(INVALID_BOARD)
     }
   }
 
@@ -105,23 +104,21 @@ class BoardValidator {
     if (!Array.isArray(units) || units.length > this.limit) throw Error(INVALID_BOARD)
     for (const entry of units) {
       if (!this.validUnit(entry.unit)) throw Error(INVALID_BOARD)
-      if (entry.attackedFrom && !this.map.territories[entry.attackedFrom]) throw Error(INVALID_BOARD)
+      if (entry.attackedFrom && !provinceCodec.validate(entry.attackedFrom, this.map)) throw Error(INVALID_BOARD)
     }
   }
 
   private checkContested(provinces: string[]): void {
     if (!Array.isArray(provinces) || provinces.length > this.limit) throw Error(INVALID_BOARD)
-    if (provinces.some((province) => !this.map.territories[province])) throw Error(INVALID_BOARD)
+    if (provinces.some((province) => !provinceCodec.validate(province, this.map))) throw Error(INVALID_BOARD)
   }
 }
 
 /** Validate order shape while allowing deliberate, adjudicator-visible illegal orders. */
 class OrderValidator {
-  private readonly powers: Set<string>
   private readonly coasts: Set<string>
 
   constructor(private readonly map: MapDefinition) {
-    this.powers = new Set(map.powers.map((power) => power.id))
     this.coasts = new Set(Object.values(map.territories).flatMap((area) => Object.keys(area.coasts ?? {})))
   }
 
@@ -132,14 +129,14 @@ class OrderValidator {
 
   private validOrder(order: OrderFields): boolean {
     if (!order || !ORDER_TYPES.includes(order.type)) return false
-    if (!this.powers.has(order.nation) || !this.map.territories[order.source]) return false
+    if (!countryCodec.validate(order.nation, this.map) || !provinceCodec.validate(order.source, this.map)) return false
     if (!this.validTargets(order)) return false
     return this.validOptions(order)
   }
 
   private validTargets(order: OrderFields): boolean {
-    if (order.target !== undefined && !this.map.territories[order.target]) return false
-    if (order.aux !== undefined && !this.map.territories[order.aux]) return false
+    if (order.target !== undefined && !provinceCodec.validate(order.target, this.map)) return false
+    if (order.aux !== undefined && !provinceCodec.validate(order.aux, this.map)) return false
     return true
   }
 

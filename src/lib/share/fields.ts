@@ -23,28 +23,49 @@ export interface FieldContext {
   provinceBits: number
 }
 
-export const countryCodec = fixedBits<string, FieldContext>({
-  size: WireSize.Power,
-  encode: (country) => {
-    const power = country === PowerKind.Britain ? PowerKind.England : country
-    return power === PowerKind.Neutral ? PowerCode.Neutral : POWER_IDS.findIndex((entry) => entry === power)
-  },
-  decode: (code, context) => {
-    const country = POWER_IDS[code] ?? PowerKind.Neutral
-    if (context.map.id === MapKind.Variant1900 && country === PowerKind.England) return PowerKind.Britain
-    return country
-  },
-})
+/** A power must belong to the active map; neutral is a wire-only owner value. */
+function validCountry(country: string, map: MapDefinition): boolean {
+  return map.powers.some((power) => power.id === country)
+}
 
-export const provinceCodec = fixedBits<string, FieldContext>({
-  size: (context) => context.provinceBits,
-  encode: (province, context) => context.provinces.indexOf(province),
-  decode: (code, context) => {
-    const province = context.provinces[code]
-    requireWire(province)
-    return province
-  },
-})
+function validProvince(province: string, map: MapDefinition): boolean {
+  return Boolean(map.territories[province])
+}
+
+export const countryCodec = Object.assign(
+  fixedBits<string, FieldContext>({
+    size: WireSize.Power,
+    encode: (country, context) => {
+      requireWire(country === PowerKind.Neutral || validCountry(country, context.map))
+      const power = country === PowerKind.Britain ? PowerKind.England : country
+      return power === PowerKind.Neutral ? PowerCode.Neutral : POWER_IDS.findIndex((entry) => entry === power)
+    },
+    decode: (code, context) => {
+      const country: string = POWER_IDS[code] ?? PowerKind.Neutral
+      const result =
+        context.map.id === MapKind.Variant1900 && country === PowerKind.England ? PowerKind.Britain : country
+      requireWire(result === PowerKind.Neutral || validCountry(result, context.map))
+      return result
+    },
+  }),
+  { validate: validCountry },
+)
+
+export const provinceCodec = Object.assign(
+  fixedBits<string, FieldContext>({
+    size: (context) => context.provinceBits,
+    encode: (province, context) => {
+      requireWire(validProvince(province, context.map))
+      return context.provinces.indexOf(province)
+    },
+    decode: (code, context) => {
+      const province = context.provinces[code]
+      requireWire(province && validProvince(province, context.map))
+      return province
+    },
+  }),
+  { validate: validProvince },
+)
 
 export const optionalPlace: Codec<string | undefined, FieldContext> = {
   decode(reader, context) {
