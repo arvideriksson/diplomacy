@@ -5,7 +5,7 @@ import { convoyAux, convoyReach, convoyTargets, moveTargets, supportAux, support
 import { retreatTargets } from '../orders/adjustments'
 import { coastCodec, type FieldContext } from './fields'
 import type { Unit } from '../types'
-import { choice } from './bits'
+import { sortedChoices } from './bits'
 import { OrderKind, UnitKind, WireBit, WireIndex, WireStream, requireWire } from './wire'
 
 export type WireOrder = {
@@ -57,16 +57,12 @@ export class AssistanceOrderCodec {
     return convoyTargets(map, unit, target, board.units)
   }
 
-  private dictionary(values: string[]) {
-    return choice([...new Set(values)].sort())
-  }
-
   private writeChoice(stream: WireStream, values: string[], value: string): void {
-    this.dictionary(values).write(stream, value, undefined)
+    sortedChoices(values).write(stream, value, undefined)
   }
 
   private readChoice(stream: WireStream, values: string[]): string {
-    return this.dictionary(values).read(stream, undefined)
+    return sortedChoices(values).read(stream, undefined)
   }
 }
 
@@ -89,11 +85,11 @@ interface MoveContext extends OrderContext {
 
 class TargetCodec {
   protected writeChoice(stream: WireStream, values: string[], value: string): void {
-    choice([...new Set(values)].sort()).write(stream, value, undefined)
+    sortedChoices(values).write(stream, value, undefined)
   }
 
   protected readChoice(stream: WireStream, values: string[]): string {
-    return choice([...new Set(values)].sort()).read(stream, undefined)
+    return sortedChoices(values).read(stream, undefined)
   }
 
   protected source(unit: Unit) {

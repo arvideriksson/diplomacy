@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import { map1900 } from '../maps/1900'
 import { choice, decode, encode, flag, literal, struct } from './bits'
+import { decodeSandbox as decodeBytes, encodeSandbox as encodeBytes } from './codec'
 import { decodeSandbox, encodeSandbox } from './index'
 import type { SandboxContent } from './timeline'
 import { fromTimeline, toTimeline } from './timeline'
@@ -131,6 +132,14 @@ it('keeps the version 1 opening payload stable', async () => {
   expect(restored).toEqual(sandbox)
 })
 
+it('decodes an envelope that is a view into a larger byte buffer', () => {
+  const sandbox = game()
+  const bytes = encodeBytes(sandbox, toTimeline(sandbox))
+  const padded = new Uint8Array(bytes.length + 2)
+  padded.set(bytes, 1)
+  expect(decodeBytes(padded.subarray(1, -1))).toEqual(sandbox)
+})
+
 it('round trips both map openings and a resolved history with draft orders', async () => {
   const games = [game(), game(map1900), game(classicalMap, [[OPEN_MOVE], [OPEN_HOLD]])]
   for (const sandbox of games) {
@@ -143,6 +152,12 @@ it('round trips both map openings and a resolved history with draft orders', asy
 it('preserves edited past frames with a checkpoint', async () => {
   const sandbox = checkpointGame()
   await expectRoundTrip(sandbox)
+})
+
+it('rejects results that no longer match the recorded orders', async () => {
+  const sandbox = game(classicalMap, [[OPEN_MOVE]])
+  sandbox.frames[FIRST_INDEX].results = []
+  await expect(encodeSandbox(sandbox)).rejects.toThrow('Stored resolution results do not match this engine')
 })
 
 it('replays supported attacks, retreats and convoys', async () => {
