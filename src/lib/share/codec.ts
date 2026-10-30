@@ -1,28 +1,24 @@
-import { moveTargets, supportAux, supportTargets, convoyAux, convoyTargets, convoyReach } from '../orders/options'
-import { buildSituation, retreatTargets } from '../orders/adjustments'
+import { buildSituation } from '../orders/adjustments'
 import { adjudicate, initialBoard } from '../adjudicator'
 import { sortUnits } from '../adjudicator/state'
 import { maps } from '../maps'
 import { choice } from './bits'
+import {
+  ConvoyOrderCodec,
+  SupportOrderCodec,
+  ConvoyedArmiesCodec,
+  MoveOrderCodec,
+  RetreatOrderCodec,
+  type WireOrder,
+} from './order-codecs'
 import { countryCodec, provinceCodec, optionalPlace, coastCodec, unitCodec } from './fields'
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { AdjudicationResult, AnyOrder, BoardState, Phase } from '../adjudicator'
 import type { SandboxContent } from './timeline'
+import type { Frame } from '../sandbox'
 import { CanonicalValue } from './canonical'
 
-type WireOrder = {
-  type: AnyOrder['type']
-  nation: string
-  source: string
-  sourceCoast?: string
-  target?: string
-  targetCoast?: string
-  aux?: string
-  viaConvoy?: boolean
-  unitType?: Unit['type']
-}
-type AssistanceKind = `${OrderKind.Support}` | `${OrderKind.Convoy}`
 type WireSource = Pick<WireOrder, 'nation' | 'source' | 'sourceCoast'>
 
 import {
@@ -217,14 +213,7 @@ class BoardCodec {
     else owners[center] = owner
   }
 
-  board(stream: Bits): BoardState
-  board(stream: Bits, board: BoardState, force?: boolean): void
-  board(stream: Bits, board?: BoardState, force = false): BoardState | void {
-    if (board) return this.writeBoard(stream, board, force)
-    return this.readBoard(stream)
-  }
-
-  private writeBoard(stream: Bits, board: BoardState, force: boolean): void {
+  encode(stream: Bits, board: BoardState, force = false): void {
     const opening = !force && equal(board, this.opening)
     stream.put(opening ? WireBit.One : WireBit.Zero, WireBit.One)
     if (opening) return
@@ -250,7 +239,7 @@ class BoardCodec {
     for (const region of [...regions].sort()) provinceCodec.write(stream, region, this)
   }
 
-  private readBoard(stream: Bits): BoardState {
+  decode(stream: Bits): BoardState {
     if (stream.get(WireBit.One)) return structuredClone(this.opening)
     const year = stream.integer()
     const season = stream.get(WireBit.One) ? SeasonKind.Fall : SeasonKind.Spring
@@ -281,12 +270,98 @@ class BoardCodec {
 
   boardChecksum(board: BoardState): number {
     const stream = new Bits()
-    this.board(stream, board, true)
+    this.encode(stream, board, true)
     return crc32(stream.bytes())
   }
 }
 
-class OrderCodec extends BoardCodec {
+/** Compact builds and removals share a board-derived dictionary. */
+class BuildOrdersCodec {
+  constructor(private readonly map: MapDefinition) {}
+
+  private choice(stream: Bits, values: string[]): string
+  private choice(stream: Bits, values: string[], value: string): void
+  private choice(stream: Bits, values: string[], value?: string): string | void {
+    const schema = choice([...new Set(values)].sort())
+    if (value === undefined) return schema.read(stream, undefined)
+    schema.write(stream, value, undefined)
+  }
+
+  buildChoices(board: BoardState): string[] {
+    const orders: WireOrder[] = []
+    for (const power of this.map.powers) this.appendBuildOrders(board, power.id, orders)
+    return orders.map((order) => JSON.stringify(stable(order))).sort()
+  }
+
+  private appendBuildOrders(board: BoardState, nation: string, orders: WireOrder[]): void {
+    const state = buildSituation(this.map, nation, board.supplyCenters, board.units)
+    if (state.delta > WireBit.Zero) {
+      this.appendBuilds(nation, state.spots, orders)
+      return
+    }
+    if (state.delta < WireBit.Zero) this.appendRemovals(nation, state.removable, orders)
+  }
+
+  private appendBuilds(nation: string, spots: ReturnType<typeof buildSituation>['spots'], orders: WireOrder[]): void {
+    for (const spot of spots) {
+      for (const type of spot.types) this.appendBuildTypes(nation, spot, type, orders)
+    }
+  }
+
+  private appendBuildTypes(
+    nation: string,
+    spot: ReturnType<typeof buildSituation>['spots'][number],
+    type: Unit['type'],
+    orders: WireOrder[],
+  ): void {
+    const coasts = type === UnitKind.Fleet && spot.coasts?.length ? [undefined, ...spot.coasts] : [undefined]
+    for (const coast of coasts) {
+      const source = spot.province
+      orders.push({ type: OrderKind.Build, nation, source, unitType: type, ...(coast ? { sourceCoast: coast } : {}) })
+    }
+  }
+
+  private appendRemovals(nation: string, units: Unit[], orders: WireOrder[]): void {
+    for (const unit of units) {
+      const coasts = unit.coast ? [undefined, unit.coast] : [undefined]
+      for (const coast of coasts) this.appendRemoval(nation, unit, coast, orders)
+    }
+  }
+
+  private appendRemoval(nation: string, unit: Unit, coast: string | undefined, orders: WireOrder[]): void {
+    const source = unit.territory
+    orders.push({ type: OrderKind.Remove, nation, source, ...(coast ? { sourceCoast: coast } : {}) })
+  }
+
+  encode(stream: Bits, board: BoardState, orders: WireOrder[]): void {
+    const choices = this.buildChoices(board)
+    stream.integer(orders.length)
+    for (const order of orders) this.choice(stream, choices, JSON.stringify(stable(order)))
+  }
+
+  decode(stream: Bits, board: BoardState): AnyOrder[] {
+    const choices = this.buildChoices(board)
+    const count = bounded(stream.integer(), WireLimit.ListItems)
+    return Array.from({ length: count }, () => JSON.parse(this.choice(stream, choices)) as AnyOrder)
+  }
+}
+
+class OrderCodec {
+  readonly boards: BoardCodec
+
+  constructor(readonly map: MapDefinition) {
+    this.boards = new BoardCodec(map)
+    this.convoyed = new ConvoyedArmiesCodec(map)
+    this.builds = new BuildOrdersCodec(map)
+  }
+
+  private readonly builds: BuildOrdersCodec
+  private readonly move = new MoveOrderCodec()
+  private readonly retreat = new RetreatOrderCodec()
+  private readonly support = new SupportOrderCodec()
+  private readonly convoy = new ConvoyOrderCodec()
+  private readonly convoyed: ConvoyedArmiesCodec
+
   roster(board: BoardState): Unit[] {
     return sortUnits(board.phase === PhaseKind.Retreat ? board.dislodged.map((entry) => entry.unit) : board.units)
   }
@@ -314,17 +389,17 @@ class OrderCodec extends BoardCodec {
       stream.put(index, width)
       return
     }
-    countryCodec.write(stream, order.nation, this)
-    provinceCodec.write(stream, order.source, this)
-    coastCodec.write(stream, order.sourceCoast, this)
+    countryCodec.write(stream, order.nation, this.boards)
+    provinceCodec.write(stream, order.source, this.boards)
+    coastCodec.write(stream, order.sourceCoast, this.boards)
   }
 
   private readSource(stream: Bits, roster: Unit[]): WireSource {
     const width = Math.ceil(Math.log2(Math.max(WireBit.One, roster.length)))
     if (stream.get(WireBit.One)) return this.readIndexedSource(stream, roster, width)
-    const nation = countryCodec.read(stream, this)
-    const source = provinceCodec.read(stream, this)
-    const coast = coastCodec.read(stream, this)
+    const nation = countryCodec.read(stream, this.boards)
+    const source = provinceCodec.read(stream, this.boards)
+    const coast = coastCodec.read(stream, this.boards)
     return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
   }
 
@@ -360,12 +435,12 @@ class OrderCodec extends BoardCodec {
   }
 
   private writeActionTargets(stream: Bits, order: WireOrder): void {
-    if (AUX_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.aux, this)
-    if (TARGET_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.target, this)
+    if (AUX_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.aux, this.boards)
+    if (TARGET_ACTIONS.includes(order.type)) optionalPlace.write(stream, order.target, this.boards)
   }
 
   private writeActionOptions(stream: Bits, order: WireOrder): void {
-    if (COAST_ACTIONS.includes(order.type)) coastCodec.write(stream, order.targetCoast, this)
+    if (COAST_ACTIONS.includes(order.type)) coastCodec.write(stream, order.targetCoast, this.boards)
     if (order.type === OrderKind.Move) stream.put(order.viaConvoy ? WireBit.One : WireBit.Zero, WireBit.One)
     if (order.type === OrderKind.Build) stream.put(BUILD_TYPES.indexOf(order.unitType), WireSize.UnitType)
   }
@@ -381,12 +456,12 @@ class OrderCodec extends BoardCodec {
   }
 
   private readActionTargets(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (AUX_ACTIONS.includes(order.type)) order.aux = optionalPlace.read(stream, this)
-    if (TARGET_ACTIONS.includes(order.type)) order.target = optionalPlace.read(stream, this)
+    if (AUX_ACTIONS.includes(order.type)) order.aux = optionalPlace.read(stream, this.boards)
+    if (TARGET_ACTIONS.includes(order.type)) order.target = optionalPlace.read(stream, this.boards)
   }
 
   private readActionOptions(stream: Bits, order: WireOrder | (Pick<WireOrder, 'type'> & Partial<WireOrder>)): void {
-    if (COAST_ACTIONS.includes(order.type)) order.targetCoast = coastCodec.read(stream, this)
+    if (COAST_ACTIONS.includes(order.type)) order.targetCoast = coastCodec.read(stream, this.boards)
     if (order.type === OrderKind.Move && stream.get(WireBit.One)) order.viaConvoy = true
     if (order.type !== OrderKind.Build) return
     const unitType = BUILD_TYPES[stream.get(WireSize.Mode)]
@@ -494,12 +569,12 @@ class OrderCodec extends BoardCodec {
       this.writeMovement(stream, board, unit, order, viaSet)
       return
     }
-    this.writeRetreat(stream, board, unit, order)
+    this.retreat.encode(stream, order, { map: this.map, board, unit, fields: this.boards })
   }
 
   private readCompactAction(stream: Bits, board: BoardState, unit: Unit, viaSet?: Set<string>): AnyOrder {
     if (board.phase === PhaseKind.Movement) return this.readMovement(stream, board, unit, viaSet)
-    return this.readRetreat(stream, board, unit)
+    return this.retreat.decode(stream, { map: this.map, board, unit, fields: this.boards })
   }
 
   private writeMovement(stream: Bits, board: BoardState, unit: Unit, order: WireOrder, viaSet?: Set<string>): void {
@@ -512,17 +587,24 @@ class OrderCodec extends BoardCodec {
     const code = codes[order.type]
     assert(code)
     stream.put(code[WireBit.Zero], code[WireBit.One])
-    if (order.type === OrderKind.Move) this.writeMove(stream, board, unit, order, viaSet)
-    if (order.type === OrderKind.Support || order.type === OrderKind.Convoy)
-      this.writeAssistance(stream, board, unit, order)
+    if (order.type === OrderKind.Move)
+      this.move.encode(stream, order, { map: this.map, board, unit, fields: this.boards, vias: viaSet })
+    const context = { map: this.map, board, unit }
+    if (order.type === OrderKind.Support) this.support.encode(stream, order, context)
+    if (order.type === OrderKind.Convoy) this.convoy.encode(stream, order, context)
   }
 
   private readMovement(stream: Bits, board: BoardState, unit: Unit, viaSet?: Set<string>): AnyOrder {
     const source = this.unitSource(unit)
     const type = this.readMovementType(stream)
-    if (type === OrderKind.Move) return { ...source, ...this.readMove(stream, board, unit, viaSet) }
+    if (type === OrderKind.Move)
+      return {
+        ...source,
+        ...this.move.decode(stream, { map: this.map, board, unit, fields: this.boards, vias: viaSet }),
+      }
     if (type === OrderKind.Hold) return { ...source, type }
-    const order = this.readAssistance(stream, board, unit, type)
+    const codec = type === OrderKind.Support ? this.support : this.convoy
+    const order = codec.decode(stream, { map: this.map, board, unit })
     return { ...source, ...order }
   }
 
@@ -531,228 +613,6 @@ class OrderCodec extends BoardCodec {
     if (!stream.get(WireBit.One)) return OrderKind.Support
     if (!stream.get(WireBit.One)) return OrderKind.Hold
     return OrderKind.Convoy
-  }
-
-  private moveTargets(board: BoardState, unit: Unit, via: boolean): string[] {
-    if (via) return convoyReach(this.map, unit.territory, board.units)
-    return moveTargets(this.map, unit).map((target) => target.province)
-  }
-
-  private writeMove(stream: Bits, board: BoardState, unit: Unit, order: WireOrder, viaSet?: Set<string>): void {
-    assert(viaSet)
-    assert(order.target)
-    const via = viaSet.has(unit.territory)
-    const targets = this.moveTargets(board, unit, via)
-    this.choice(stream, targets, order.target)
-    this.writeTargetCoast(stream, unit, order.target, order.targetCoast)
-  }
-
-  private readMove(stream: Bits, board: BoardState, unit: Unit, viaSet?: Set<string>): WireOrder {
-    assert(viaSet)
-    const via = viaSet.has(unit.territory)
-    const targets = this.moveTargets(board, unit, via)
-    const target = this.choice(stream, targets)
-    const coast = this.readTargetCoast(stream, unit, target)
-    return {
-      ...this.unitSource(unit),
-      type: OrderKind.Move,
-      target,
-      ...(via ? { viaConvoy: true } : {}),
-      ...(coast ? { targetCoast: coast } : {}),
-    }
-  }
-
-  private assistanceSources(board: BoardState, unit: Unit, type: AssistanceKind): string[] {
-    if (type === OrderKind.Support) return supportAux(this.map, unit, board.units)
-    return convoyAux(this.map, unit, board.units)
-  }
-
-  private assistanceTargets(board: BoardState, unit: Unit, source: string, type: AssistanceKind): string[] {
-    const targetUnit = board.units.find((other) => other.territory === source)
-    assert(targetUnit)
-    if (type === OrderKind.Support) return supportTargets(this.map, unit, targetUnit, board.units)
-    return convoyTargets(this.map, unit, targetUnit, board.units)
-  }
-
-  private writeAssistance(stream: Bits, board: BoardState, unit: Unit, order: WireOrder): void {
-    assert(order.type === OrderKind.Support || order.type === OrderKind.Convoy)
-    assert(order.aux && order.target)
-    const sources = this.assistanceSources(board, unit, order.type)
-    this.choice(stream, sources, order.aux)
-    const targets = this.assistanceTargets(board, unit, order.aux, order.type)
-    this.choice(stream, targets, order.target)
-  }
-
-  private readAssistance(stream: Bits, board: BoardState, unit: Unit, type: AssistanceKind): WireOrder {
-    const sources = this.assistanceSources(board, unit, type)
-    const aux = this.choice(stream, sources)
-    const targets = this.assistanceTargets(board, unit, aux, type)
-    const target = this.choice(stream, targets)
-    return { ...this.unitSource(unit), type, aux, target }
-  }
-
-  private writeRetreat(stream: Bits, board: BoardState, unit: Unit, order: WireOrder): void {
-    assert(board.phase === PhaseKind.Retreat)
-    assert(order.type === OrderKind.Retreat || order.type === OrderKind.Disband)
-    stream.put(order.type === OrderKind.Retreat ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (order.type === OrderKind.Disband) return
-    assert(order.target)
-    const targets = this.retreatTargets(board, unit)
-    this.choice(stream, targets, order.target)
-    this.writeTargetCoast(stream, unit, order.target, order.targetCoast)
-  }
-
-  private readRetreat(stream: Bits, board: BoardState, unit: Unit): AnyOrder {
-    assert(board.phase === PhaseKind.Retreat)
-    const source = this.unitSource(unit)
-    if (!stream.get(WireBit.One)) return { ...source, type: OrderKind.Disband }
-    const targets = this.retreatTargets(board, unit)
-    const target = this.choice(stream, targets)
-    const coast = this.readTargetCoast(stream, unit, target)
-    return { ...source, type: OrderKind.Retreat, target, ...(coast ? { targetCoast: coast } : {}) }
-  }
-
-  private retreatTargets(board: BoardState, unit: Unit): string[] {
-    const entry = board.dislodged.find((item) => item.unit.territory === unit.territory)
-    assert(entry)
-    const targets = retreatTargets(this.map, unit, entry.attackedFrom, board.units, board.contested)
-    return targets.map((target) => target.province)
-  }
-
-  private writeTargetCoast(stream: Bits, unit: Unit, target: string, coast?: string): void {
-    if (unit.type !== UnitKind.Fleet) return
-    if (!this.map.territories[target].coasts) return
-    coastCodec.write(stream, coast, this)
-  }
-
-  private readTargetCoast(stream: Bits, unit: Unit, target: string): string | undefined {
-    if (unit.type !== UnitKind.Fleet) return undefined
-    if (!this.map.territories[target].coasts) return undefined
-    return coastCodec.read(stream, this)
-  }
-
-  convoyList(stream: Bits, board: BoardState, orders?: WireOrder[]): Set<string> {
-    const roster = this.roster(board)
-    const eligible = roster.filter((unit) => this.canConvoy(board, unit))
-    if (orders) return this.writeConvoyList(stream, eligible, orders)
-    return this.readConvoyList(stream, eligible)
-  }
-
-  private canConvoy(board: BoardState, unit: Unit): boolean {
-    if (unit.type !== UnitKind.Army) return false
-    const targets = convoyReach(this.map, unit.territory, board.units)
-    return targets.length > WireBit.Zero
-  }
-
-  private writeConvoyList(stream: Bits, eligible: Unit[], orders: WireOrder[]): Set<string> {
-    const indexes = this.convoyIndexes(eligible, orders)
-    const sparse = this.sparseConvoys(indexes)
-    const bitmap = this.bitmapConvoys(eligible, indexes)
-    const useSparse = sparse.data.length < bitmap.data.length
-    const selected = useSparse ? sparse : bitmap
-    stream.put(useSparse ? WireBit.One : WireBit.Zero, WireBit.One)
-    stream.data.push(...selected.data)
-    return new Set(indexes.map((index) => eligible[index].territory))
-  }
-
-  private convoyIndexes(eligible: Unit[], orders: WireOrder[]): number[] {
-    const convoyed = orders.filter((order) => order.type === OrderKind.Move && order.viaConvoy)
-    const indexes = convoyed.map((order) => eligible.findIndex((unit) => unit.territory === order.source))
-    indexes.sort((left, right) => left - right)
-    assert(indexes.every((index) => index >= WireBit.Zero))
-    return indexes
-  }
-
-  private sparseConvoys(indexes: number[]): Bits {
-    const stream = new Bits()
-    stream.integer(indexes.length)
-    let previous = WireIndex.Missing
-    for (const index of indexes) {
-      stream.integer(index - previous - WireBit.One)
-      previous = index
-    }
-    return stream
-  }
-
-  private bitmapConvoys(eligible: Unit[], indexes: number[]): Bits {
-    const stream = new Bits()
-    for (let index = WireBit.Zero; index < eligible.length; index++) {
-      stream.put(indexes.includes(index) ? WireBit.One : WireBit.Zero, WireBit.One)
-    }
-    return stream
-  }
-
-  private readConvoyList(stream: Bits, eligible: Unit[]): Set<string> {
-    const sparse = stream.get(WireBit.One)
-    const indexes = sparse ? this.readSparseConvoys(stream, eligible) : this.readBitmapConvoys(stream, eligible)
-    return new Set(indexes.map((index) => eligible[index].territory))
-  }
-
-  private readSparseConvoys(stream: Bits, eligible: Unit[]): number[] {
-    const count = stream.integer()
-    assert(count <= eligible.length)
-    const indexes: number[] = []
-    let previous = WireIndex.Missing
-    for (let index = WireBit.Zero; index < count; index++) {
-      previous += WireBit.One + stream.integer()
-      assert(previous < eligible.length)
-      indexes.push(previous)
-    }
-    return indexes
-  }
-
-  private readBitmapConvoys(stream: Bits, eligible: Unit[]): number[] {
-    const indexes: number[] = []
-    for (let index = WireBit.Zero; index < eligible.length; index++) {
-      if (stream.get(WireBit.One)) indexes.push(index)
-    }
-    return indexes
-  }
-
-  buildChoices(board: BoardState): string[] {
-    const orders: WireOrder[] = []
-    for (const power of this.map.powers) this.appendBuildOrders(board, power.id, orders)
-    return orders.map((order) => JSON.stringify(stable(order))).sort()
-  }
-
-  private appendBuildOrders(board: BoardState, nation: string, orders: WireOrder[]): void {
-    const state = buildSituation(this.map, nation, board.supplyCenters, board.units)
-    if (state.delta > WireBit.Zero) {
-      this.appendBuilds(nation, state.spots, orders)
-      return
-    }
-    if (state.delta < WireBit.Zero) this.appendRemovals(nation, state.removable, orders)
-  }
-
-  private appendBuilds(nation: string, spots: ReturnType<typeof buildSituation>['spots'], orders: WireOrder[]): void {
-    for (const spot of spots) {
-      for (const type of spot.types) this.appendBuildTypes(nation, spot, type, orders)
-    }
-  }
-
-  private appendBuildTypes(
-    nation: string,
-    spot: ReturnType<typeof buildSituation>['spots'][number],
-    type: Unit['type'],
-    orders: WireOrder[],
-  ): void {
-    const coasts = type === UnitKind.Fleet && spot.coasts?.length ? [undefined, ...spot.coasts] : [undefined]
-    for (const coast of coasts) {
-      const source = spot.province
-      orders.push({ type: OrderKind.Build, nation, source, unitType: type, ...(coast ? { sourceCoast: coast } : {}) })
-    }
-  }
-
-  private appendRemovals(nation: string, units: Unit[], orders: WireOrder[]): void {
-    for (const unit of units) {
-      const coasts = unit.coast ? [undefined, unit.coast] : [undefined]
-      for (const coast of coasts) this.appendRemoval(nation, unit, coast, orders)
-    }
-  }
-
-  private appendRemoval(nation: string, unit: Unit, coast: string | undefined, orders: WireOrder[]): void {
-    const source = unit.territory
-    orders.push({ type: OrderKind.Remove, nation, source, ...(coast ? { sourceCoast: coast } : {}) })
   }
 
   compactOrders(stream: Bits, board: BoardState): AnyOrder[]
@@ -764,34 +624,22 @@ class OrderCodec extends BoardCodec {
 
   private writeCompactOrders(stream: Bits, board: BoardState, orders: WireOrder[]): void {
     if (board.phase === PhaseKind.Build) {
-      this.writeCompactBuilds(stream, board, orders)
+      this.builds.encode(stream, board, orders)
       return
     }
     this.writeCompactRoster(stream, board, orders)
   }
 
   private readCompactOrders(stream: Bits, board: BoardState): AnyOrder[] {
-    if (board.phase === PhaseKind.Build) return this.readCompactBuilds(stream, board)
+    if (board.phase === PhaseKind.Build) return this.builds.decode(stream, board)
     return this.readCompactRoster(stream, board)
-  }
-
-  private writeCompactBuilds(stream: Bits, board: BoardState, orders: WireOrder[]): void {
-    const choices = this.buildChoices(board)
-    stream.integer(orders.length)
-    for (const order of orders) this.choice(stream, choices, JSON.stringify(stable(order)))
-  }
-
-  private readCompactBuilds(stream: Bits, board: BoardState): AnyOrder[] {
-    const choices = this.buildChoices(board)
-    const count = bounded(stream.integer(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => JSON.parse(this.choice(stream, choices)) as AnyOrder)
   }
 
   private writeCompactRoster(stream: Bits, board: BoardState, orders: WireOrder[]): void {
     const roster = this.roster(board)
     const indexes = orders.map((order) => this.sourceIndex(roster, order))
     assert(this.orderedIndexes(indexes))
-    const vias = board.phase === PhaseKind.Movement ? this.convoyList(stream, board, orders) : undefined
+    const vias = board.phase === PhaseKind.Movement ? this.convoyed.encode(stream, board, orders) : undefined
     const all = orders.length === roster.length
     stream.put(all ? WireBit.One : WireBit.Zero, WireBit.One)
     for (let index = WireBit.Zero; index < roster.length; index++) {
@@ -816,7 +664,7 @@ class OrderCodec extends BoardCodec {
 
   private readCompactRoster(stream: Bits, board: BoardState): AnyOrder[] {
     const roster = this.roster(board)
-    const vias = board.phase === PhaseKind.Movement ? this.convoyList(stream, board) : undefined
+    const vias = board.phase === PhaseKind.Movement ? this.convoyed.decode(stream, board) : undefined
     const all = stream.get(WireBit.One)
     const orders: AnyOrder[] = []
     for (const unit of roster) {
@@ -825,15 +673,12 @@ class OrderCodec extends BoardCodec {
     return orders
   }
 
-  orders(stream: Bits, board: BoardState): AnyOrder[]
-  orders(stream: Bits, board: BoardState, orders: WireOrder[]): string
-  orders(stream: Bits, board: BoardState, orders?: WireOrder[]): AnyOrder[] | string {
-    if (orders) return this.writeOrders(stream, board, orders)
+  decode(stream: Bits, board: BoardState): AnyOrder[] {
     if (stream.get(WireBit.One)) return this.compactOrders(stream, board)
     return this.genericOrders(stream, board)
   }
 
-  private writeOrders(stream: Bits, board: BoardState, orders: WireOrder[]): string {
+  encode(stream: Bits, board: BoardState, orders: WireOrder[]): string {
     const generic = this.genericCandidate(board, orders)
     const compact = this.compactCandidate(board, orders)
     const useCompact = Boolean(compact && compact.data.length < generic.data.length)
@@ -900,15 +745,87 @@ class WireEnvelope {
   }
 }
 
+interface FrameHeader {
+  mapId: string
+  name: string
+  count: number
+  cursor: number
+}
+
+/** Map and timeline metadata, before the first board. */
+class MetadataCodec {
+  encode(stream: Bits, sandbox: SandboxContent): void {
+    const mapCode = sandbox.mapId === MapKind.Variant1900 ? WireBit.One : WireBit.Zero
+    stream.put(mapCode, WireBit.One)
+    stream.put(RULES_ID, WireSize.Checksum)
+    stream.text(sandbox.name)
+    stream.integer(sandbox.frames.length)
+    stream.integer(sandbox.cursor)
+  }
+
+  decode(stream: Bits): FrameHeader {
+    const mapId = stream.get(WireBit.One) ? MapKind.Variant1900 : MapKind.Classical
+    assertEqual(stream.get(WireSize.Checksum), RULES_ID)
+    const name = stream.text()
+    const count = stream.integer()
+    const cursor = stream.integer()
+    assert(count > WireBit.Zero && count <= WireLimit.Frames && cursor < count && name.length <= WireLimit.StringChars)
+    return { mapId, name, count, cursor }
+  }
+}
+
+/** A frame delegates orders and optional board checkpoints to their codecs. */
+class FrameCodec {
+  constructor(private readonly format: OrderCodec) {}
+
+  encode(stream: Bits, frame: Frame, next?: BoardState): void {
+    assert(frame.orders.length <= WireLimit.Orders)
+    this.format.encode(stream, frame.board, frame.orders)
+    stream.put(frame.results ? WireBit.One : WireBit.Zero, WireBit.One)
+    if (next) this.writeNext(stream, frame, next)
+  }
+
+  private writeNext(stream: Bits, frame: Frame, next: BoardState): void {
+    const result = adjudicate(this.format.map, frame.board, frame.orders)
+    const checkpoint = !equal(result.newBoardState, next)
+    stream.put(checkpoint ? WireBit.One : WireBit.Zero, WireBit.One)
+    if (checkpoint) this.format.boards.encode(stream, next)
+  }
+
+  decode(stream: Bits, board: BoardState, hasNext: boolean): { frame: Frame; next?: BoardState } {
+    const orders = this.format.decode(stream, board)
+    assert(orders.length <= WireLimit.Orders)
+    const show = stream.get(WireBit.One)
+    const result = show || hasNext ? adjudicate(this.format.map, board, orders) : undefined
+    const frame = this.frame(board, orders, show, result)
+    const next = hasNext ? this.readNext(stream, result) : undefined
+    return { frame, next }
+  }
+
+  private frame(board: BoardState, orders: AnyOrder[], show: number, result?: AdjudicationResult): Frame {
+    if (show) assert(result)
+    const results = show && result ? { results: result.results } : {}
+    return { board, orders, ...results }
+  }
+
+  private readNext(stream: Bits, result?: AdjudicationResult): BoardState {
+    assert(result)
+    return stream.get(WireBit.One) ? this.format.boards.decode(stream) : result.newBoardState
+  }
+}
+
 /** Write a snapshot and each subsequent frame without changing their stored order. */
 class SandboxWriter {
   private readonly stream = new Bits()
   private readonly format: OrderCodec
+  private readonly metadata = new MetadataCodec()
+  private readonly frameCodec: FrameCodec
 
   constructor(private readonly sandbox: SandboxContent) {
     const validMap = sandbox.mapId === MapKind.Classical || sandbox.mapId === MapKind.Variant1900
     assert(validMap)
     this.format = new OrderCodec(maps[sandbox.mapId])
+    this.frameCodec = new FrameCodec(this.format)
   }
 
   encode(): string {
@@ -927,59 +844,30 @@ class SandboxWriter {
   }
 
   private writeHeader(): void {
-    const sandbox = this.sandbox
-    const mapCode = sandbox.mapId === MapKind.Variant1900 ? WireBit.One : WireBit.Zero
-    this.stream.put(mapCode, WireBit.One)
-    this.stream.put(RULES_ID, WireSize.Checksum)
-    this.stream.text(sandbox.name)
-    this.stream.integer(sandbox.frames.length)
-    this.stream.integer(sandbox.cursor)
-    this.format.board(this.stream, sandbox.frames[WireBit.Zero].board)
+    this.metadata.encode(this.stream, this.sandbox)
+    this.format.boards.encode(this.stream, this.sandbox.frames[WireBit.Zero].board)
   }
 
   private writeFrames(): void {
     const frames = this.sandbox.frames
-    for (let index = WireBit.Zero; index < frames.length; index++) this.writeFrame(index)
-  }
-
-  private writeFrame(index: number): void {
-    const frames = this.sandbox.frames
-    const frame = frames[index]
-    assert(frame.orders.length <= WireLimit.Orders)
-    this.format.orders(this.stream, frame.board, frame.orders)
-    this.stream.put(frame.results ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (index < frames.length - WireBit.One) this.writeTransition(index)
-  }
-
-  private writeTransition(index: number): void {
-    const frames = this.sandbox.frames
-    const frame = frames[index]
-    const result = adjudicate(this.format.map, frame.board, frame.orders)
-    const next = frames[index + WireBit.One].board
-    const checkpoint = !equal(result.newBoardState, next)
-    this.stream.put(checkpoint ? WireBit.One : WireBit.Zero, WireBit.One)
-    if (checkpoint) this.format.board(this.stream, next)
+    for (let index = WireBit.Zero; index < frames.length; index++) {
+      this.frameCodec.encode(this.stream, frames[index], frames[index + WireBit.One]?.board)
+    }
   }
 
   private writeChecksum(): void {
     const frame = this.sandbox.frames.at(WireIndex.Missing)
     assert(frame)
-    const checksum = this.format.boardChecksum(frame.board)
+    const checksum = this.format.boards.boardChecksum(frame.board)
     this.stream.put(checksum, WireSize.Checksum)
   }
-}
-
-interface FrameHeader {
-  mapId: string
-  name: string
-  count: number
-  cursor: number
 }
 
 /** Read a version 1 stream and reconstruct frames using the existing adjudicator. */
 class SandboxReader {
   private readonly format: OrderCodec
   private readonly frames: SandboxContent['frames'] = []
+  private readonly frameCodec: FrameCodec
   private board: BoardState
 
   constructor(
@@ -987,25 +875,16 @@ class SandboxReader {
     private readonly header: FrameHeader,
   ) {
     this.format = new OrderCodec(maps[header.mapId])
-    this.board = this.format.board(stream)
+    this.frameCodec = new FrameCodec(this.format)
+    this.board = this.format.boards.decode(stream)
   }
 
   static decode(payload: string): SandboxContent {
     const raw = WireEnvelope.decode(payload)
     const stream = new Bits(raw)
-    const header = SandboxReader.readHeader(stream)
+    const header = new MetadataCodec().decode(stream)
     const reader = new SandboxReader(stream, header)
     return reader.read()
-  }
-
-  private static readHeader(stream: Bits): FrameHeader {
-    const mapId = stream.get(WireBit.One) ? MapKind.Variant1900 : MapKind.Classical
-    assertEqual(stream.get(WireSize.Checksum), RULES_ID)
-    const name = stream.text()
-    const count = stream.integer()
-    const cursor = stream.integer()
-    assert(count > WireBit.Zero && count <= WireLimit.Frames && cursor < count && name.length <= WireLimit.StringChars)
-    return { mapId, name, count, cursor }
   }
 
   private read(): SandboxContent {
@@ -1016,29 +895,14 @@ class SandboxReader {
   }
 
   private readFrame(index: number): void {
-    const orders = this.format.orders(this.stream, this.board)
-    assert(orders.length <= WireLimit.Orders)
-    const show = this.stream.get(WireBit.One)
     const hasNext = index < this.header.count - WireBit.One
-    const result = show || hasNext ? adjudicate(this.format.map, this.board, orders) : undefined
-    this.saveFrame(orders, show, result)
-    if (hasNext) this.advance(result)
-  }
-
-  private saveFrame(orders: AnyOrder[], show: number, result?: AdjudicationResult): void {
-    if (show) assert(result)
-    const results = show && result ? { results: result.results } : {}
-    this.frames.push({ board: this.board, orders, ...results })
-  }
-
-  private advance(result?: AdjudicationResult): void {
-    assert(result)
-    const checkpoint = this.stream.get(WireBit.One)
-    this.board = checkpoint ? this.format.board(this.stream) : result.newBoardState
+    const result = this.frameCodec.decode(this.stream, this.board, hasNext)
+    this.frames.push(result.frame)
+    if (result.next) this.board = result.next
   }
 
   private checkResult(): void {
-    const actual = this.format.boardChecksum(this.board)
+    const actual = this.format.boards.boardChecksum(this.board)
     const expected = this.stream.get(WireSize.Checksum)
     assertEqual(actual, expected)
     assert(this.stream.data.length - this.stream.pos < WireSize.Byte)
@@ -1046,13 +910,19 @@ class SandboxReader {
   }
 }
 
-function encodeSandbox(sandbox: SandboxContent): string {
-  const writer = new SandboxWriter(sandbox)
-  return writer.encode()
+/** Entry point composes the envelope, metadata, frames, boards, orders, and fields. */
+class SandboxCodec {
+  encode(sandbox: SandboxContent): string {
+    return new SandboxWriter(sandbox).encode()
+  }
+
+  decode(payload: string): SandboxContent {
+    return SandboxReader.decode(payload)
+  }
 }
 
-function decodeSandbox(payload: string): SandboxContent {
-  return SandboxReader.decode(payload)
-}
+const sandboxCodec = new SandboxCodec()
+const encodeSandbox = (sandbox: SandboxContent): string => sandboxCodec.encode(sandbox)
+const decodeSandbox = (payload: string): SandboxContent => sandboxCodec.decode(payload)
 
 export { decodeSandbox, encodeSandbox, equal }
