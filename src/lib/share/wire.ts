@@ -246,6 +246,11 @@ export function shortest(first: WireStream, alternative?: WireStream): WireStrea
   return first
 }
 
+/** Append the shortest candidate to an output stream. */
+export function writeShortest(stream: WireStream, first: WireStream, alternative?: WireStream): void {
+  stream.data.push(...shortest(first, alternative).data)
+}
+
 /** CRC-32/IEEE used for transport and final-board verification. */
 export class WireChecksum {
   static calculate(bytes: Uint8Array): number {

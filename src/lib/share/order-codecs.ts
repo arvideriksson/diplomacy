@@ -26,6 +26,12 @@ export type WireOrder = {
   unitType?: Unit['type']
 }
 
+/** Convert a unit's location into the source fields shared by orders. */
+export function unitSource(unit: Unit): Pick<WireOrder, 'nation' | 'source' | 'sourceCoast'> {
+  const { nation, territory: source, coast } = unit
+  return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
+}
+
 type AssistanceKind = `${OrderKind.Support}` | `${OrderKind.Convoy}`
 
 export interface OrderContext {
@@ -47,8 +53,7 @@ export class AssistanceOrderCodec {
   decode(stream: WireStream, context: OrderContext): WireOrder {
     const aux = placeChoice.decode(stream, this.sources(context))
     const target = placeChoice.decode(stream, this.targets(context, aux))
-    const { nation, territory: source, coast } = context.unit
-    return { nation, source, ...(coast ? { sourceCoast: coast } : {}), type: this.type, aux, target }
+    return { ...unitSource(context.unit), type: this.type, aux, target }
   }
 
   private sources({ map, board, unit }: OrderContext): string[] {
@@ -82,11 +87,6 @@ interface MoveContext extends OrderContext {
 }
 
 class TargetCodec {
-  protected source(unit: Unit) {
-    const { nation, territory: source, coast } = unit
-    return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
-  }
-
   protected writeCoast(stream: WireStream, context: MoveContext, target: string, coast?: string): void {
     if (context.unit.type !== UnitKind.Fleet || !context.map.territories[target].coasts) return
     coastCodec.encode(stream, coast, context.fields)
@@ -113,7 +113,7 @@ export class MoveOrderCodec extends TargetCodec {
     const target = placeChoice.decode(stream, this.targets(context, via))
     const coast = this.readCoast(stream, context, target)
     return {
-      ...this.source(context.unit),
+      ...unitSource(context.unit),
       type: OrderKind.Move,
       target,
       ...(via ? { viaConvoy: true } : {}),
@@ -139,7 +139,7 @@ export class RetreatOrderCodec extends TargetCodec {
   }
 
   decode(stream: WireStream, context: MoveContext): WireOrder {
-    const source = this.source(context.unit)
+    const source = unitSource(context.unit)
     if (!stream.get(WireBit.One)) return { ...source, type: OrderKind.Disband }
     const target = placeChoice.decode(stream, this.targets(context))
     const coast = this.readCoast(stream, context, target)
