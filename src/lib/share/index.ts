@@ -1,6 +1,6 @@
 import { decodeSandbox as decode, encodeSandbox as encode, equal } from './codec'
 import type { SandboxContent } from './timeline'
-import { toTimeline } from './timeline'
+import { fromTimeline, toTimeline } from './timeline'
 import {
   Base64Char,
   CompressionMode,
@@ -89,79 +89,67 @@ class StreamTransform {
   }
 }
 
-/** Convert between the local sandbox model and a portable, checksummed payload. */
-class SandboxTransport {
-  static async encode(sandbox: SandboxContent): Promise<string> {
-    const timeline = toTimeline(sandbox)
-    const envelope = encode(sandbox, timeline)
-    this.checkRoundTrip(sandbox, envelope)
-    const compressed = await this.compress(envelope)
-    return Base64Url.encode(compressed)
-  }
-
-  private static checkRoundTrip(sandbox: SandboxContent, payload: Uint8Array): void {
-    const result = decode(payload)
-    const { name, mapId, frames, cursor } = sandbox
-    if (!equal(result, { name, mapId, frames, cursor })) {
-      throw new Error('This sandbox contains data that cannot be shared yet.')
-    }
-  }
-
-  private static async compress(envelope: Uint8Array): Promise<Uint8Array> {
-    try {
-      const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
-      const compressed = await StreamTransform.convert(body, CompressionMode.Compress)
-      if (compressed.length >= body.length) return envelope
-      const packed = this.makeEnvelope(envelope, compressed, WireHeader.Deflate)
-      return packed
-    } catch {
-      return envelope
-    }
-  }
-
-  static async decode(payload: string): Promise<SandboxContent> {
-    this.checkPayload(payload)
-    const envelope = Base64Url.decode(payload)
-    this.checkEnvelope(envelope)
-    const raw = await this.uncompress(envelope)
-    const sandbox = decode(raw)
-    toTimeline(sandbox)
-    return sandbox
-  }
-
-  private static checkPayload(payload: string): void {
-    if (!payload || payload.length > WireLimit.PayloadChars || !PAYLOAD_PATTERN.test(payload)) {
-      throw new Error(WireError.Invalid)
-    }
-  }
-
-  private static checkEnvelope(envelope: Uint8Array): void {
-    const minimum = ENVELOPE_BYTES + WireBit.One
-    const maximum = WireLimit.PayloadBytes + ENVELOPE_BYTES
-    if (envelope.length < minimum || envelope.length > maximum) throw new Error(WireError.Invalid)
-  }
-
-  private static async uncompress(envelope: Uint8Array): Promise<Uint8Array> {
-    if (envelope[WireBit.Zero] !== WireHeader.Deflate) return envelope
-    const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
-    const raw = await StreamTransform.convert(body, CompressionMode.Decompress)
-    const unpacked = this.makeEnvelope(envelope, raw, WireHeader.Raw)
-    return unpacked
-  }
-
-  private static makeEnvelope(source: Uint8Array, body: Uint8Array, kind: WireHeader): Uint8Array {
-    const result = new Uint8Array(body.length + ENVELOPE_BYTES)
-    result[WireBit.Zero] = kind
-    result.set(body, WireSize.Header)
-    result.set(source.subarray(-WireSize.Trailer), result.length - WireSize.Trailer)
-    return result
-  }
-}
-
+/** Prepare a portable timeline, encode it, and make a URL-safe payload. */
 export async function encodeSandbox(sandbox: SandboxContent): Promise<string> {
-  return SandboxTransport.encode(sandbox)
+  const timeline = toTimeline(sandbox)
+  const envelope = encode(timeline)
+  checkRoundTrip(sandbox, envelope)
+  const packed = await packEnvelope(envelope)
+  return Base64Url.encode(packed)
 }
 
+/** Validate and unpack a URL-safe payload before restoring its sandbox. */
 export async function decodeSandbox(payload: string): Promise<SandboxContent> {
-  return SandboxTransport.decode(payload)
+  checkPayload(payload)
+  const envelope = Base64Url.decode(payload)
+  checkEnvelope(envelope)
+  const raw = await unpackEnvelope(envelope)
+  const timeline = decode(raw)
+  return fromTimeline(timeline)
+}
+
+function checkRoundTrip(sandbox: SandboxContent, envelope: Uint8Array): void {
+  const restored = fromTimeline(decode(envelope))
+  const { name, mapId, frames, cursor } = sandbox
+  if (!equal(restored, { name, mapId, frames, cursor })) {
+    throw new Error('This sandbox contains data that cannot be shared yet.')
+  }
+}
+
+async function packEnvelope(envelope: Uint8Array): Promise<Uint8Array> {
+  try {
+    const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
+    const compressed = await StreamTransform.convert(body, CompressionMode.Compress)
+    if (compressed.length >= body.length) return envelope
+    return makeEnvelope(envelope, compressed, WireHeader.Deflate)
+  } catch {
+    return envelope
+  }
+}
+
+async function unpackEnvelope(envelope: Uint8Array): Promise<Uint8Array> {
+  if (envelope[WireBit.Zero] !== WireHeader.Deflate) return envelope
+  const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
+  const raw = await StreamTransform.convert(body, CompressionMode.Decompress)
+  return makeEnvelope(envelope, raw, WireHeader.Raw)
+}
+
+function checkPayload(payload: string): void {
+  if (!payload || payload.length > WireLimit.PayloadChars || !PAYLOAD_PATTERN.test(payload)) {
+    throw new Error(WireError.Invalid)
+  }
+}
+
+function checkEnvelope(envelope: Uint8Array): void {
+  const minimum = ENVELOPE_BYTES + WireBit.One
+  const maximum = WireLimit.PayloadBytes + ENVELOPE_BYTES
+  if (envelope.length < minimum || envelope.length > maximum) throw new Error(WireError.Invalid)
+}
+
+function makeEnvelope(source: Uint8Array, body: Uint8Array, kind: WireHeader): Uint8Array {
+  const result = new Uint8Array(body.length + ENVELOPE_BYTES)
+  result[WireBit.Zero] = kind
+  result.set(body, WireSize.Header)
+  result.set(source.subarray(-WireSize.Trailer), result.length - WireSize.Trailer)
+  return result
 }

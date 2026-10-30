@@ -6,9 +6,9 @@ The envelope begins with `0x10` (raw) or `0x11` (raw DEFLATE), followed by the b
 
 The body is packed most-significant-bit first. `U(n)` means Elias gamma of `n + 1`. A string is its UTF-8 byte length as `U`, then its bytes. Province IDs are indexed in sorted map-key order; supply centers have their own sorted dictionary. The province and center indexes use the minimum fixed width for their dictionary. Powers are England (Britain on 1900), France, Italy, Germany, Austria, Turkey, Russia and neutral, in that order, with three bits. A coast is unspecified, north, south, east (two bits); 1900 adds west and uses three bits.
 
-The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. They use the map context to select the correct dictionaries and widths.
+The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. The generic action schema in `src/lib/share/order-modes.ts` describes its optional fields in wire order. Both use the map and phase context to select the correct dictionaries and widths.
 
-Encoding validates the sandbox and derives a timeline with checkpoints, writes its metadata and frames to a shared bitstream, adds the checksum, optionally compresses the result, and converts it to Base64url. Decoding reverses these steps and validates the reconstructed sandbox. The generic order mode preserves drafts, while the compact mode uses board-derived choices; the encoder selects the shorter valid representation. Movement, support, convoy, retreat, and build codecs own their respective fields. A separate convoyed-army codec selects sparse or bitmap encoding.
+Encoding validates the sandbox and derives one timeline with per-frame board context and checkpoints. It writes the timeline's metadata and frames to a shared bitstream, adds the checksum, optionally compresses the result, and converts it to Base64url. Decoding reconstructs the timeline, then validates and replays it into a sandbox. The generic order mode preserves drafts, while the compact mode uses board-derived choices; the encoder selects the shorter valid representation. Movement, support, convoy, retreat, and build codecs own their respective fields. A separate convoyed-army codec selects sparse or bitmap encoding.
 
 The body contains:
 

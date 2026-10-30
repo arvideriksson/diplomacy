@@ -12,8 +12,8 @@ const LITERAL_ERROR = 'Literal mismatch'
 
 /** A field codec reads and writes the same representation. */
 export interface Codec<T, C = void> {
-  read(reader: Pick<BitReader, 'uint'>, context: C): T
-  write(writer: Pick<BitWriter, 'uint'>, value: T, context: C): void
+  decode(reader: Pick<BitReader, 'get'>, context: C): T
+  encode(writer: Pick<BitWriter, 'put'>, value: T, context: C): void
 }
 
 /** Maps a value to a fixed-width integer, optionally using the current context. */
@@ -28,8 +28,8 @@ export function fixedBits<T, C>(spec: {
     return size
   }
   return {
-    read: (reader, context) => spec.decode(reader.uint(width(context)), context),
-    write: (writer, value, context) => writer.uint(spec.encode(value, context), width(context)),
+    decode: (reader, context) => spec.decode(reader.get(width(context)), context),
+    encode: (writer, value, context) => writer.put(spec.encode(value, context), width(context)),
   }
 }
 
@@ -41,7 +41,7 @@ export class BitWriter {
     return this.stream.data.length
   }
 
-  uint(value: number, width: number): void {
+  put(value: number, width: number): void {
     if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(INVALID_FIELD)
     if (!Number.isInteger(value) || value < WireBit.Zero || value >= WireMath.Radix ** width) throw Error(INVALID_FIELD)
     this.stream.put(value, width)
@@ -60,7 +60,7 @@ export class BitReader {
     this.stream = new WireStream(bytes)
   }
 
-  uint(width: number): number {
+  get(width: number): number {
     if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(TRUNCATED_BITS)
     if (this.stream.pos + width > this.stream.data.length) throw Error(TRUNCATED_BITS)
     return this.stream.get(width)
@@ -69,20 +69,20 @@ export class BitReader {
   finish(): void {
     if (this.stream.data.length - this.stream.pos >= WireSize.Byte) throw Error(TRAILING_BYTES)
     while (this.stream.pos < this.stream.data.length) {
-      if (this.uint(WireBit.One)) throw Error(NONZERO_PADDING)
+      if (this.get(WireBit.One)) throw Error(NONZERO_PADDING)
     }
   }
 }
 
 /** A single-bit Boolean field. */
 export class FlagCodec implements Codec<boolean, unknown> {
-  read(reader: Pick<BitReader, 'uint'>): boolean {
-    return Boolean(reader.uint(WireBit.One))
+  decode(reader: Pick<BitReader, 'get'>): boolean {
+    return Boolean(reader.get(WireBit.One))
   }
 
-  write(writer: Pick<BitWriter, 'uint'>, value: boolean): void {
+  encode(writer: Pick<BitWriter, 'put'>, value: boolean): void {
     if (typeof value !== 'boolean') throw Error(EXPECTED_FLAG)
-    writer.uint(Number(value), WireBit.One)
+    writer.put(Number(value), WireBit.One)
   }
 }
 
@@ -90,11 +90,11 @@ export class FlagCodec implements Codec<boolean, unknown> {
 export class LiteralCodec<T, C = unknown> implements Codec<T, C> {
   constructor(private readonly expected: T) {}
 
-  read(): T {
+  decode(): T {
     return this.expected
   }
 
-  write(_writer: Pick<BitWriter, 'uint'>, value: T): void {
+  encode(_writer: Pick<BitWriter, 'put'>, value: T): void {
     if (value !== this.expected) throw Error(LITERAL_ERROR)
   }
 }
@@ -117,30 +117,30 @@ export class ChoiceCodec<T, C = unknown> implements Codec<T, C> {
     this.cutoff = WireMath.Radix ** length - values.length
   }
 
-  read(reader: Pick<BitReader, 'uint'>): T {
+  decode(reader: Pick<BitReader, 'get'>): T {
     const index = this.readIndex(reader)
     if (index >= this.values.length) throw Error(INVALID_CHOICE)
     return this.values[index]
   }
 
-  private readIndex(reader: Pick<BitReader, 'uint'>): number {
-    const head = reader.uint(this.width)
+  private readIndex(reader: Pick<BitReader, 'get'>): number {
+    const head = reader.get(this.width)
     if (head < this.cutoff) return head
-    const suffix = reader.uint(WireBit.One)
+    const suffix = reader.get(WireBit.One)
     const extended = head * WireMath.Radix + suffix
     return extended - this.cutoff
   }
 
-  write(writer: Pick<BitWriter, 'uint'>, value: T): void {
+  encode(writer: Pick<BitWriter, 'put'>, value: T): void {
     const index = this.values.indexOf(value)
     if (index < WireBit.Zero) throw Error(MISSING_CHOICE)
     if (index < this.cutoff) {
-      writer.uint(index, this.width)
+      writer.put(index, this.width)
       return
     }
     const extended = index + this.cutoff
     const width = this.width + WireBit.One
-    writer.uint(extended, width)
+    writer.put(extended, width)
   }
 }
 
@@ -169,21 +169,21 @@ export class Struct<T extends object, C> implements Codec<T, C> {
     return new Struct([...this.fields, field])
   }
 
-  read(reader: Pick<BitReader, 'uint'>, context: C): T {
+  decode(reader: Pick<BitReader, 'get'>, context: C): T {
     const previous: RecordValue = {}
     for (const field of this.fields) {
       const codec = field.resolve(context, previous)
-      previous[field.name] = codec.read(reader, context)
+      previous[field.name] = codec.decode(reader, context)
     }
     return previous as T
   }
 
-  write(writer: Pick<BitWriter, 'uint'>, value: T, context: C): void {
+  encode(writer: Pick<BitWriter, 'put'>, value: T, context: C): void {
     const previous: RecordValue = {}
     const record = value as RecordValue
     for (const field of this.fields) {
       const codec = field.resolve(context, previous)
-      codec.write(writer, record[field.name], context)
+      codec.encode(writer, record[field.name], context)
       previous[field.name] = record[field.name]
     }
   }
@@ -193,13 +193,13 @@ export const struct = <C>() => new Struct<Record<never, never>, C>()
 
 export function encode<T, C>(codec: Codec<T, C>, value: T, context: C): { bytes: Uint8Array; bitLength: number } {
   const writer = new BitWriter()
-  codec.write(writer, value, context)
+  codec.encode(writer, value, context)
   return { bytes: writer.bytes(), bitLength: writer.bitLength }
 }
 
 export function decode<T, C>(codec: Codec<T, C>, bytes: Uint8Array, context: C): T {
   const reader = new BitReader(bytes)
-  const value = codec.read(reader, context)
+  const value = codec.decode(reader, context)
   reader.finish()
   return value
 }

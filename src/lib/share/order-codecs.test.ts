@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import { convoyBoard, TestPlace } from './fixtures.test-helper'
 import { ConvoyOrderCodec, ConvoyedArmiesCodec, type WireOrder } from './order-codecs'
-import { OrderKind, PowerKind, UnitKind, WireBit, WireStream } from './wire'
+import { OrderKind, PowerKind, UnitKind, WireBit, WireStream, shortest } from './wire'
 
 function convoyFixture() {
   const board = convoyBoard()
@@ -16,6 +16,17 @@ function moves(): WireOrder[] {
     { nation: PowerKind.England, type: OrderKind.Move, source: TestPlace.London, viaConvoy: true },
   ]
 }
+
+it('selects the shorter representation and keeps the first one on ties', () => {
+  const first = new WireStream()
+  const second = new WireStream()
+  first.put(WireBit.One, WireBit.One)
+  second.put(WireBit.Zero, WireBit.One)
+  expect(shortest(first, second)).toBe(first)
+  second.put(WireBit.One, WireBit.One)
+  expect(shortest(second, first)).toBe(first)
+  expect(shortest(first)).toBe(first)
+})
 
 it('chooses and decodes both sparse and bitmap convoy lists', () => {
   const board = convoyFixture()
@@ -35,8 +46,8 @@ it('rejects sparse convoy entries outside the eligible roster', () => {
   const board = convoyFixture()
   const stream = new WireStream()
   stream.put(WireBit.One, WireBit.One)
-  stream.integer(WireBit.One)
-  stream.integer(board.units.length)
+  stream.writeInteger(WireBit.One)
+  stream.writeInteger(board.units.length)
   const codec = new ConvoyedArmiesCodec(classicalMap)
   expect(() => codec.decode(new WireStream(stream.bytes()), board)).toThrow()
 })

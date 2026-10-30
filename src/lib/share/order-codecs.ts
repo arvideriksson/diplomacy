@@ -6,7 +6,7 @@ import { retreatTargets } from '../orders/adjustments'
 import { coastCodec, type FieldContext } from './fields'
 import type { Unit } from '../types'
 import { sortedChoices } from './bits'
-import { OrderKind, UnitKind, WireBit, WireIndex, WireStream, requireWire } from './wire'
+import { OrderKind, UnitKind, WireBit, WireIndex, WireStream, requireWire, shortest } from './wire'
 
 export type WireOrder = {
   type: AnyOrder['type']
@@ -58,11 +58,11 @@ export class AssistanceOrderCodec {
   }
 
   private writeChoice(stream: WireStream, values: string[], value: string): void {
-    sortedChoices(values).write(stream, value, undefined)
+    sortedChoices(values).encode(stream, value, undefined)
   }
 
   private readChoice(stream: WireStream, values: string[]): string {
-    return sortedChoices(values).read(stream, undefined)
+    return sortedChoices(values).decode(stream, undefined)
   }
 }
 
@@ -85,11 +85,11 @@ interface MoveContext extends OrderContext {
 
 class TargetCodec {
   protected writeChoice(stream: WireStream, values: string[], value: string): void {
-    sortedChoices(values).write(stream, value, undefined)
+    sortedChoices(values).encode(stream, value, undefined)
   }
 
   protected readChoice(stream: WireStream, values: string[]): string {
-    return sortedChoices(values).read(stream, undefined)
+    return sortedChoices(values).decode(stream, undefined)
   }
 
   protected source(unit: Unit) {
@@ -99,12 +99,12 @@ class TargetCodec {
 
   protected writeCoast(stream: WireStream, context: MoveContext, target: string, coast?: string): void {
     if (context.unit.type !== UnitKind.Fleet || !context.map.territories[target].coasts) return
-    coastCodec.write(stream, coast, context.fields)
+    coastCodec.encode(stream, coast, context.fields)
   }
 
   protected readCoast(stream: WireStream, context: MoveContext, target: string): string | undefined {
     if (context.unit.type !== UnitKind.Fleet || !context.map.territories[target].coasts) return undefined
-    return coastCodec.read(stream, context.fields)
+    return coastCodec.decode(stream, context.fields)
   }
 }
 
@@ -172,9 +172,9 @@ export class ConvoyedArmiesCodec {
     const indexes = this.indexes(eligible, orders)
     const sparse = this.sparse(indexes)
     const bitmap = this.bitmap(eligible, indexes)
-    const useSparse = sparse.data.length < bitmap.data.length
-    stream.put(useSparse ? WireBit.One : WireBit.Zero, WireBit.One)
-    stream.data.push(...(useSparse ? sparse : bitmap).data)
+    const selected = shortest(bitmap, sparse)
+    stream.put(selected === sparse ? WireBit.One : WireBit.Zero, WireBit.One)
+    stream.data.push(...selected.data)
     return this.territories(eligible, indexes)
   }
 
@@ -208,10 +208,10 @@ export class ConvoyedArmiesCodec {
 
   private sparse(indexes: number[]): WireStream {
     const stream = new WireStream()
-    stream.integer(indexes.length)
+    stream.writeInteger(indexes.length)
     let previous = WireIndex.Missing
     for (const index of indexes) {
-      stream.integer(index - previous - WireBit.One)
+      stream.writeInteger(index - previous - WireBit.One)
       previous = index
     }
     return stream
@@ -226,12 +226,12 @@ export class ConvoyedArmiesCodec {
   }
 
   private readSparse(stream: WireStream, eligible: Unit[]): number[] {
-    const count = stream.integer()
+    const count = stream.readInteger()
     requireWire(count <= eligible.length)
     const indexes: number[] = []
     let previous = WireIndex.Missing
     for (let index = WireBit.Zero; index < count; index++) {
-      previous += WireBit.One + stream.integer()
+      previous += WireBit.One + stream.readInteger()
       requireWire(previous < eligible.length)
       indexes.push(previous)
     }

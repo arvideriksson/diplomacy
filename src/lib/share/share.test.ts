@@ -122,6 +122,14 @@ it('preserves a retained future after editing an earlier phase', () => {
   expect(() => fromTimeline({ ...timeline, cursor: TestLimit.BadCursor })).toThrow()
 })
 
+it('includes each frame board in the prepared timeline and rejects inconsistent context', () => {
+  const sandbox = game(classicalMap, [[OPEN_MOVE]])
+  const timeline = toTimeline(sandbox)
+  expect(timeline.entries[LAST_INDEX].board).toEqual(sandbox.frames[LAST_INDEX].board)
+  timeline.entries[LAST_INDEX].board = timeline.entries[FIRST_INDEX].board
+  expect(() => fromTimeline(timeline)).toThrow()
+})
+
 it('keeps the version 1 opening payload stable', async () => {
   const sandbox = game()
   sandbox.name = GOLDEN_NAME
@@ -134,10 +142,10 @@ it('keeps the version 1 opening payload stable', async () => {
 
 it('decodes an envelope that is a view into a larger byte buffer', () => {
   const sandbox = game()
-  const bytes = encodeBytes(sandbox, toTimeline(sandbox))
+  const bytes = encodeBytes(toTimeline(sandbox))
   const padded = new Uint8Array(bytes.length + 2)
   padded.set(bytes, 1)
-  expect(decodeBytes(padded.subarray(1, -1))).toEqual(sandbox)
+  expect(fromTimeline(decodeBytes(padded.subarray(1, -1)))).toEqual(sandbox)
 })
 
 it('round trips both map openings and a resolved history with draft orders', async () => {
@@ -202,4 +210,13 @@ it('retains duplicate and illegal orders without inventing results', async () =>
   const sandbox = game()
   sandbox.frames[FIRST_INDEX].orders = [INVALID_MOVE, DUPLICATE_HOLD]
   await expectRoundTrip(sandbox)
+})
+
+it('preserves duplicate draft orders in retreat and build phases', async () => {
+  for (const sandbox of [retreatGame(), coastGame()]) {
+    const frame = sandbox.frames.find((entry) => entry.orders.length > 0 && entry.board.phase !== PhaseKind.Movement)!
+    frame.orders = [frame.orders[FIRST_INDEX], frame.orders[FIRST_INDEX]]
+    frame.results = undefined
+    await expectRoundTrip(sandbox)
+  }
 })

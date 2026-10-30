@@ -1,5 +1,5 @@
 import { adjudicate } from '../adjudicator'
-import type { AdjudicationResult, AnyOrder, BoardState } from '../adjudicator'
+import type { AnyOrder, BoardState } from '../adjudicator'
 import type { MapDefinition } from '../mapDefinition'
 import { getMap } from '../maps'
 import type { Frame, Sandbox } from '../sandbox'
@@ -11,6 +11,8 @@ import { OrderKind, PhaseKind, SeasonKind, UnitKind, WireBit, WireLimit } from '
 export type SandboxContent = Pick<Sandbox, 'name' | 'mapId' | 'frames' | 'cursor'>
 
 export interface TimelineEntry {
+  /** Board context for this phase; derived during preparation or replay. */
+  board: BoardState
   orders: AnyOrder[]
   showResults: boolean
   /** Next board, stored only when replay cannot reconstruct it. */
@@ -150,96 +152,53 @@ class OrderValidator {
   }
 }
 
-/** Build a portable timeline from the existing sandbox frames. */
-class TimelineWriter {
-  private readonly map: MapDefinition
-  private readonly boards: BoardValidator
-  private readonly orders: OrderValidator
-
-  constructor(private readonly sandbox: SandboxContent) {
-    this.map = getMap(sandbox.mapId)
-    this.boards = new BoardValidator(this.map)
-    this.orders = new OrderValidator(this.map)
-  }
-
-  write(): ShareTimeline {
-    checkCursor(this.sandbox.cursor, this.sandbox.frames.length)
-    const entries = this.sandbox.frames.map((frame, index) => this.writeEntry(frame, index))
-    const { name, mapId, cursor, frames } = this.sandbox
-    const initialBoard = structuredClone(frames[WireBit.Zero].board)
-    return { name, mapId, initialBoard, cursor, entries }
-  }
-
-  private writeEntry(frame: Frame, index: number): TimelineEntry {
-    this.boards.validate(frame.board)
-    this.orders.validate(frame.orders)
-    const next = this.sandbox.frames[index + WireBit.One]
-    const result = this.resolve(frame, Boolean(next))
-    this.checkResults(frame, result)
-    const checkpoint = this.checkpoint(next, result)
-    const orders = structuredClone(frame.orders)
-    return { orders, showResults: frame.results !== undefined, ...(checkpoint ? { checkpoint } : {}) }
-  }
-
-  private resolve(frame: Frame, hasNext: boolean): AdjudicationResult | undefined {
-    if (!hasNext && !frame.results) return undefined
-    return adjudicate(this.map, frame.board, frame.orders)
-  }
-
-  private checkResults(frame: Frame, result?: AdjudicationResult): void {
-    if (!frame.results) return
-    if (!CanonicalValue.equal(frame.results, result?.results)) throw Error(STALE_RESULTS)
-  }
-
-  private checkpoint(next?: Frame, result?: AdjudicationResult): BoardState | undefined {
-    if (!next || CanonicalValue.equal(next.board, result?.newBoardState)) return undefined
-    return structuredClone(next.board)
-  }
-}
-
-/** Reconstruct the same frame shape used by the sandbox store. */
-class TimelineReader {
-  private readonly map: MapDefinition
-  private readonly boards: BoardValidator
-  private readonly frames: Frame[] = []
-  private board: BoardState
-
-  constructor(private readonly timeline: ShareTimeline) {
-    this.map = getMap(timeline.mapId)
-    this.boards = new BoardValidator(this.map)
-    this.boards.validate(timeline.initialBoard)
-    this.board = structuredClone(timeline.initialBoard)
-  }
-
-  read(): SandboxContent {
-    checkCursor(this.timeline.cursor, this.timeline.entries.length)
-    this.timeline.entries.forEach((entry, index) => this.readEntry(entry, index))
-    const { name, mapId, cursor } = this.timeline
-    return { name, mapId, frames: this.frames, cursor }
-  }
-
-  private readEntry(entry: TimelineEntry, index: number): void {
-    const next = index + WireBit.One < this.timeline.entries.length
-    if (!next && entry.checkpoint) throw Error('Checkpoint beyond last frame')
-    if (entry.checkpoint) this.boards.validate(entry.checkpoint)
-    const orders = structuredClone(entry.orders)
-    const result = next || entry.showResults ? adjudicate(this.map, this.board, orders) : undefined
-    const results = entry.showResults ? { results: result?.results } : {}
-    this.frames.push({ board: this.board, orders, ...results })
-    if (next && result) this.advance(entry, result)
-  }
-
-  private advance(entry: TimelineEntry, result: AdjudicationResult): void {
-    this.board = entry.checkpoint ? structuredClone(entry.checkpoint) : result.newBoardState
-  }
-}
-
+/** Validate and convert local sandbox frames into portable timeline entries. */
 export function toTimeline(sandbox: SandboxContent): ShareTimeline {
-  const writer = new TimelineWriter(sandbox)
-  return writer.write()
+  const { name, mapId, cursor, frames } = sandbox
+  checkCursor(cursor, frames.length)
+  const map = getMap(mapId)
+  const boards = new BoardValidator(map)
+  const orders = new OrderValidator(map)
+  const entries = frames.map((frame, index): TimelineEntry => {
+    boards.validate(frame.board)
+    orders.validate(frame.orders)
+    const next = frames[index + WireBit.One]
+    const result = next || frame.results ? adjudicate(map, frame.board, frame.orders) : undefined
+    if (frame.results && !CanonicalValue.equal(frame.results, result?.results)) throw Error(STALE_RESULTS)
+    const checkpoint =
+      next && !CanonicalValue.equal(next.board, result?.newBoardState) ? structuredClone(next.board) : undefined
+    return {
+      board: structuredClone(frame.board),
+      orders: structuredClone(frame.orders),
+      showResults: frame.results !== undefined,
+      ...(checkpoint ? { checkpoint } : {}),
+    }
+  })
+  return { name, mapId, cursor, initialBoard: structuredClone(frames[WireBit.Zero].board), entries }
 }
 
+/** Validate and replay the portable timeline into local sandbox frames. */
 export function fromTimeline(timeline: ShareTimeline): SandboxContent {
-  const reader = new TimelineReader(timeline)
-  return reader.read()
+  const { name, mapId, cursor, entries } = timeline
+  const map = getMap(mapId)
+  const boards = new BoardValidator(map)
+  const orders = new OrderValidator(map)
+  let board = structuredClone(timeline.initialBoard)
+  boards.validate(board)
+  checkCursor(cursor, entries.length)
+  const frames: Frame[] = []
+  for (const [index, entry] of entries.entries()) {
+    const next = index + WireBit.One < entries.length
+    if (!next && entry.checkpoint) throw Error('Checkpoint beyond last frame')
+    boards.validate(board)
+    orders.validate(entry.orders)
+    if (!CanonicalValue.equal(entry.board, board)) throw Error(INVALID_BOARD)
+    if (entry.checkpoint) boards.validate(entry.checkpoint)
+    const current = structuredClone(entry.orders)
+    const result = next || entry.showResults ? adjudicate(map, board, current) : undefined
+    const results = entry.showResults ? { results: result?.results } : {}
+    frames.push({ board, orders: current, ...results })
+    if (next && result) board = entry.checkpoint ? structuredClone(entry.checkpoint) : result.newBoardState
+  }
+  return { name, mapId, frames, cursor }
 }
