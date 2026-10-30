@@ -32,6 +32,8 @@
   export let tab: GameTab = 'map'
   /** Open the map on this nation's units (the viewer's, in a game copy). */
   export let focusNation: string = ''
+  export let preview = false
+  export let onPreviewStep: (direction: number) => void = () => {}
 
   $: sb = sandbox
   $: frame = sb.frames[sb.cursor]
@@ -57,6 +59,7 @@
   onDestroy(() => noticeTimer && clearTimeout(noticeTimer))
 
   function handleResolve(orders: AnyOrder[]) {
+    if (preview) return
     const label = board.phase === 'build' ? `Winter ${board.year} builds` : `${board.season} ${board.year}${board.phase === 'retreat' ? ' retreats' : ''}`
     preUnits = board.units
     preDislodged = board.dislodged
@@ -67,9 +70,12 @@
     const parts = [failed ? `${failed} failed` : 'all orders succeeded', dislodgedNow ? `${dislodgedNow} dislodged` : '']
     flash(`Resolved ${label}: ${parts.filter(Boolean).join(', ')}`)
   }
-  const handleOrdersChange = (orders: AnyOrder[]) => setCurrentOrders(sb.id, orders)
+  const handleOrdersChange = (orders: AnyOrder[]) => {
+    if (!preview) setCurrentOrders(sb.id, orders)
+  }
   function step(fn: (id: string) => void) {
-    fn(sb.id)
+    if (preview) onPreviewStep(fn === goBack ? -1 : 1)
+    else fn(sb.id)
     lastResults = []
     notice = ''
   }
@@ -119,6 +125,7 @@
   controlAll={true}
   onResolve={handleResolve}
   initialOrders={frame.orders ?? []}
+  historyOrders={preview ? frame.orders : []}
   historyResults={frame.results ?? []}
   onOrdersChange={handleOrdersChange}
   seedKey={`${sb.id}|${sb.cursor}`}
@@ -129,7 +136,7 @@
   dislodged={board.dislodged}
   contested={board.contested}
   supplyCenters={board.supplyCenters}
-  readOnly={Boolean(winner)}
+  readOnly={preview || Boolean(winner)}
   {pressBadge}
   {focusNation}
   {notice}
@@ -137,8 +144,12 @@
 >
   <svelte:fragment slot="left">
     <div class="no-press">
-      <button class="btn" on:click={shareSandbox}><Icon name="share" size={16} round /> Share sandbox</button>
-      {#if inGame}
+      {#if !preview}
+        <button class="btn" on:click={shareSandbox}><Icon name="share" size={16} round /> Share sandbox</button>
+      {/if}
+      {#if preview}
+        <p>Save this sandbox to edit it.</p>
+      {:else if inGame}
         <button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>
       {:else}
         <p>No press in a sandbox — you are playing every power.</p>
@@ -150,10 +161,12 @@
     {#if !$compact}
       <button class="glass exit-btn" on:click={onExit}>‹ {inGame ? 'Back to game' : 'Leave'}</button>
     {/if}
-    <button class="glass exit-btn" on:click={shareSandbox} aria-label="Share sandbox"><Icon name="share" size={16} round /> Share</button>
-    <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
-      <Icon name="trash" size={17} round />
-    </button>
+    {#if !preview}
+      <button class="glass exit-btn" on:click={shareSandbox} aria-label="Share sandbox"><Icon name="share" size={16} round /> Share</button>
+      <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
+        <Icon name="trash" size={17} round />
+      </button>
+    {/if}
   </svelte:fragment>
 
   <svelte:fragment slot="toolbar">
