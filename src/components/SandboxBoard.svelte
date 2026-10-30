@@ -19,6 +19,7 @@
   import { victoryFor, type AnyOrder, type OrderResult } from '../lib/adjudicator'
   import type { Unit } from '../lib/game'
   import { formatAnyOrder, describeAnyOrder } from '../lib/orders/notation'
+  import { encodeSandbox } from '../lib/share'
   import { compact, type GameTab } from '../lib/layout'
 
   export let sandbox: Sandbox
@@ -72,6 +73,23 @@
     lastResults = []
     notice = ''
   }
+  async function shareSandbox() {
+    try {
+      const url = new URL(`/sandbox/${await encodeSandbox(sb)}`, location.origin)
+      if (url.href.length > 8000) throw new Error('This sandbox is too large to share as a link.')
+      try {
+        await navigator.clipboard.writeText(url.href)
+        flash('Share link copied')
+      } catch {
+        window.prompt('Copy this share link:', url.href)
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message === 'Sandbox payload is too large'
+        ? 'This sandbox is too large to share as a link.'
+        : error instanceof Error ? error.message : 'Could not create a share link'
+      flash(message)
+    }
+  }
   function handleDelete() {
     deleteSandbox(sb.id)
     onDeleted()
@@ -119,6 +137,7 @@
 >
   <svelte:fragment slot="left">
     <div class="no-press">
+      <button class="btn" on:click={shareSandbox}>Share sandbox</button>
       {#if inGame}
         <button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>
       {:else}
@@ -131,6 +150,7 @@
     {#if !$compact}
       <button class="glass exit-btn" on:click={onExit}>‹ {inGame ? 'Back to game' : 'Leave'}</button>
     {/if}
+    <button class="glass exit-btn" on:click={shareSandbox} aria-label="Share sandbox">Share</button>
     <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
       <Icon name="trash" size={17} round />
     </button>

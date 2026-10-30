@@ -91,6 +91,7 @@
             <h1>Diplomacy</h1>
           </div>
           <DiplomacyMap mapDef={classicalMap} units={demoBoard.units} ownership={demoBoard.supplyCenters} interactive={false} />
+          <button class="btn btn-primary" on:click={() => newSandbox('Sandbox', 'classical')}>Open sandbox</button>
           <div class="login-container">
             <LoginButton />
           </div>
