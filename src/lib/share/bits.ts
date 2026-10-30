@@ -1,120 +1,216 @@
-/** Minimal, symmetric bit codecs. No browser, Svelte, database or Node imports. */
+import { WireBit, WireMath, WireSize } from './wire'
+
+const INVALID_FIELD = 'Invalid unsigned bit field'
+const TRUNCATED_BITS = 'Truncated bit field'
+const TRAILING_BYTES = 'Trailing bytes'
+const NONZERO_PADDING = 'Nonzero padding'
+const BAD_CHOICES = 'Expected distinct choices'
+const INVALID_CHOICE = 'Invalid choice'
+const MISSING_CHOICE = 'Value outside dictionary'
+const EXPECTED_FLAG = 'Expected boolean'
+const LITERAL_ERROR = 'Literal mismatch'
+
+/** A field codec reads and writes the same representation. */
 export interface Codec<T, C = void> {
   read(reader: Pick<BitReader, 'uint'>, context: C): T
   write(writer: Pick<BitWriter, 'uint'>, value: T, context: C): void
 }
+
+/** Writes bounded unsigned values to a bit-packed buffer. */
 export class BitWriter {
   private data: number[] = []
-  bitLength = 0
+  bitLength = WireBit.Zero
+
   uint(value: number, width: number): void {
-    if (
-      !Number.isInteger(width) ||
-      width < 0 ||
-      width > 32 ||
-      !Number.isInteger(value) ||
-      value < 0 ||
-      value >= 2 ** width
-    )
-      throw Error('Invalid unsigned bit field')
-    for (let i = width - 1; i >= 0; i--) {
-      const byte = this.bitLength >>> 3
-      this.data[byte] = (this.data[byte] ?? 0) | ((Math.floor(value / 2 ** i) % 2) << (7 - (this.bitLength % 8)))
-      this.bitLength++
+    this.checkField(value, width)
+    for (let index = width - WireBit.One; index >= WireBit.Zero; index--) {
+      this.writeBit(value, index)
     }
   }
+
+  private checkField(value: number, width: number): void {
+    if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(INVALID_FIELD)
+    if (!Number.isInteger(value) || value < WireBit.Zero) throw Error(INVALID_FIELD)
+    if (value >= WireMath.Radix ** width) throw Error(INVALID_FIELD)
+  }
+
+  private writeBit(value: number, index: number): void {
+    const byte = this.bitLength >>> WireMath.ByteShift
+    const power = WireMath.Radix ** index
+    const shifted = Math.floor(value / power)
+    const bit = shifted % WireMath.Radix
+    const position = WireMath.LastBit - (this.bitLength % WireSize.Byte)
+    this.data[byte] = (this.data[byte] ?? WireBit.Zero) | (bit << position)
+    this.bitLength++
+  }
+
   bytes(): Uint8Array {
     return Uint8Array.from(this.data)
   }
 }
+
+/** Reads bounded unsigned values from a bit-packed buffer. */
 export class BitReader {
-  position = 0
+  position = WireBit.Zero
+
   constructor(readonly bytes: Uint8Array) {}
+
   uint(width: number): number {
-    if (!Number.isInteger(width) || width < 0 || width > 32 || this.position + width > this.bytes.length * 8)
-      throw Error('Truncated bit field')
-    let result = 0
-    for (let i = 0; i < width; i++) {
-      result = result * 2 + ((this.bytes[this.position >>> 3] >>> (7 - (this.position % 8))) & 1)
-      this.position++
+    this.checkWidth(width)
+    let result = WireBit.Zero
+    for (let index = WireBit.Zero; index < width; index++) {
+      result *= WireMath.Radix
+      result += this.readBit()
     }
     return result
   }
+
+  private checkWidth(width: number): void {
+    if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(TRUNCATED_BITS)
+    const end = this.position + width
+    const limit = this.bytes.length * WireSize.Byte
+    if (end > limit) throw Error(TRUNCATED_BITS)
+  }
+
+  private readBit(): number {
+    const byte = this.position >>> WireMath.ByteShift
+    const offset = this.position % WireSize.Byte
+    const shift = WireMath.LastBit - offset
+    const value = (this.bytes[byte] >>> shift) & WireBit.One
+    this.position++
+    return value
+  }
+
   finish(): void {
-    if (this.bytes.length * 8 - this.position >= 8) throw Error('Trailing bytes')
-    while (this.position < this.bytes.length * 8) if (this.uint(1)) throw Error('Nonzero padding')
+    const limit = this.bytes.length * WireSize.Byte
+    if (limit - this.position >= WireSize.Byte) throw Error(TRAILING_BYTES)
+    while (this.position < limit) {
+      if (this.uint(WireBit.One)) throw Error(NONZERO_PADDING)
+    }
   }
 }
-export const flag: Codec<boolean, unknown> = {
-  read: (r) => Boolean(r.uint(1)),
-  write(w, value) {
-    if (typeof value !== 'boolean') throw Error('Expected boolean')
-    w.uint(Number(value), 1)
-  },
+
+/** A single-bit Boolean field. */
+export class FlagCodec implements Codec<boolean, unknown> {
+  read(reader: Pick<BitReader, 'uint'>): boolean {
+    return Boolean(reader.uint(WireBit.One))
+  }
+
+  write(writer: Pick<BitWriter, 'uint'>, value: boolean): void {
+    if (typeof value !== 'boolean') throw Error(EXPECTED_FLAG)
+    writer.uint(Number(value), WireBit.One)
+  }
 }
+
+/** A field whose value is known from context and needs no bits. */
+export class LiteralCodec<T, C = unknown> implements Codec<T, C> {
+  constructor(private readonly expected: T) {}
+
+  read(): T {
+    return this.expected
+  }
+
+  write(_writer: Pick<BitWriter, 'uint'>, value: T): void {
+    if (value !== this.expected) throw Error(LITERAL_ERROR)
+  }
+}
+
+export const flag = new FlagCodec()
+
 export function literal<T, C = unknown>(expected: T): Codec<T, C> {
-  return {
-    read: () => expected,
-    write(_w, value) {
-      if (value !== expected) throw Error('Literal mismatch')
-    },
+  return new LiteralCodec(expected)
+}
+
+/** Truncated binary uses short codes for the first values in a dictionary. */
+export class ChoiceCodec<T, C = unknown> implements Codec<T, C> {
+  private readonly width: number
+  private readonly cutoff: number
+
+  constructor(private readonly values: readonly T[]) {
+    if (!values.length || new Set(values).size !== values.length) throw Error(BAD_CHOICES)
+    this.width = Math.floor(Math.log2(values.length))
+    const length = this.width + WireBit.One
+    this.cutoff = WireMath.Radix ** length - values.length
+  }
+
+  read(reader: Pick<BitReader, 'uint'>): T {
+    const index = this.readIndex(reader)
+    if (index >= this.values.length) throw Error(INVALID_CHOICE)
+    return this.values[index]
+  }
+
+  private readIndex(reader: Pick<BitReader, 'uint'>): number {
+    const head = reader.uint(this.width)
+    if (head < this.cutoff) return head
+    const suffix = reader.uint(WireBit.One)
+    const extended = head * WireMath.Radix + suffix
+    return extended - this.cutoff
+  }
+
+  write(writer: Pick<BitWriter, 'uint'>, value: T): void {
+    const index = this.values.indexOf(value)
+    if (index < WireBit.Zero) throw Error(MISSING_CHOICE)
+    if (index < this.cutoff) {
+      writer.uint(index, this.width)
+      return
+    }
+    const extended = index + this.cutoff
+    const width = this.width + WireBit.One
+    writer.uint(extended, width)
   }
 }
-/** Truncated binary: optimal prefix lengths for a uniformly likely bounded choice. */
+
 export function choice<T, C = unknown>(values: readonly T[]): Codec<T, C> {
-  if (!values.length || new Set(values).size !== values.length) throw Error('Expected distinct choices')
-  const width = Math.floor(Math.log2(values.length)),
-    cutoff = 2 ** (width + 1) - values.length
-  return {
-    read(r) {
-      const head = r.uint(width),
-        index = head < cutoff ? head : head * 2 + r.uint(1) - cutoff
-      if (index >= values.length) throw Error('Invalid choice')
-      return values[index]
-    },
-    write(w, value) {
-      const index = values.indexOf(value)
-      if (index < 0) throw Error('Value outside dictionary')
-      if (index < cutoff) w.uint(index, width)
-      else w.uint(index + cutoff, width + 1)
-    },
-  }
+  return new ChoiceCodec(values)
 }
+
 type RecordValue = Record<string, unknown>
 type Field<C> = { name: string; resolve(context: C, previous: RecordValue): Codec<unknown, C> }
-/** Each added field sees the types of fields declared before it, in both directions. */
+
+/** Each field sees the typed values of the fields declared before it. */
 export class Struct<T extends object, C> implements Codec<T, C> {
   constructor(private readonly fields: readonly Field<C>[] = []) {}
+
   field<K extends string, V>(
     name: K extends keyof T ? never : K,
     codec: Codec<V, C> | ((context: C, previous: T) => Codec<V, C>),
   ): Struct<T & Record<K, V>, C> {
     const resolve = typeof codec === 'function' ? codec : () => codec
-    // The only type erasure is internal: the builder's generic tracks the same field order.
-    return new Struct([...this.fields, { name, resolve: resolve as Field<C>['resolve'] }])
+    const field = { name, resolve: resolve as Field<C>['resolve'] }
+    return new Struct([...this.fields, field])
   }
-  read(r: BitReader, context: C): T {
+
+  read(reader: BitReader, context: C): T {
     const previous: RecordValue = {}
-    for (const field of this.fields) previous[field.name] = field.resolve(context, previous).read(r, context)
+    for (const field of this.fields) {
+      const codec = field.resolve(context, previous)
+      previous[field.name] = codec.read(reader, context)
+    }
     return previous as T
   }
-  write(w: BitWriter, value: T, context: C): void {
-    const previous: RecordValue = {},
-      record = value as RecordValue
+
+  write(writer: BitWriter, value: T, context: C): void {
+    const previous: RecordValue = {}
+    const record = value as RecordValue
     for (const field of this.fields) {
-      field.resolve(context, previous).write(w, record[field.name], context)
+      const codec = field.resolve(context, previous)
+      codec.write(writer, record[field.name], context)
       previous[field.name] = record[field.name]
     }
   }
 }
+
 export const struct = <C>() => new Struct<Record<never, never>, C>()
+
 export function encode<T, C>(codec: Codec<T, C>, value: T, context: C): { bytes: Uint8Array; bitLength: number } {
   const writer = new BitWriter()
   codec.write(writer, value, context)
   return { bytes: writer.bytes(), bitLength: writer.bitLength }
 }
+
 export function decode<T, C>(codec: Codec<T, C>, bytes: Uint8Array, context: C): T {
-  const reader = new BitReader(bytes),
-    value = codec.read(reader, context)
+  const reader = new BitReader(bytes)
+  const value = codec.read(reader, context)
   reader.finish()
   return value
 }
