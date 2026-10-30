@@ -1,7 +1,7 @@
 import { adjudicate, initialBoard } from '../adjudicator'
 import { maps } from '../maps'
 import { OrderCodec } from './order-modes'
-import { provinceCodec, optionalPlace, unitCodec } from './fields'
+import { dislodgedCodec, provinceCodec } from './fields'
 import { BoardOwnersCodec, BoardUnitsCodec } from './board-codecs'
 import type { MapDefinition } from '../mapDefinition'
 import type { BoardState, Phase } from '../adjudicator'
@@ -11,7 +11,6 @@ import { CanonicalValue } from './canonical'
 import {
   readList,
   writeList,
-  EMPTY_TEXT,
   WireIndex,
   PHASE_IDS,
   RULES_ID,
@@ -58,19 +57,8 @@ export class BoardCodec {
     stream.put(phases.indexOf(board.phase), WireSize.Phase)
     this.units.encode(stream, board.units, force)
     this.owners.encode(stream, board.supplyCenters, force)
-    this.writeDislodged(stream, board.dislodged)
-    this.writeContested(stream, board.contested)
-  }
-
-  private writeDislodged(stream: Bits, units: BoardState['dislodged']): void {
-    writeList(stream, units, (entry) => {
-      unitCodec.encode(stream, entry.unit, this)
-      optionalPlace.encode(stream, entry.attackedFrom, this)
-    })
-  }
-
-  private writeContested(stream: Bits, regions: string[]): void {
-    writeList(stream, [...regions].sort(), (region) => provinceCodec.encode(stream, region, this))
+    writeList(stream, board.dislodged, (entry) => dislodgedCodec.encode(stream, entry, this))
+    writeList(stream, [...board.contested].sort(), (region) => provinceCodec.encode(stream, region, this))
   }
 
   decode(stream: Bits): BoardState {
@@ -81,23 +69,9 @@ export class BoardCodec {
     assert(phase)
     const units = this.units.decode(stream)
     const supplyCenters = this.owners.decode(stream)
-    const dislodged = this.readDislodged(stream)
-    const contested = this.readContested(stream)
+    const dislodged = readList(stream, () => dislodgedCodec.decode(stream, this))
+    const contested = readList(stream, () => provinceCodec.decode(stream, this))
     return { mapId: this.map.id, year, season, phase, units, supplyCenters, dislodged, contested }
-  }
-
-  private readDislodged(stream: Bits): BoardState['dislodged'] {
-    return readList(stream, () => this.readDislodgedUnit(stream))
-  }
-
-  private readDislodgedUnit(stream: Bits): BoardState['dislodged'][number] {
-    const unit = unitCodec.decode(stream, this)
-    const attackedFrom = optionalPlace.decode(stream, this) ?? EMPTY_TEXT
-    return { unit, attackedFrom }
-  }
-
-  private readContested(stream: Bits): string[] {
-    return readList(stream, () => provinceCodec.decode(stream, this))
   }
 
   boardChecksum(board: BoardState): number {
