@@ -92,8 +92,8 @@
   }
   .shared-bar .btn {
     border-radius: 999px;
-    min-height: 40px;
-    padding: 7px 12px;
+    min-height: 34px;
+    padding: 4px 12px;
     font-size: 12px;
   }
 </style>
