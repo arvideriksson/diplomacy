@@ -8,8 +8,6 @@ The body is packed most-significant-bit first. `U(n)` means Elias gamma of `n + 
 
 The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. They use the map context to select the correct dictionaries and widths.
 
-`@thi.ng/bitstream` handles bit-level input and output. The sandbox adapter retains the format-specific integer coding, bounds checks, and exact-length appends needed when comparing candidate encodings.
-
 Encoding validates the sandbox and derives a timeline with checkpoints, writes its metadata and frames to a shared bitstream, adds the checksum, optionally compresses the result, and converts it to Base64url. Decoding reverses these steps and validates the reconstructed sandbox. The generic order mode preserves drafts, while the compact mode uses board-derived choices; the encoder selects the shorter valid representation. Movement, support, convoy, retreat, and build codecs own their respective fields. A separate convoyed-army codec selects sparse or bitmap encoding.
 
 The body contains:

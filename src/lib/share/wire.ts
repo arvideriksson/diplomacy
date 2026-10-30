@@ -1,5 +1,3 @@
-import { BitInputStream, BitOutputStream } from '@thi.ng/bitstream'
-
 /** Values that have a fixed meaning in the version 1 wire format. */
 export enum WireBit {
   Zero = 0,
@@ -133,20 +131,11 @@ export function bounded(value: number, maximum: number): number {
 
 /** A readable bit stream shared by the version 1 encoder and decoder. */
 export class WireStream {
-  private readonly output = new BitOutputStream()
-  private readonly inputBytes?: Uint8Array
-  private input?: BitInputStream
+  readonly data: number[] = []
+  pos = WireBit.Zero
 
   constructor(bytes?: Uint8Array) {
-    this.inputBytes = bytes
-  }
-
-  get length(): number {
-    return this.inputBytes ? this.inputBytes.length * WireSize.Byte : this.output.position
-  }
-
-  get pos(): number {
-    return this.input?.position ?? WireBit.Zero
+    if (bytes) this.load(bytes)
   }
 
   uint(width: number): number
@@ -156,26 +145,44 @@ export class WireStream {
     this.put(value, width)
   }
 
+  private load(bytes: Uint8Array): void {
+    for (const byte of bytes) this.loadByte(byte)
+  }
+
+  private loadByte(byte: number): void {
+    for (let shift = WireSize.Byte - WireBit.One; shift >= WireBit.Zero; shift--) {
+      const bit = (byte >>> shift) & WireBit.One
+      this.data.push(bit)
+    }
+  }
+
   put(value: number, width: number): void {
     const valid = Number.isInteger(value) && value >= WireBit.Zero && value < WireMath.Radix ** width
     requireWire(valid)
-    if (width) this.output.write(value, width)
+    this.writeBits(value, width)
+  }
+
+  private writeBits(value: number, width: number): void {
+    for (let shift = width - WireBit.One; shift >= WireBit.Zero; shift--) {
+      const bit = Math.floor(value / WireMath.Radix ** shift) % WireMath.Radix
+      this.data.push(bit)
+    }
   }
 
   get(width: number): number {
-    requireWire(this.pos + width <= this.length, WireError.Truncated)
-    if (!width) return WireBit.Zero
-    if (!this.input) this.input = new BitInputStream(this.inputBytes ?? this.output.bytes())
-    return this.input.read(width)
+    const end = this.pos + width
+    requireWire(end <= this.data.length, WireError.Truncated)
+    return this.readBits(width)
   }
 
-  append(other: WireStream): void {
-    if (!other.length) return
-    const reader = new BitInputStream(other.bytes(), WireBit.Zero, other.length)
-    while (reader.position < other.length) {
-      const width = Math.min(WireSize.Byte, other.length - reader.position)
-      this.put(reader.read(width), width)
+  private readBits(width: number): number {
+    let value = WireBit.Zero
+    for (let index = WireBit.Zero; index < width; index++) {
+      value *= WireMath.Radix
+      value += this.data[this.pos]
+      this.pos++
     }
+    return value
   }
 
   integer(): number
@@ -224,7 +231,16 @@ export class WireStream {
   }
 
   bytes(): Uint8Array {
-    return this.inputBytes ?? this.output.bytes()
+    const length = Math.ceil(this.data.length / WireSize.Byte)
+    const bytes = new Uint8Array(length)
+    this.data.forEach((bit, index) => this.saveBit(bytes, bit, index))
+    return bytes
+  }
+
+  private saveBit(bytes: Uint8Array, bit: number, index: number): void {
+    const byte = index >> WireMath.ByteShift
+    const shift = WireSize.Byte - WireBit.One - (index % WireSize.Byte)
+    bytes[byte] |= bit << shift
   }
 }
 

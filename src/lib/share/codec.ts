@@ -61,9 +61,9 @@ export class BoardCodec {
     const ordered = sortUnits(units)
     const complete = this.completeUnits(ordered)
     const changes = this.changedUnits(ordered)
-    const useChanges = !force && changes.length < complete.length
+    const useChanges = !force && changes.data.length < complete.data.length
     const selected = useChanges ? changes : complete
-    stream.append(selected)
+    stream.data.push(...selected.data)
   }
 
   private completeUnits(units: Unit[]): Bits {
@@ -126,9 +126,9 @@ export class BoardCodec {
   private writeOwners(stream: Bits, owners: Record<string, string>, force: boolean): void {
     const complete = this.completeOwners(owners)
     const changes = this.changedOwners(owners)
-    const useChanges = !force && changes.length < complete.length
+    const useChanges = !force && changes.data.length < complete.data.length
     const selected = useChanges ? changes : complete
-    stream.append(selected)
+    stream.data.push(...selected.data)
   }
 
   private completeOwners(owners: Record<string, string>): Bits {
@@ -430,8 +430,8 @@ class SandboxReader {
     const actual = this.format.boards.boardChecksum(this.board)
     const expected = this.stream.get(WireSize.Checksum)
     assertEqual(actual, expected)
-    assert(this.stream.length - this.stream.pos < WireSize.Byte)
-    while (this.stream.pos < this.stream.length) assertEqual(this.stream.get(WireBit.One), WireBit.Zero)
+    assert(this.stream.data.length - this.stream.pos < WireSize.Byte)
+    while (this.stream.pos < this.stream.data.length) assertEqual(this.stream.get(WireBit.One), WireBit.Zero)
   }
 }
 
