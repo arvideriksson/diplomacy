@@ -11,6 +11,7 @@
   import { immersive } from '../lib/layout'
 
   export let sandboxId: string
+  export let sharedPayload: string | undefined = undefined
   export let onBack: () => void = () => {}
 
   // Sandboxes claim the full viewport (no header), like the active board.
@@ -18,11 +19,11 @@
   onDestroy(() => immersive.set(false))
 
   let shareError = ''
-  $: isShare = !$sandboxes.some(s => s.id === sandboxId) && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sandboxId)
+  $: isShare = sharedPayload !== undefined
   onMount(async () => {
-    if (!isShare) return
+    if (sharedPayload === undefined) return
     try {
-      const imported = importSandbox(await decodeSandbox(sandboxId))
+      const imported = importSandbox(await decodeSandbox(sharedPayload))
       navigate(`/sandbox/${imported.id}`, { replace: true })
     } catch {
       shareError = 'This shared sandbox link is invalid or incompatible.'

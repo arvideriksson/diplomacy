@@ -1,6 +1,6 @@
 # Sandbox share format, version 1
 
-The share URL is `/sandbox/<payload>`. The payload is unpadded Base64url. Import creates a new local sandbox; it does not connect the recipient to the original game. If the resulting URL exceeds 8,000 characters, sharing reports that it is too large.
+The share URL is `/sandbox/s/<payload>`. The payload is unpadded Base64url. Import creates a new local sandbox; it does not connect the recipient to the original game. If the resulting URL exceeds 8,000 characters, sharing reports that it is too large.
 
 The envelope begins with `0x10` (raw) or `0x11` (raw DEFLATE), followed by the body and a big-endian CRC-32/IEEE of the **uncompressed padded body**. The encoder uses compression only when it saves bytes. The maximum body is 32,768 bytes and the maximum timeline length is 1,024 frames. The decoder checks the envelope, CRC, trailing zero padding, and final-board checksum before storing anything.
 
@@ -90,10 +90,13 @@ For compact movement, convoy eligibility is an army with at least one reachable 
 1900: 90 provinces (7 bits), 39 supply centers (6 bits).
 
 Provinces, indexes starting at zero:
+
 ```text
 ADR AEG ALG ALS ANK APU ARA ARM BAL BAR BEL BER BLA BOH BOS BRE BUD BUL BUR CLY COL CON CYR DAM DEN EAS EDI EGY ENG FIN GAL GAS GBO GIB GLY GRE HEJ HEL ICE ION IRE IRI KIE KON LON LVO LVP MAC MAO MAR MIL MOR MOS MUN NAO NAP NET NOR NTH NWG PAL PAR PIC PIE POR PRU ROM RUM SER SEV SIB SIL SKA SOU SPA STP SWE SWI TRI TRP TUN TYR TYS UKR VEN VIE WAL WAR WES YOR
 ```
+
 Supply centers, indexes starting at zero:
+
 ```text
 ALG ANK BEL BER BRE BUD BUL COL CON DAM DEN EDI EGY GRE KIE LON LVP MAR MIL MOR MOS MUN NAP NET NOR PAR POR ROM RUM SER SEV SPA STP SWE SWI TRI TRP VIE WAR
 ```
@@ -101,10 +104,13 @@ ALG ANK BEL BER BRE BUD BUL COL CON DAM DEN EDI EGY GRE KIE LON LVP MAR MIL MOR 
 classical: 75 provinces (7 bits), 34 supply centers (6 bits).
 
 Provinces, indexes starting at zero:
+
 ```text
 ADR AEG ALB ANK APU ARM BAL BAR BEL BER BLA BOH BOT BRE BUD BUL BUR CLY CON DEN EAS EDI ENG FIN GAL GAS GOL GRE HEL HOL ION IRI KIE LON LVN LVP MAO MAR MOS MUN NAF NAO NAP NOR NTH NWG PAR PIC PIE POR PRU ROM RUH RUM SER SEV SIL SKA SMY SPA STP SWE SYR TRI TUN TUS TYR TYS UKR VEN VIE WAL WAR WES YOR
 ```
+
 Supply centers, indexes starting at zero:
+
 ```text
 ANK BEL BER BRE BUD BUL CON DEN EDI GRE HOL KIE LON LVP MAR MOS MUN NAP NOR PAR POR ROM RUM SER SEV SMY SPA STP SWE TRI TUN VEN VIE WAR
 ```
