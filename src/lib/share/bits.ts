@@ -17,7 +17,7 @@ export interface Codec<T, C = void> {
 }
 
 /** Maps a value to a fixed-width integer, optionally using the current context. */
-export function fixedBits<T, C>(spec: {
+export function fixedBitsCodec<T, C>(spec: {
   size: number | ((context: C) => number)
   encode: (value: T, context: C) => number
   decode: (value: number, context: C) => T

@@ -3,7 +3,7 @@ import { sortUnits } from '../adjudicator/state'
 import type { AnyOrder, BoardState, Phase } from '../adjudicator'
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import { fixedBits, literal, sortedChoices, struct, type Codec } from './bits'
+import { fixedBitsCodec, literal, sortedChoices, struct, type Codec } from './bits'
 import { CanonicalValue } from './canonical'
 import type { BoardCodec } from './codec'
 import { countryCodec, provinceCodec, optionalPlace, coastCodec, type FieldContext } from './fields'
@@ -144,7 +144,7 @@ function actionTypes(phase: Phase): WireOrder['type'][] {
   return [OrderKind.Remove, OrderKind.Build]
 }
 
-const actionType = fixedBits<WireOrder['type'], ActionContext>({
+const actionType = fixedBitsCodec<WireOrder['type'], ActionContext>({
   size: ({ phase }) => (phase === PhaseKind.Movement ? WireSize.Movement : WireBit.One),
   encode: (type, { phase }) => actionTypes(phase).indexOf(type),
   decode: (code, { phase }) => {
@@ -163,7 +163,7 @@ const convoyFlag: Codec<boolean | undefined, ActionContext> = {
   },
 }
 
-const buildType = fixedBits<Unit['type'] | undefined, ActionContext>({
+const buildType = fixedBitsCodec<Unit['type'] | undefined, ActionContext>({
   size: WireSize.UnitType,
   encode: (type) => BUILD_TYPES.indexOf(type),
   decode: (code) => BUILD_TYPES[code],

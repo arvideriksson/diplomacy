@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
 import { map1900 } from '../maps/1900'
 import type { MapDefinition } from '../mapDefinition'
-import { decode, encode, fixedBits } from './bits'
+import { decode, encode, fixedBitsCodec } from './bits'
 import { coastCodec, countryCodec, optionalPlace, provinceCodec, unitCodec } from './fields'
 import { CoastKind, PowerKind, UnitKind, WireBit, WireSize } from './wire'
 
@@ -52,7 +52,7 @@ it('distinguishes absent optional provinces from present ones', () => {
 })
 
 it('checks fixed-width definitions and encoded values', () => {
-  const value = fixedBits<number, number>({
+  const value = fixedBitsCodec<number, number>({
     size: (width) => width,
     encode: (number) => number,
     decode: (number) => number,
