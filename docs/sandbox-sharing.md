@@ -10,6 +10,8 @@ The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for 
 
 Encoding validates the sandbox and derives one timeline with per-frame board context and checkpoints. It writes the timeline's metadata and frames to a shared bitstream, adds the checksum, optionally compresses the result, and converts it to Base64url. Decoding reconstructs the timeline, then validates and replays it into a sandbox. The generic order mode preserves drafts, while the compact mode uses board-derived choices; the encoder selects the shorter valid representation. Movement, support, convoy, retreat, and build codecs own their respective fields. A separate convoyed-army codec selects sparse or bitmap encoding.
 
+To follow the implementation, start with `src/lib/share/index.ts` for the public share API. `timeline.ts` converts and validates application state; `codec.ts` writes the timeline and envelope; `board-codecs.ts` owns board fields; and `order-modes.ts` selects the generic or compact order representation. Individual order formats live in `order-codecs.ts`, reusable field definitions in `fields.ts`, and bitstream primitives in `bits.ts` and `wire.ts`.
+
 The body contains:
 
 1. Map bit (Classical / 1900), 32-bit rules identifier, name string, frame count `U`, cursor `U`.
