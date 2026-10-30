@@ -8,6 +8,7 @@
   import StatusPage from './StatusPage.svelte'
   import { sandboxes, importSandbox } from '../lib/sandbox'
   import { decodeSandbox } from '../lib/share'
+  import type { SandboxContent } from '../lib/share/timeline'
   import { immersive } from '../lib/layout'
 
   export let sandboxId: string
@@ -19,23 +20,47 @@
   onDestroy(() => immersive.set(false))
 
   let shareError = ''
+  let shared: SandboxContent | undefined
   $: isShare = sharedPayload !== undefined
   onMount(async () => {
     if (sharedPayload === undefined) return
     try {
-      const imported = importSandbox(await decodeSandbox(sharedPayload))
-      navigate(`/sandbox/${imported.id}`, { replace: true })
+      shared = await decodeSandbox(sharedPayload)
     } catch {
       shareError = 'This shared sandbox link is invalid or incompatible.'
     }
   })
+
+  function saveShared() {
+    if (!shared) return
+    const saved = importSandbox(shared)
+    navigate(`/sandbox/${saved.id}`, { replace: true })
+  }
+
+  function stepShared(direction: number) {
+    if (!shared) return
+    const cursor = Math.max(0, Math.min(shared.frames.length - 1, shared.cursor + direction))
+    shared = { ...shared, cursor }
+  }
 
   $: sb = $sandboxes.find((s) => s.id === sandboxId)
   $: if (sb?.origin) navigate(`/game/${sb.origin.gameId}?sandbox=${sb.id}`, { replace: true })
 </script>
 
 {#if isShare}
-  <StatusPage loading={!shareError} message={shareError} actionLabel={shareError ? 'Back' : ''} onAction={onBack} />
+  {#if shared}
+    <div class="shared-layout">
+      <div class="shared-bar">
+        <strong>Shared sandbox</strong>
+        <button class="btn btn-primary" on:click={saveShared}>Save to continue editing</button>
+      </div>
+      <div class="sandbox-stage">
+        <SandboxBoard sandbox={{ ...shared, id: '', createdAt: '' }} map={getMap(shared.mapId)} onExit={onBack} onDeleted={onBack} preview onPreviewStep={stepShared} />
+      </div>
+    </div>
+  {:else}
+    <StatusPage loading={!shareError} message={shareError} actionLabel={shareError ? 'Back' : ''} onAction={onBack} />
+  {/if}
 {:else if !sb}
   <StatusPage message="This sandbox no longer exists." actionLabel="Back" onAction={onBack} />
 {:else if !sb.origin}
@@ -48,5 +73,25 @@
   .sandbox-stage {
     position: relative;
     height: 100%;
+  }
+  .shared-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .shared-layout .sandbox-stage {
+    flex: 1;
+    min-height: 0;
+  }
+  .shared-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
   }
 </style>

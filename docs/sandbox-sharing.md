@@ -1,6 +1,6 @@
 # Sandbox share format, version 1
 
-The share URL is `/sandbox/s/<payload>`. The payload is unpadded Base64url. Import creates a new local sandbox; it does not connect the recipient to the original game. If the resulting URL exceeds 8,000 characters, sharing reports that it is too large.
+The share URL is `/sandbox/s/<payload>`. The payload is unpadded Base64url. Opening a link shows a read-only preview without saving it; the recipient can browse its history and save an independent local sandbox to edit it. If the resulting URL exceeds 8,000 characters, sharing reports that it is too large.
 
 The envelope begins with `0x10` (raw) or `0x11` (raw DEFLATE), followed by the body and a big-endian CRC-32/IEEE of the **uncompressed padded body**. The encoder uses compression only when it saves bytes. The maximum body is 32,768 bytes and the maximum timeline length is 1,024 frames. The decoder checks the envelope, CRC, trailing zero padding, and final-board checksum before storing anything.
 
