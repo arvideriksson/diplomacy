@@ -136,6 +136,13 @@ export function createSandboxFromGame(opts: {
   return s
 }
 
+/** Save an imported share as an independent local sandbox. */
+export function importSandbox(content: Pick<Sandbox, 'name' | 'mapId' | 'frames' | 'cursor'>): Sandbox {
+  const sandbox: Sandbox = { ...content, id: crypto.randomUUID(), createdAt: new Date().toISOString() }
+  mutate((list) => [sandbox, ...list])
+  return sandbox
+}
+
 /** The sandboxes copied from a game, newest first. */
 export const sandboxesOf = (list: Sandbox[], gameId: string): Sandbox[] =>
   list.filter((s) => s.origin?.gameId === gameId)
