@@ -1,8 +1,11 @@
 import { expect, it } from 'vitest'
 import { classicalMap } from '../maps/classical'
+import { initialBoard } from '../adjudicator'
+import { BoardCodec } from './codec'
+import { OrderCodec } from './order-modes'
 import { convoyBoard, TestPlace } from './fixtures.test-helper'
 import { ConvoyOrderCodec, ConvoyedArmiesCodec, type WireOrder } from './order-codecs'
-import { OrderKind, PowerKind, UnitKind, WireBit, WireStream, shortest } from './wire'
+import { OrderKind, PhaseKind, PowerKind, UnitKind, WireBit, WireStream, shortest, readList, writeList } from './wire'
 
 function convoyFixture() {
   const board = convoyBoard()
@@ -67,4 +70,37 @@ it('round trips convoy orders with the fleet and board as context', () => {
   const codec = new ConvoyOrderCodec()
   codec.encode(stream, order, context)
   expect(codec.decode(new WireStream(stream.bytes()), context)).toEqual(order)
+})
+
+it('round-trips bounded lists and rejects excessive lengths before reading items', () => {
+  const stream = new WireStream()
+  writeList(stream, [1, 2, 3], (item) => stream.writeInteger(item), 3)
+  const reader = new WireStream(stream.bytes())
+  expect(readList(reader, () => reader.readInteger(), 3)).toEqual([1, 2, 3])
+  expect(() => writeList(new WireStream(), [1, 2], () => {}, 1)).toThrow()
+  const oversized = new WireStream()
+  oversized.writeInteger(2)
+  const input = new WireStream(oversized.bytes())
+  let called = false
+  expect(() =>
+    readList(
+      input,
+      () => {
+        called = true
+      },
+      1,
+    ),
+  ).toThrow()
+  expect(called).toBe(false)
+})
+
+
+it('encodes an empty build phase without requiring any build choices', () => {
+  const board = initialBoard(classicalMap)
+  board.phase = PhaseKind.Build
+  const codec = new OrderCodec(new BoardCodec(classicalMap))
+  const stream = new WireStream()
+  codec.encode(stream, board, [])
+  expect(stream.data[0]).toBe(WireBit.One)
+  expect(codec.decode(new WireStream(stream.bytes()), board)).toEqual([])
 })

@@ -1,4 +1,4 @@
-import { decodeSandbox as decode, encodeSandbox as encode, equal } from './codec'
+import { decodeTimeline, encodeTimeline, equal } from './codec'
 import type { SandboxContent } from './timeline'
 import { fromTimeline, toTimeline } from './timeline'
 import {
@@ -92,7 +92,7 @@ class StreamTransform {
 /** Prepare a portable timeline, encode it, and make a URL-safe payload. */
 export async function encodeSandbox(sandbox: SandboxContent): Promise<string> {
   const timeline = toTimeline(sandbox)
-  const envelope = encode(timeline)
+  const envelope = encodeTimeline(timeline)
   checkRoundTrip(sandbox, envelope)
   const packed = await packEnvelope(envelope)
   return Base64Url.encode(packed)
@@ -104,12 +104,12 @@ export async function decodeSandbox(payload: string): Promise<SandboxContent> {
   const envelope = Base64Url.decode(payload)
   checkEnvelope(envelope)
   const raw = await unpackEnvelope(envelope)
-  const timeline = decode(raw)
+  const timeline = decodeTimeline(raw)
   return fromTimeline(timeline)
 }
 
 function checkRoundTrip(sandbox: SandboxContent, envelope: Uint8Array): void {
-  const restored = fromTimeline(decode(envelope))
+  const restored = fromTimeline(decodeTimeline(envelope))
   const { name, mapId, frames, cursor } = sandbox
   if (!equal(restored, { name, mapId, frames, cursor })) {
     throw new Error('This sandbox contains data that cannot be shared yet.')

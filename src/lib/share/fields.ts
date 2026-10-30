@@ -21,21 +21,17 @@ export interface FieldContext {
   provinceBits: number
 }
 
-function encodeCountry(country: string): number {
-  const power = country === PowerKind.Britain ? PowerKind.England : country
-  return power === PowerKind.Neutral ? PowerCode.Neutral : POWER_IDS.findIndex((entry) => entry === power)
-}
-
-function decodeCountry(code: number, context: FieldContext): string {
-  const country = POWER_IDS[code] ?? PowerKind.Neutral
-  if (context.map.id === MapKind.Variant1900 && country === PowerKind.England) return PowerKind.Britain
-  return country
-}
-
 export const countryCodec = fixedBits<string, FieldContext>({
   size: WireSize.Power,
-  encode: encodeCountry,
-  decode: decodeCountry,
+  encode: (country) => {
+    const power = country === PowerKind.Britain ? PowerKind.England : country
+    return power === PowerKind.Neutral ? PowerCode.Neutral : POWER_IDS.findIndex((entry) => entry === power)
+  },
+  decode: (code, context) => {
+    const country = POWER_IDS[code] ?? PowerKind.Neutral
+    if (context.map.id === MapKind.Variant1900 && country === PowerKind.England) return PowerKind.Britain
+    return country
+  },
 })
 
 export const provinceCodec = fixedBits<string, FieldContext>({
