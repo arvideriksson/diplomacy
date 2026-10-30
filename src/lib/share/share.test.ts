@@ -113,6 +113,16 @@ it('selects a field dictionary using earlier decoded values', () => {
   expect(() => encode(schema, invalid, undefined)).toThrow()
 })
 
+it('omits undefined optional fields and keeps context consistent', () => {
+  const schema = struct<void>()
+    .optionalField('value', choice([undefined, SAMPLE_ONE]))
+    .field('present', (_context, previous) => literal('value' in previous))
+  for (const value of [{ present: false }, { value: SAMPLE_ONE, present: true }]) {
+    const encoded = encode(schema, value, undefined)
+    expect(decode(schema, encoded.bytes, undefined)).toEqual(value)
+  }
+})
+
 it('preserves a retained future after editing an earlier phase', () => {
   const sandbox = checkpointGame()
   const timeline = toTimeline(sandbox)

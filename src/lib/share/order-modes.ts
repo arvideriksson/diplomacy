@@ -182,10 +182,10 @@ const actionFields = struct<ActionContext>()
   .field('targetCoast', (_context, action) =>
     COAST_ACTIONS.includes(action.type) ? coastCodec : literal<string | undefined, ActionContext>(undefined),
   )
-  .field('viaConvoy', (_context, action) =>
+  .optionalField('viaConvoy', (_context, action) =>
     action.type === OrderKind.Move ? convoyFlag : literal<boolean | undefined, ActionContext>(undefined),
   )
-  .field('unitType', (_context, action) =>
+  .optionalField('unitType', (_context, action) =>
     action.type === OrderKind.Build ? buildType : literal<Unit['type'] | undefined, ActionContext>(undefined),
   )
 
@@ -204,13 +204,11 @@ class GenericActionCodec {
 
   decode(stream: Bits, phase: Phase): Action {
     const fields = actionFields.decode(stream, { ...this.fields, phase })
-    const { type, aux, target, targetCoast, viaConvoy, unitType } = fields
-    const action: Action = { type }
+    const { type, aux, target, targetCoast, ...optional } = fields
+    const action: Action = { type, ...optional }
     if (AUX_ACTIONS.includes(type)) action.aux = aux
     if (TARGET_ACTIONS.includes(type)) action.target = target
     if (COAST_ACTIONS.includes(type)) action.targetCoast = targetCoast
-    if (viaConvoy) action.viaConvoy = true
-    if (unitType) action.unitType = unitType
     return action
   }
 }
