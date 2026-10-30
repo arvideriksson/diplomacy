@@ -1,7 +1,7 @@
 import type { Unit } from '../types'
 import type { BoardState } from '../adjudicator'
 import type { MapDefinition } from '../mapDefinition'
-import { fixedBits, literal, struct, type Codec } from './bits'
+import { fixedBitsCodec, literal, struct, type Codec } from './bits'
 import {
   COAST_IDS,
   EMPTY_TEXT,
@@ -33,7 +33,7 @@ function validProvince(province: string, map: MapDefinition): boolean {
 }
 
 export const countryCodec = Object.assign(
-  fixedBits<string, FieldContext>({
+  fixedBitsCodec<string, FieldContext>({
     size: WireSize.Power,
     encode: (country, context) => {
       requireWire(country === PowerKind.Neutral || validCountry(country, context.map))
@@ -52,7 +52,7 @@ export const countryCodec = Object.assign(
 )
 
 export const provinceCodec = Object.assign(
-  fixedBits<string, FieldContext>({
+  fixedBitsCodec<string, FieldContext>({
     size: (context) => context.provinceBits,
     encode: (province, context) => {
       requireWire(validProvince(province, context.map))
@@ -83,7 +83,7 @@ function coastChoices(context: FieldContext): Array<string | undefined> {
   return [...COAST_IDS]
 }
 
-export const coastCodec = fixedBits<string | undefined, FieldContext>({
+export const coastCodec = fixedBitsCodec<string | undefined, FieldContext>({
   size: (context) => Math.ceil(Math.log2(coastChoices(context).length)),
   encode: (coast, context) => coastChoices(context).indexOf(coast),
   decode: (code, context) => {
@@ -93,7 +93,7 @@ export const coastCodec = fixedBits<string | undefined, FieldContext>({
   },
 })
 
-const unitType = fixedBits<Unit['type'], FieldContext>({
+const unitType = fixedBitsCodec<Unit['type'], FieldContext>({
   size: WireBit.One,
   encode: (type) => (type === UnitKind.Fleet ? WireBit.One : WireBit.Zero),
   decode: (code) => (code ? UnitKind.Fleet : UnitKind.Army),
