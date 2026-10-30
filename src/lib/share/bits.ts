@@ -154,7 +154,7 @@ export function sortedChoices(values: string[]): Codec<string, unknown> {
 }
 
 type RecordValue = Record<string, unknown>
-type Field<C> = { name: string; resolve(context: C, previous: RecordValue): Codec<unknown, C> }
+type Field<C> = { name: string; optional?: boolean; resolve(context: C, previous: RecordValue): Codec<unknown, C> }
 
 /** Each field sees the typed values of the fields declared before it. */
 export class Struct<T extends object, C> implements Codec<T, C> {
@@ -169,11 +169,21 @@ export class Struct<T extends object, C> implements Codec<T, C> {
     return new Struct([...this.fields, field])
   }
 
+  optionalField<K extends string, V>(
+    name: K extends keyof T ? never : K,
+    codec: Codec<V | undefined, C> | ((context: C, previous: T) => Codec<V | undefined, C>),
+  ): Struct<T & Partial<Record<K, V>>, C> {
+    const resolve = typeof codec === 'function' ? codec : () => codec
+    const field = { name, optional: true, resolve: resolve as Field<C>['resolve'] }
+    return new Struct([...this.fields, field])
+  }
+
   decode(reader: Pick<BitReader, 'get'>, context: C): T {
     const previous: RecordValue = {}
     for (const field of this.fields) {
       const codec = field.resolve(context, previous)
-      previous[field.name] = codec.decode(reader, context)
+      const value = codec.decode(reader, context)
+      if (!field.optional || value !== undefined) previous[field.name] = value
     }
     return previous as T
   }
@@ -184,7 +194,7 @@ export class Struct<T extends object, C> implements Codec<T, C> {
     for (const field of this.fields) {
       const codec = field.resolve(context, previous)
       codec.encode(writer, record[field.name], context)
-      previous[field.name] = record[field.name]
+      if (!field.optional || record[field.name] !== undefined) previous[field.name] = record[field.name]
     }
   }
 }

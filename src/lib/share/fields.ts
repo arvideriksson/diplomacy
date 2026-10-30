@@ -82,15 +82,14 @@ const unitFields = struct<FieldContext>()
   .field('nation', countryCodec)
   .field('type', unitType)
   .field('territory', provinceCodec)
-  .field('coast', (_context, unit) =>
+  .optionalField('coast', (_context, unit) =>
     unit.type === UnitKind.Fleet ? coastCodec : literal<string | undefined, FieldContext>(undefined),
   )
 
 /** An army omits the coast property; fleets include it only when specified. */
 export const unitCodec: Codec<Unit, FieldContext> = {
   decode(reader, context) {
-    const { coast, ...unit } = unitFields.decode(reader, context)
-    return coast ? { ...unit, coast } : unit
+    return unitFields.decode(reader, context)
   },
   encode(writer, unit, context) {
     unitFields.encode(writer, { ...unit, coast: unit.type === UnitKind.Fleet ? unit.coast : undefined }, context)
