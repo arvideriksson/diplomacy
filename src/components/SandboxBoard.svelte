@@ -137,7 +137,7 @@
 >
   <svelte:fragment slot="left">
     <div class="no-press">
-      <button class="btn" on:click={shareSandbox}>Share sandbox</button>
+      <button class="btn" on:click={shareSandbox}><Icon name="share" size={16} round /> Share sandbox</button>
       {#if inGame}
         <button class="btn btn-primary" on:click={onExit}>‹ Back to the game</button>
       {:else}
@@ -150,7 +150,7 @@
     {#if !$compact}
       <button class="glass exit-btn" on:click={onExit}>‹ {inGame ? 'Back to game' : 'Leave'}</button>
     {/if}
-    <button class="glass exit-btn" on:click={shareSandbox} aria-label="Share sandbox">Share</button>
+    <button class="glass exit-btn" on:click={shareSandbox} aria-label="Share sandbox"><Icon name="share" size={16} round /> Share</button>
     <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
       <Icon name="trash" size={17} round />
     </button>
