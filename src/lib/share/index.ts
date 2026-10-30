@@ -92,14 +92,14 @@ class StreamTransform {
 /** Convert between the local sandbox model and a portable, checksummed payload. */
 class SandboxTransport {
   static async encode(sandbox: SandboxContent): Promise<string> {
-    toTimeline(sandbox)
-    const payload = encode(sandbox)
-    this.checkRoundTrip(sandbox, payload)
-    const envelope = Base64Url.decode(payload)
-    return this.compress(envelope, payload)
+    const timeline = toTimeline(sandbox)
+    const envelope = encode(sandbox, timeline)
+    this.checkRoundTrip(sandbox, envelope)
+    const compressed = await this.compress(envelope)
+    return Base64Url.encode(compressed)
   }
 
-  private static checkRoundTrip(sandbox: SandboxContent, payload: string): void {
+  private static checkRoundTrip(sandbox: SandboxContent, payload: Uint8Array): void {
     const result = decode(payload)
     const { name, mapId, frames, cursor } = sandbox
     if (!equal(result, { name, mapId, frames, cursor })) {
@@ -107,15 +107,15 @@ class SandboxTransport {
     }
   }
 
-  private static async compress(envelope: Uint8Array, fallback: string): Promise<string> {
+  private static async compress(envelope: Uint8Array): Promise<Uint8Array> {
     try {
       const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
       const compressed = await StreamTransform.convert(body, CompressionMode.Compress)
-      if (compressed.length >= body.length) return fallback
+      if (compressed.length >= body.length) return envelope
       const packed = this.makeEnvelope(envelope, compressed, WireHeader.Deflate)
-      return Base64Url.encode(packed)
+      return packed
     } catch {
-      return fallback
+      return envelope
     }
   }
 
@@ -123,7 +123,7 @@ class SandboxTransport {
     this.checkPayload(payload)
     const envelope = Base64Url.decode(payload)
     this.checkEnvelope(envelope)
-    const raw = await this.uncompress(envelope, payload)
+    const raw = await this.uncompress(envelope)
     const sandbox = decode(raw)
     toTimeline(sandbox)
     return sandbox
@@ -141,12 +141,12 @@ class SandboxTransport {
     if (envelope.length < minimum || envelope.length > maximum) throw new Error(WireError.Invalid)
   }
 
-  private static async uncompress(envelope: Uint8Array, fallback: string): Promise<string> {
-    if (envelope[WireBit.Zero] !== WireHeader.Deflate) return fallback
+  private static async uncompress(envelope: Uint8Array): Promise<Uint8Array> {
+    if (envelope[WireBit.Zero] !== WireHeader.Deflate) return envelope
     const body = envelope.subarray(WireSize.Header, -WireSize.Trailer)
     const raw = await StreamTransform.convert(body, CompressionMode.Decompress)
     const unpacked = this.makeEnvelope(envelope, raw, WireHeader.Raw)
-    return Base64Url.encode(unpacked)
+    return unpacked
   }
 
   private static makeEnvelope(source: Uint8Array, body: Uint8Array, kind: WireHeader): Uint8Array {

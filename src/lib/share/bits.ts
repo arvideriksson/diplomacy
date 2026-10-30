@@ -1,4 +1,4 @@
-import { WireBit, WireMath, WireSize } from './wire'
+import { WireBit, WireMath, WireSize, WireStream } from './wire'
 
 const INVALID_FIELD = 'Invalid unsigned bit field'
 const TRUNCATED_BITS = 'Truncated bit field'
@@ -33,75 +33,42 @@ export function fixedBits<T, C>(spec: {
   }
 }
 
-/** Writes bounded unsigned values to a bit-packed buffer. */
+/** A bounded writer backed by the same bitstream used by the sandbox format. */
 export class BitWriter {
-  private data: number[] = []
-  bitLength = WireBit.Zero
+  private readonly stream = new WireStream()
+
+  get bitLength(): number {
+    return this.stream.data.length
+  }
 
   uint(value: number, width: number): void {
-    this.checkField(value, width)
-    for (let index = width - WireBit.One; index >= WireBit.Zero; index--) {
-      this.writeBit(value, index)
-    }
-  }
-
-  private checkField(value: number, width: number): void {
     if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(INVALID_FIELD)
-    if (!Number.isInteger(value) || value < WireBit.Zero) throw Error(INVALID_FIELD)
-    if (value >= WireMath.Radix ** width) throw Error(INVALID_FIELD)
-  }
-
-  private writeBit(value: number, index: number): void {
-    const byte = this.bitLength >>> WireMath.ByteShift
-    const power = WireMath.Radix ** index
-    const shifted = Math.floor(value / power)
-    const bit = shifted % WireMath.Radix
-    const position = WireMath.LastBit - (this.bitLength % WireSize.Byte)
-    this.data[byte] = (this.data[byte] ?? WireBit.Zero) | (bit << position)
-    this.bitLength++
+    if (!Number.isInteger(value) || value < WireBit.Zero || value >= WireMath.Radix ** width) throw Error(INVALID_FIELD)
+    this.stream.put(value, width)
   }
 
   bytes(): Uint8Array {
-    return Uint8Array.from(this.data)
+    return this.stream.bytes()
   }
 }
 
-/** Reads bounded unsigned values from a bit-packed buffer. */
+/** A bounded reader backed by the same bitstream used by the sandbox format. */
 export class BitReader {
-  position = WireBit.Zero
+  private readonly stream: WireStream
 
-  constructor(readonly bytes: Uint8Array) {}
+  constructor(bytes: Uint8Array) {
+    this.stream = new WireStream(bytes)
+  }
 
   uint(width: number): number {
-    this.checkWidth(width)
-    let result = WireBit.Zero
-    for (let index = WireBit.Zero; index < width; index++) {
-      result *= WireMath.Radix
-      result += this.readBit()
-    }
-    return result
-  }
-
-  private checkWidth(width: number): void {
     if (!Number.isInteger(width) || width < WireBit.Zero || width > WireSize.Checksum) throw Error(TRUNCATED_BITS)
-    const end = this.position + width
-    const limit = this.bytes.length * WireSize.Byte
-    if (end > limit) throw Error(TRUNCATED_BITS)
-  }
-
-  private readBit(): number {
-    const byte = this.position >>> WireMath.ByteShift
-    const offset = this.position % WireSize.Byte
-    const shift = WireMath.LastBit - offset
-    const value = (this.bytes[byte] >>> shift) & WireBit.One
-    this.position++
-    return value
+    if (this.stream.pos + width > this.stream.data.length) throw Error(TRUNCATED_BITS)
+    return this.stream.get(width)
   }
 
   finish(): void {
-    const limit = this.bytes.length * WireSize.Byte
-    if (limit - this.position >= WireSize.Byte) throw Error(TRAILING_BYTES)
-    while (this.position < limit) {
+    if (this.stream.data.length - this.stream.pos >= WireSize.Byte) throw Error(TRAILING_BYTES)
+    while (this.stream.pos < this.stream.data.length) {
       if (this.uint(WireBit.One)) throw Error(NONZERO_PADDING)
     }
   }
@@ -179,6 +146,11 @@ export class ChoiceCodec<T, C = unknown> implements Codec<T, C> {
 
 export function choice<T, C = unknown>(values: readonly T[]): Codec<T, C> {
   return new ChoiceCodec(values)
+}
+
+/** The order codecs use sorted, distinct candidate dictionaries. */
+export function sortedChoices(values: string[]): Codec<string, unknown> {
+  return choice([...new Set(values)].sort())
 }
 
 type RecordValue = Record<string, unknown>

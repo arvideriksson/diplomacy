@@ -8,7 +8,7 @@ The body is packed most-significant-bit first. `U(n)` means Elias gamma of `n + 
 
 The field definitions in `src/lib/share/fields.ts` compose symmetric codecs for powers, provinces, coasts, and units. They use the map context to select the correct dictionaries and widths.
 
-The sandbox codec composes metadata, frame, board, order, and field codecs over a shared bitstream. Each frame supplies its board as context for the order codecs. Movement, support, convoy, retreat, and build codecs own their respective representations; convoyed-army lists have a separate codec that selects sparse or bitmap encoding.
+Encoding validates the sandbox and derives a timeline with checkpoints, writes its metadata and frames to a shared bitstream, adds the checksum, optionally compresses the result, and converts it to Base64url. Decoding reverses these steps and validates the reconstructed sandbox. The generic order mode preserves drafts, while the compact mode uses board-derived choices; the encoder selects the shorter valid representation. Movement, support, convoy, retreat, and build codecs own their respective fields. A separate convoyed-army codec selects sparse or bitmap encoding.
 
 The body contains:
 
@@ -87,7 +87,7 @@ Compact build list:
   count:U, indexes into sorted complete build/remove candidates
 ```
 
-For compact movement, convoy eligibility is an army with at least one reachable destination through fleets present on the board. A Move reads its target index from direct `moveTargets`, or `convoyReach` when its convoy flag is set. Support uses `supportAux` then `supportTargets`; Convoy uses `convoyAux` then `convoyTargets`. Retreat uses `retreatTargets` for that dislodged unit. Candidate province lists are sorted, de-duplicated, and indexed using truncated binary. Compact builds sort canonical JSON representations of candidate records; their indexes use the same truncated-binary rule. The implementation of the versioned candidate lists is in `src/lib/share/codec.ts` and the existing order-option helpers.
+For compact movement, convoy eligibility is an army with at least one reachable destination through fleets present on the board. A Move reads its target index from direct `moveTargets`, or `convoyReach` when its convoy flag is set. Support uses `supportAux` then `supportTargets`; Convoy uses `convoyAux` then `convoyTargets`. Retreat uses `retreatTargets` for that dislodged unit. Candidate province lists are sorted, de-duplicated, and indexed using truncated binary. Compact builds sort canonical JSON representations of candidate records; their indexes use the same truncated-binary rule. The versioned candidate lists are implemented by `src/lib/share/order-modes.ts`, `src/lib/share/order-codecs.ts`, and the existing order-option helpers.
 
 ## Version 1 map dictionaries
 

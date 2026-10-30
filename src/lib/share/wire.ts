@@ -276,13 +276,6 @@ export enum MovementWidth {
   Convoy = 3,
 }
 
-export enum ListMode {
-  Sparse = 'sparse',
-  Dense = 'dense',
-  Generic = 'generic',
-  Compact = 'compact',
-}
-
 export const AUX_ACTIONS: readonly string[] = [OrderKind.Support, OrderKind.Convoy]
 export const TARGET_ACTIONS: readonly string[] = [
   OrderKind.Support,
@@ -318,14 +311,8 @@ export enum WireIndex {
 }
 
 export const EMPTY_TEXT = ''
-export const BASE64_PLUS = /\+/g
-export const BASE64_SLASH = /\//g
-export const BASE64_PADDING = /=+$/
-export const URL_MINUS = /-/g
-export const URL_UNDERLINE = /_/g
 
 export enum WireMath {
   Radix = 2,
   ByteShift = 3,
-  LastBit = 7,
 }
