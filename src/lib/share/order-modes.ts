@@ -16,7 +16,8 @@ import {
   type WireOrder,
 } from './order-codecs'
 import {
-  bounded,
+  readList,
+  writeList,
   shortest,
   AUX_ACTIONS,
   BUILD_TYPES,
@@ -31,7 +32,6 @@ import {
   PhaseKind,
   UnitKind,
   WireBit,
-  WireLimit,
   WireSize,
 } from './wire'
 
@@ -91,14 +91,20 @@ class BuildOrdersCodec {
 
   encode(stream: Bits, board: BoardState, orders: WireOrder[]): void {
     const choices = this.buildChoices(board)
-    stream.writeInteger(orders.length)
-    for (const order of orders) sortedChoices(choices).encode(stream, JSON.stringify(stable(order)), undefined)
+    let codec: ReturnType<typeof sortedChoices> | undefined
+    writeList(stream, orders, (order) => {
+      codec ??= sortedChoices(choices)
+      codec.encode(stream, JSON.stringify(stable(order)), undefined)
+    })
   }
 
   decode(stream: Bits, board: BoardState): AnyOrder[] {
     const choices = this.buildChoices(board)
-    const count = bounded(stream.readInteger(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => JSON.parse(sortedChoices(choices).decode(stream, undefined)) as AnyOrder)
+    let codec: ReturnType<typeof sortedChoices> | undefined
+    return readList(stream, () => {
+      codec ??= sortedChoices(choices)
+      return JSON.parse(codec.decode(stream, undefined)) as AnyOrder
+    })
   }
 }
 
@@ -257,11 +263,10 @@ class GenericOrderCodec {
   private sparseOrders(phase: Phase, roster: Unit[], orders: WireOrder[]): Bits {
     const stream = new Bits()
     stream.put(WireBit.Zero, WireBit.One)
-    stream.writeInteger(orders.length)
-    for (const order of orders) {
+    writeList(stream, orders, (order) => {
       this.writeSource(stream, roster, order)
       this.actions.encode(stream, phase, order)
-    }
+    })
     return stream
   }
 
@@ -279,8 +284,7 @@ class GenericOrderCodec {
   decode(stream: Bits, board: BoardState): AnyOrder[] {
     const roster = this.context.roster(board)
     if (stream.get(WireBit.One)) return this.readDenseOrders(stream, board, roster)
-    const count = bounded(stream.readInteger(), WireLimit.ListItems)
-    return Array.from({ length: count }, () => this.readSparseOrder(stream, board.phase, roster))
+    return readList(stream, () => this.readSparseOrder(stream, board.phase, roster))
   }
 
   private readDenseOrders(stream: Bits, board: BoardState, roster: Unit[]): AnyOrder[] {

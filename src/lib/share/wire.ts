@@ -223,6 +223,23 @@ export class WireStream {
   }
 }
 
+/** Read a length-prefixed list, rejecting excessive lengths before allocating. */
+export function readList<T>(stream: WireStream, readItem: () => T, limit: number = WireLimit.ListItems): T[] {
+  const count = bounded(stream.readInteger(), limit)
+  return Array.from({ length: count }, readItem)
+}
+
+/** Write a length-prefixed list with the same bound used when reading. */
+export function writeList<T>(
+  stream: WireStream,
+  items: readonly T[],
+  writeItem: (item: T) => void,
+  limit: number = WireLimit.ListItems,
+): void {
+  stream.writeInteger(bounded(items.length, limit))
+  for (const item of items) writeItem(item)
+}
+
 /** Keep the first representation on ties, making output deterministic. */
 export function shortest(first: WireStream, alternative?: WireStream): WireStream {
   if (alternative && alternative.data.length < first.data.length) return alternative
