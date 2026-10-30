@@ -26,7 +26,7 @@ it('chooses and decodes both sparse and bitmap convoy lists', () => {
   ] as const) {
     const stream = new WireStream()
     const expected = codec.encode(stream, board, [...orders])
-    expect(stream.data[WireBit.Zero]).toBe(mode)
+    expect(new WireStream(stream.bytes()).get(WireBit.One)).toBe(mode)
     expect(codec.decode(new WireStream(stream.bytes()), board)).toEqual(expected)
   }
 })

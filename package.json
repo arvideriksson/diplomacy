@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "@thi.ng/bitstream": "^2.4.55",
     "svelte-routing": "^2.13.0"
   }
 }

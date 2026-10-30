@@ -218,9 +218,9 @@ class GenericOrderCodec {
     const sparse = this.sparseOrders(board.phase, roster, orders)
     const indexes = orders.map((order) => this.context.sourceIndex(roster, order))
     const dense = this.context.orderedIndexes(indexes) ? this.denseOrders(board, roster, orders, indexes) : undefined
-    const useDense = Boolean(dense && dense.data.length < sparse.data.length)
+    const useDense = Boolean(dense && dense.length < sparse.length)
     const selected = useDense && dense ? dense : sparse
-    stream.data.push(...selected.data)
+    stream.append(selected)
   }
 
   private sparseOrders(phase: Phase, roster: Unit[], orders: WireOrder[]): Bits {
@@ -418,8 +418,8 @@ export class OrderCodec {
     generic.put(WireBit.Zero, WireBit.One)
     this.generic.encode(generic, board, orders)
     const compact = this.compactCandidate(board, orders)
-    const selected = compact && compact.data.length < generic.data.length ? compact : generic
-    stream.data.push(...selected.data)
+    const selected = compact && compact.length < generic.length ? compact : generic
+    stream.append(selected)
   }
 
   private compactCandidate(board: BoardState, orders: WireOrder[]): Bits | undefined {

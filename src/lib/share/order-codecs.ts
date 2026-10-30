@@ -172,9 +172,9 @@ export class ConvoyedArmiesCodec {
     const indexes = this.indexes(eligible, orders)
     const sparse = this.sparse(indexes)
     const bitmap = this.bitmap(eligible, indexes)
-    const useSparse = sparse.data.length < bitmap.data.length
+    const useSparse = sparse.length < bitmap.length
     stream.put(useSparse ? WireBit.One : WireBit.Zero, WireBit.One)
-    stream.data.push(...(useSparse ? sparse : bitmap).data)
+    stream.append(useSparse ? sparse : bitmap)
     return this.territories(eligible, indexes)
   }
 
