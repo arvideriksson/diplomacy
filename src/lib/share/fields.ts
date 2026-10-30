@@ -1,8 +1,10 @@
 import type { Unit } from '../types'
+import type { BoardState } from '../adjudicator'
 import type { MapDefinition } from '../mapDefinition'
 import { fixedBits, literal, struct, type Codec } from './bits'
 import {
   COAST_IDS,
+  EMPTY_TEXT,
   POWER_IDS,
   CoastKind,
   MapKind,
@@ -92,5 +94,18 @@ export const unitCodec: Codec<Unit, FieldContext> = {
   },
   encode(writer, unit, context) {
     unitFields.encode(writer, { ...unit, coast: unit.type === UnitKind.Fleet ? unit.coast : undefined }, context)
+  },
+}
+
+/** A dislodged unit and the province its attacker came from. */
+export const dislodgedCodec: Codec<BoardState['dislodged'][number], FieldContext> = {
+  encode(writer, entry, context) {
+    unitCodec.encode(writer, entry.unit, context)
+    optionalPlace.encode(writer, entry.attackedFrom, context)
+  },
+  decode(reader, context) {
+    const unit = unitCodec.decode(reader, context)
+    const attackedFrom = optionalPlace.decode(reader, context) ?? EMPTY_TEXT
+    return { unit, attackedFrom }
   },
 }

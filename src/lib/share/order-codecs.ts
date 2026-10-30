@@ -5,8 +5,14 @@ import { convoyAux, convoyReach, convoyTargets, moveTargets, supportAux, support
 import { retreatTargets } from '../orders/adjustments'
 import { coastCodec, type FieldContext } from './fields'
 import type { Unit } from '../types'
-import { sortedChoices } from './bits'
+import { sortedChoices, type Codec } from './bits'
 import { OrderKind, UnitKind, WireBit, WireIndex, WireStream, requireWire, shortest } from './wire'
+
+/** A location selected from the places available in the current board context. */
+const placeChoice: Codec<string, string[]> = {
+  encode: (stream, value, places) => sortedChoices(places).encode(stream, value, undefined),
+  decode: (stream, places) => sortedChoices(places).decode(stream, undefined),
+}
 
 export type WireOrder = {
   type: AnyOrder['type']
@@ -34,13 +40,13 @@ export class AssistanceOrderCodec {
 
   encode(stream: WireStream, order: WireOrder, context: OrderContext): void {
     requireWire(order.type === this.type && order.aux && order.target)
-    this.writeChoice(stream, this.sources(context), order.aux)
-    this.writeChoice(stream, this.targets(context, order.aux), order.target)
+    placeChoice.encode(stream, order.aux, this.sources(context))
+    placeChoice.encode(stream, order.target, this.targets(context, order.aux))
   }
 
   decode(stream: WireStream, context: OrderContext): WireOrder {
-    const aux = this.readChoice(stream, this.sources(context))
-    const target = this.readChoice(stream, this.targets(context, aux))
+    const aux = placeChoice.decode(stream, this.sources(context))
+    const target = placeChoice.decode(stream, this.targets(context, aux))
     const { nation, territory: source, coast } = context.unit
     return { nation, source, ...(coast ? { sourceCoast: coast } : {}), type: this.type, aux, target }
   }
@@ -55,14 +61,6 @@ export class AssistanceOrderCodec {
     requireWire(target)
     if (this.type === OrderKind.Support) return supportTargets(map, unit, target, board.units)
     return convoyTargets(map, unit, target, board.units)
-  }
-
-  private writeChoice(stream: WireStream, values: string[], value: string): void {
-    sortedChoices(values).encode(stream, value, undefined)
-  }
-
-  private readChoice(stream: WireStream, values: string[]): string {
-    return sortedChoices(values).decode(stream, undefined)
   }
 }
 
@@ -84,14 +82,6 @@ interface MoveContext extends OrderContext {
 }
 
 class TargetCodec {
-  protected writeChoice(stream: WireStream, values: string[], value: string): void {
-    sortedChoices(values).encode(stream, value, undefined)
-  }
-
-  protected readChoice(stream: WireStream, values: string[]): string {
-    return sortedChoices(values).decode(stream, undefined)
-  }
-
   protected source(unit: Unit) {
     const { nation, territory: source, coast } = unit
     return { nation, source, ...(coast ? { sourceCoast: coast } : {}) }
@@ -113,14 +103,14 @@ export class MoveOrderCodec extends TargetCodec {
   encode(stream: WireStream, order: WireOrder, context: MoveContext): void {
     requireWire(context.vias && order.target)
     const via = context.vias.has(context.unit.territory)
-    this.writeChoice(stream, this.targets(context, via), order.target)
+    placeChoice.encode(stream, order.target, this.targets(context, via))
     this.writeCoast(stream, context, order.target, order.targetCoast)
   }
 
   decode(stream: WireStream, context: MoveContext): WireOrder {
     requireWire(context.vias)
     const via = context.vias.has(context.unit.territory)
-    const target = this.readChoice(stream, this.targets(context, via))
+    const target = placeChoice.decode(stream, this.targets(context, via))
     const coast = this.readCoast(stream, context, target)
     return {
       ...this.source(context.unit),
@@ -144,14 +134,14 @@ export class RetreatOrderCodec extends TargetCodec {
     stream.put(order.type === OrderKind.Retreat ? WireBit.One : WireBit.Zero, WireBit.One)
     if (order.type === OrderKind.Disband) return
     requireWire(order.target)
-    this.writeChoice(stream, this.targets(context), order.target)
+    placeChoice.encode(stream, order.target, this.targets(context))
     this.writeCoast(stream, context, order.target, order.targetCoast)
   }
 
   decode(stream: WireStream, context: MoveContext): WireOrder {
     const source = this.source(context.unit)
     if (!stream.get(WireBit.One)) return { ...source, type: OrderKind.Disband }
-    const target = this.readChoice(stream, this.targets(context))
+    const target = placeChoice.decode(stream, this.targets(context))
     const coast = this.readCoast(stream, context, target)
     return { ...source, type: OrderKind.Retreat, target, ...(coast ? { targetCoast: coast } : {}) }
   }
