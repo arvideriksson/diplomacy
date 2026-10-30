@@ -51,9 +51,15 @@
   {#if shared}
     <div class="sandbox-stage">
       <SandboxBoard sandbox={{ ...shared, id: '', createdAt: '' }} map={getMap(shared.mapId)} onExit={onBack} onDeleted={onBack} preview onPreviewStep={stepShared}>
-        <div slot="preview-banner" class="shared-bar">
-          <strong>Shared sandbox</strong>
-          <button class="btn btn-primary" on:click={saveShared}>Save to continue editing</button>
+        <div slot="preview-banner" class="glass shared-bar">
+          <strong>Preview</strong>
+          <button class="btn btn-primary" on:click={saveShared} aria-label="Save sandbox" title="Save a copy to edit">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 3h12l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+              <path d="M7 3v6h9V3M7 21v-8h10v8" />
+            </svg>
+            Save
+          </button>
         </div>
       </SandboxBoard>
     </div>
@@ -79,16 +85,14 @@
     justify-content: center;
     gap: 10px;
     padding: 5px 5px 5px 14px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
     border-radius: 999px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     color: var(--text);
     font-size: 13px;
     white-space: nowrap;
   }
   .shared-bar .btn {
     border-radius: 999px;
+    min-height: 40px;
     padding: 7px 12px;
     font-size: 12px;
   }
