@@ -21,9 +21,15 @@ describe('sandbox sharing primitives', () => {
     const board = initialBoard(classicalMap)
     const order = { type: 'Move' as const, nation: 'germany', source: 'MUN', target: 'TYR' }
     const next = adjudicate(classicalMap, board, [order]).newBoardState
-    const sandbox = { name: 'Fork', mapId: 'classical', cursor: 0, frames: [
-      { board, orders: [] }, { board: next, orders: [] },
-    ] }
+    const sandbox = {
+      name: 'Fork',
+      mapId: 'classical',
+      cursor: 0,
+      frames: [
+        { board, orders: [] },
+        { board: next, orders: [] },
+      ],
+    }
     const timeline = toTimeline(sandbox)
     expect(timeline.entries[0].checkpoint).toEqual(next)
     expect(fromTimeline(timeline)).toEqual(sandbox)
@@ -37,29 +43,43 @@ import type { AnyOrder, BoardState } from '../adjudicator'
 
 function game(map = classicalMap, rounds: AnyOrder[][] = []) {
   let board = initialBoard(map)
-  const frames = rounds.map(orders => {
+  const frames = rounds.map((orders) => {
     const before = board
     const result = adjudicate(map, board, orders)
     board = result.newBoardState
     return { board: before, orders, results: result.results }
   })
-  return { name: 'Shared game', mapId: map.id, cursor: frames.length, frames: [...frames, { board, orders: [], results: undefined }] }
+  return {
+    name: 'Shared game',
+    mapId: map.id,
+    cursor: frames.length,
+    frames: [...frames, { board, orders: [], results: undefined }],
+  }
 }
 
 describe('shared sandbox payload', () => {
   it('keeps the version 1 opening payload stable', async () => {
-    const sandbox = { name: 'Opening', mapId: 'classical', cursor: 0, frames: [{ board: initialBoard(classicalMap), orders: [] }] }
+    const sandbox = {
+      name: 'Opening',
+      mapId: 'classical',
+      cursor: 0,
+      frames: [{ board: initialBoard(classicalMap), orders: [] }],
+    }
     const payload = 'EAVN5RuIT3BlbmluZ1kSc-3agK2UXms'
     expect(await encodeSandbox(sandbox)).toBe(payload)
     expect(await decodeSandbox(payload)).toEqual(sandbox)
   })
 
   it('round trips both map openings and a resolved history with draft orders', async () => {
-    for (const sandbox of [game(), game(map1900), game(classicalMap, [
-      [{ type: 'Move', nation: 'england', source: 'LON', target: 'NTH' }],
-      [{ type: 'Hold', nation: 'england', source: 'NTH' }],
-    ])]) {
-      sandbox.frames.at(-1)!.orders = [{ type: 'Move', nation: 'france', source: 'PAR' }]
+    for (const sandbox of [
+      game(),
+      game(map1900),
+      game(classicalMap, [
+        [{ type: 'Move', nation: 'england', source: 'LON', target: 'NTH' }],
+        [{ type: 'Hold', nation: 'england', source: 'NTH' }],
+      ]),
+    ]) {
+      sandbox.frames[sandbox.frames.length - 1].orders = [{ type: 'Move', nation: 'france', source: 'PAR' }]
       expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
     }
   })
@@ -74,11 +94,15 @@ describe('shared sandbox payload', () => {
 
   it('replays supported attacks, retreats and convoys', async () => {
     const opening = initialBoard(classicalMap)
-    const base: BoardState = { ...opening, units: [
-      { nation: 'germany', type: 'army', territory: 'BEL' },
-      { nation: 'france', type: 'army', territory: 'BUR' },
-      { nation: 'france', type: 'army', territory: 'PIC' },
-    ], supplyCenters: { BEL: 'germany', PAR: 'france', BRE: 'france', MAR: 'france' } }
+    const base: BoardState = {
+      ...opening,
+      units: [
+        { nation: 'germany', type: 'army', territory: 'BEL' },
+        { nation: 'france', type: 'army', territory: 'BUR' },
+        { nation: 'france', type: 'army', territory: 'PIC' },
+      ],
+      supplyCenters: { BEL: 'germany', PAR: 'france', BRE: 'france', MAR: 'france' },
+    }
     const attacks: AnyOrder[] = [
       { type: 'Hold', nation: 'germany', source: 'BEL' },
       { type: 'Move', nation: 'france', source: 'BUR', target: 'BEL' },
@@ -88,35 +112,64 @@ describe('shared sandbox payload', () => {
     expect(first.newBoardState.phase).toBe('retreat')
     const retreats: AnyOrder[] = [{ type: 'Retreat', nation: 'germany', source: 'BEL', target: 'HOL' }]
     const second = adjudicate(classicalMap, first.newBoardState, retreats)
-    const sandbox = { name: 'Retreat', mapId: 'classical', cursor: 1, frames: [
-      { board: base, orders: attacks, results: first.results },
-      { board: first.newBoardState, orders: retreats, results: second.results },
-      { board: second.newBoardState, orders: [] },
-    ] }
+    const sandbox = {
+      name: 'Retreat',
+      mapId: 'classical',
+      cursor: 1,
+      frames: [
+        { board: base, orders: attacks, results: first.results },
+        { board: first.newBoardState, orders: retreats, results: second.results },
+        { board: second.newBoardState, orders: [] },
+      ],
+    }
     expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
-    const convoyBoard: BoardState = { ...opening, units: [
-      { nation: 'france', type: 'army', territory: 'BRE' },
-      { nation: 'france', type: 'fleet', territory: 'ENG' },
-    ], supplyCenters: { BRE: 'france' } }
+    const convoyBoard: BoardState = {
+      ...opening,
+      units: [
+        { nation: 'france', type: 'army', territory: 'BRE' },
+        { nation: 'france', type: 'fleet', territory: 'ENG' },
+      ],
+      supplyCenters: { BRE: 'france' },
+    }
     const convoy: AnyOrder[] = [
       { type: 'Move', nation: 'france', source: 'BRE', target: 'BEL', viaConvoy: true },
       { type: 'Convoy', nation: 'france', source: 'ENG', aux: 'BRE', target: 'BEL' },
     ]
     const resolved = adjudicate(classicalMap, convoyBoard, convoy)
-    const convoyGame = { name: 'Convoy', mapId: 'classical', cursor: 1, frames: [
-      { board: convoyBoard, orders: convoy, results: resolved.results }, { board: resolved.newBoardState, orders: [] },
-    ] }
+    const convoyGame = {
+      name: 'Convoy',
+      mapId: 'classical',
+      cursor: 1,
+      frames: [
+        { board: convoyBoard, orders: convoy, results: resolved.results },
+        { board: resolved.newBoardState, orders: [] },
+      ],
+    }
     expect(await decodeSandbox(await encodeSandbox(convoyGame))).toEqual(convoyGame)
   })
 
   it('preserves builds, removals and western coasts on 1900', async () => {
-    const board: BoardState = { ...initialBoard(map1900), year: 1903, season: 'Fall', phase: 'build',
+    const board: BoardState = {
+      ...initialBoard(map1900),
+      year: 1903,
+      season: 'Fall',
+      phase: 'build',
       units: [{ nation: 'france', type: 'fleet', territory: 'SPA', coast: 'wc' }],
-      supplyCenters: { BRE: 'france', PAR: 'france' }, dislodged: [], contested: [] }
+      supplyCenters: { BRE: 'france', PAR: 'france' },
+      dislodged: [],
+      contested: [],
+    }
     const orders: AnyOrder[] = [{ type: 'Build', nation: 'france', source: 'BRE', unitType: 'fleet' }]
     const next = adjudicate(map1900, board, orders)
-    const sandbox = { name: '1900 coast', mapId: '1900', cursor: 1,
-      frames: [{ board, orders, results: next.results }, { board: next.newBoardState, orders: [] }] }
+    const sandbox = {
+      name: '1900 coast',
+      mapId: '1900',
+      cursor: 1,
+      frames: [
+        { board, orders, results: next.results },
+        { board: next.newBoardState, orders: [] },
+      ],
+    }
     expect(await decodeSandbox(await encodeSandbox(sandbox))).toEqual(sandbox)
   })
 
@@ -129,21 +182,28 @@ describe('shared sandbox payload', () => {
   })
 
   it('compresses and reconstructs a longer history', async () => {
-    const sandbox = game(classicalMap, Array.from({ length: 60 }, () => []))
+    const sandbox = game(
+      classicalMap,
+      Array.from({ length: 60 }, () => []),
+    )
     const payload = await encodeSandbox(sandbox)
     expect(atob(payload.replace(/-/g, '+').replace(/_/g, '/')).charCodeAt(0)).toBe(0x11)
     expect(await decodeSandbox(payload)).toEqual(sandbox)
   })
 
   it('rejects a compressed body that expands beyond the limit', async () => {
-    const body = new Uint8Array(await new Response(
-      new Blob([new Uint8Array(32769)]).stream().pipeThrough(new CompressionStream('deflate-raw')),
-    ).arrayBuffer())
+    const body = new Uint8Array(
+      await new Response(
+        new Blob([new Uint8Array(32769)]).stream().pipeThrough(new CompressionStream('deflate-raw')),
+      ).arrayBuffer(),
+    )
     const envelope = new Uint8Array(body.length + 5)
     envelope[0] = 0x11
     envelope.set(body, 1)
-    const payload = btoa(Array.from(envelope, value => String.fromCharCode(value)).join(''))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const payload = btoa(Array.from(envelope, (value) => String.fromCharCode(value)).join(''))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
     await expect(decodeSandbox(payload)).rejects.toThrow()
   })
 

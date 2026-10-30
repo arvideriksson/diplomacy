@@ -75,7 +75,7 @@
   }
   async function shareSandbox() {
     try {
-      const url = new URL(`/sandbox/${await encodeSandbox(sb)}`, location.origin)
+      const url = new URL(`/sandbox/s/${await encodeSandbox(sb)}`, location.origin)
       if (url.href.length > 8000) throw new Error('This sandbox is too large to share as a link.')
       try {
         await navigator.clipboard.writeText(url.href)

@@ -74,6 +74,9 @@
 
   <main class:immersive={$immersive}>
     <!-- Sandboxes are local-only (browser storage + the in-browser engine): no sign-in needed. -->
+    <Route path="/sandbox/s/:payload" let:params>
+      <SandboxView sandboxId="" sharedPayload={params.payload} onBack={handleBackToList} />
+    </Route>
     <Route path="/sandbox/:id" let:params>
       <SandboxView sandboxId={params.id} onBack={handleBackToList} />
     </Route>
