@@ -61,3 +61,15 @@ it('checks fixed-width definitions and encoded values', () => {
   expect(() => encode(value, INVALID_CODE, VALID_WIDTH)).toThrow()
   expect(() => decode(value, new Uint8Array(), VALID_WIDTH)).toThrow()
 })
+
+it('validates countries and provinces against the active map', () => {
+  const classical = context(classicalMap)
+  const variant = context(map1900)
+  expect(countryCodec.validate(PowerKind.England, classicalMap)).toBe(true)
+  expect(countryCodec.validate(PowerKind.Britain, classicalMap)).toBe(false)
+  expect(countryCodec.validate(PowerKind.Britain, map1900)).toBe(true)
+  expect(provinceCodec.validate('PAR', classicalMap)).toBe(true)
+  expect(provinceCodec.validate('UNKNOWN', classicalMap)).toBe(false)
+  expect(() => encode(countryCodec, PowerKind.Britain, classical)).toThrow()
+  expect(() => encode(countryCodec, PowerKind.England, variant)).toThrow()
+})
