@@ -13,6 +13,7 @@ import {
   reachableCoasts,
   supportAux,
   supportTargets,
+  supportConvoyNext,
   convoyAux,
   convoyTargets,
   convoyNext,
@@ -25,7 +26,10 @@ export interface Draft {
   target?: string
   targetCoast?: string
   aux?: string
-  /** Army moves: fleets chosen so far to convoy it, in order (army → … → destination). */
+  /**
+   * Fleets chosen so far to convoy the army, in order (army → … → destination): the
+   * moving army's own route, or for a support, the supported army's.
+   */
   convoyPath?: string[]
 }
 
@@ -131,13 +135,27 @@ export const nextStep = (draft: Draft, ctx: WizardContext): Step => {
         }
       }
       if (!draft.target) {
+        // As for an army's move, a convoyed move is supported by walking its route
+        // fleet by fleet; the destinations then offered are those reachable from the
+        // last chosen fleet.
         const aux = unitAt(units, draft.aux)
+        const path = draft.convoyPath ?? []
+        const next = aux ? supportConvoyNext(map, unit, aux, path, units) : { fleets: [], destinations: [] }
+        const fleetChoices = next.fleets.map((id) => ({ id, label: `${name(map, id)} (convoy through)`, chain: true }))
+        if (path.length) {
+          return {
+            kind: 'province',
+            field: 'target',
+            prompt: `Convoy via ${path.map((p) => name(map, p)).join(' → ')}: choose where to support it into, or another fleet`,
+            choices: [...provinceChoices(map, next.destinations), ...fleetChoices],
+          }
+        }
         const targets = aux ? supportTargets(map, unit, aux, units) : []
         return {
           kind: 'province',
           field: 'target',
           prompt: 'Tap the unit again to support it holding, or where it is moving',
-          choices: provinceChoices(map, targets),
+          choices: [...provinceChoices(map, targets), ...fleetChoices],
         }
       }
       return { kind: 'done' }

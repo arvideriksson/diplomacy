@@ -342,8 +342,10 @@
 
   function commit(ctx: WizardContext) {
     if (!draft) return
-    // A picked convoy route also orders the fleets this player controls to convoy it.
-    orders = commitMove(orders, finalize(draft, ctx), draft.convoyPath, units, (n) => controlAll || n === nation)
+    // A move's picked convoy route also orders the fleets this player controls to convoy
+    // it; a support's route only chose the supported destination.
+    const route = draft.type === 'Move' ? draft.convoyPath : undefined
+    orders = commitMove(orders, finalize(draft, ctx), route, units, (n) => controlAll || n === nation)
     draft = null
     currentStep = null
     notifyOrders()
