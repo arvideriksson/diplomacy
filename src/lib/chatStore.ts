@@ -230,6 +230,8 @@ export function createChatStore(
   }
 
   async function onIncoming(m: ChatMessage) {
+    // Already have it (a broadcast racing a catch-up fetch, or my own send's echo).
+    if (get(messagesByCh)[m.channel_id]?.some((x) => x.id === m.id)) return
     const isActive = m.channel_id === get(activeId)
     // Always store: a live message belongs in the thread even if it isn't open yet.
     // openChannel still does the full history fetch on first open and dedupes by id.
@@ -246,7 +248,7 @@ export function createChatStore(
   async function subscribeAll() {
     for (const c of get(channels)) {
       if (unsubs.has(c.id)) continue
-      unsubs.set(c.id, await subscribeToChannel(c.id, onIncoming))
+      unsubs.set(c.id, await subscribeToChannel(c.id, onIncoming, onRejoin))
     }
   }
 
@@ -264,7 +266,7 @@ export function createChatStore(
 
   async function loadAll() {
     // Join the inbox before listing, so a channel created in between still arrives.
-    inboxUnsub ??= await subscribeToInbox(gameId, nation, onChannel)
+    inboxUnsub ??= await subscribeToInbox(gameId, nation, onChannel, onRejoin)
     const list = await listChannels(gameId)
     channels.set(list)
     drafts.set(await listDrafts(gameId).catch(() => []))
@@ -306,8 +308,37 @@ export function createChatStore(
 
   // Back from a hidden tab or a dropped connection: Broadcast only reaches online
   // clients, so fetch what was missed — deltas for the threads already loaded, fresh
-  // unread counts and previews for the rest.
-  async function catchUp() {
+  // unread counts and previews for the rest. One at a time: a call while one runs shares
+  // it, unless `rerun` (a rejoin, which may postdate its fetches) asks for one more pass.
+  let catching: Promise<void> | null = null
+  let catchAgain = false
+  function catchUp(rerun = false): Promise<void> {
+    if (catching) {
+      if (rerun) catchAgain = true
+      return catching
+    }
+    catching = (async () => {
+      try {
+        do {
+          catchAgain = false
+          await catchUpOnce()
+        } while (catchAgain)
+      } finally {
+        catching = null
+      }
+    })()
+    return catching
+  }
+
+  // Every topic rejoins at once after a reconnect: one catch-up for the lot. (On iOS the
+  // resume's own catch-up runs before the socket notices it died, so this is what fetches
+  // what was sent in between.)
+  const rejoined = createDebouncer(() => catchUp(true).catch(() => {}), 500)
+  function onRejoin() {
+    if (get(status) === 'ready') rejoined.schedule()
+  }
+
+  async function catchUpOnce() {
     if (!nation) return
     if (get(status) !== 'ready') return load()
     await refresh()
@@ -645,6 +676,7 @@ export function createChatStore(
   /** Stop live delivery and flush the open draft (best effort). */
   function destroy() {
     saveActiveDraft() // best-effort final flush of the open draft's body (cancels the timer)
+    rejoined.cancel()
     for (const u of unsubs.values()) u()
     unsubs.clear()
     inboxUnsub?.()
