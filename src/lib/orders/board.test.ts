@@ -18,6 +18,8 @@ import {
   withImplicitHolds,
   type NationSituation,
 } from './board'
+import { nextStep, type Draft } from './wizard'
+import { supportAux } from './options'
 
 const army = (nation: string, territory: string): Unit => ({ type: 'army', nation, territory })
 const fleet = (nation: string, territory: string): Unit => ({ type: 'fleet', nation, territory })
@@ -167,6 +169,19 @@ describe('movement entry', () => {
       targetCoast: 'sc',
     })
     expect(applyChoice({ source: 'BOT', type: 'Move' }, step, 'fin')).toBeNull()
+  })
+  it('supports a convoyed move by walking its route fleet by fleet', () => {
+    const supporter = army('russia', 'STP')
+    const units = [army('england', 'LON'), fleet('england', 'NTH'), fleet('england', 'NWG'), fleet('england', 'IRI'), supporter]
+    const ctx = { map: classicalMap, unit: supporter, units }
+    expect(supportAux(classicalMap, supporter, units)).toContain('LON')
+    const ids = (d: Draft) => {
+      const step = nextStep(d, ctx)
+      return step.kind === 'province' ? step.choices.map((c) => `${c.id}${c.chain ? '*' : ''}`) : []
+    }
+    // IRI can carry LON, but never into the supporter's reach.
+    expect(ids({ source: 'STP', type: 'Support', aux: 'LON' })).toEqual(['NTH*'])
+    expect(ids({ source: 'STP', type: 'Support', aux: 'LON', convoyPath: ['NTH'] })).toEqual(['NOR', 'NWG*'])
   })
   it('lists un-ordered units except the one being drafted', () => {
     const units = [army('france', 'PAR'), fleet('france', 'BRE'), army('france', 'MAR')]

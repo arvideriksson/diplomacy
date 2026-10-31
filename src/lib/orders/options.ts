@@ -123,10 +123,59 @@ const supportReach = (map: Def, unit: Unit): Set<string> =>
 /** Units that `supporter` could support (hold or move), with the actions available. */
 export const supportAux = (map: Def, supporter: Unit, units: Unit[]): string[] => {
   const reach = supportReach(map, supporter)
-  return units
-    .filter((u) => u !== supporter)
-    .filter((u) => reach.has(u.territory) || reachable(map, u).some((p) => reach.has(p)))
+  const others = units.filter((u) => u !== supporter)
+  return others
+    .filter(
+      (u) =>
+        reach.has(u.territory) ||
+        reachable(map, u).some((p) => reach.has(p)) ||
+        // An army convoyed into a province the supporter reaches (a supporting fleet can't also carry it).
+        (u.type === 'army' && convoyReach(map, u.territory, others).some((p) => reach.has(p))),
+    )
     .map((u) => u.territory)
+}
+
+/**
+ * One step of picking, fleet by fleet, the convoy route of an army whose move
+ * `supporter` supports. Like `convoyNext`, but a fleet is offered only if the chain
+ * through it can still land the army in a province the supporter reaches, and only
+ * such landings are offered. The supporter itself never carries the army.
+ */
+export const supportConvoyNext = (
+  map: Def,
+  supporter: Unit,
+  army: Unit,
+  path: string[],
+  units: Unit[],
+): { fleets: string[]; destinations: string[] } => {
+  if (army.type !== 'army') return { fleets: [], destinations: [] }
+  const reach = supportReach(map, supporter)
+  const others = units.filter((u) => u !== supporter)
+  const fleetAt = convoyFleets(map, others)
+  const into = (sea: string) =>
+    (territory(map, sea)?.adjacent ?? []).filter((n) => reach.has(n) && n !== army.territory && !fleetAt.has(n))
+  // Whether a chain continuing through `fleet` (avoiding the fleets already chosen) lands in reach.
+  const leadsInto = (fleet: string): boolean => {
+    const seen = new Set([fleet])
+    const queue = [fleet]
+    while (queue.length) {
+      const p = queue.shift()!
+      if (into(p).length) return true
+      for (const n of territory(map, p)?.adjacent ?? []) {
+        if (fleetAt.has(n) && !seen.has(n) && !path.includes(n) && n !== army.territory) {
+          seen.add(n)
+          queue.push(n)
+        }
+      }
+    }
+    return false
+  }
+  const next = convoyNext(map, army.territory, path, others)
+  const last = path.at(-1)
+  return {
+    fleets: next.fleets.filter(leadsInto),
+    destinations: last ? into(last).sort() : [],
+  }
 }
 
 /**
