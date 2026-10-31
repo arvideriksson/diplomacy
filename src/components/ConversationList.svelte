@@ -75,6 +75,17 @@
   }
   $: unreadTotal = Object.values($unread).filter(Boolean).length
 
+  // The row a tap started on. A catch-up can reorder the list mid-tap (on iOS, right
+  // after the app resumes), and the click then lands on whichever row moved under the
+  // finger; open the one that was touched instead.
+  let pressed: { kind: 'channel' | 'draft'; id: number } | null = null
+  function open(c: { kind: 'channel' | 'draft'; id: number }) {
+    const { kind, id } = pressed ?? c
+    pressed = null
+    if (kind === 'channel') chat.toggleChannel(id)
+    else chat.toggleDraft(id)
+  }
+
   // The preview line: "You: …" for my own message, "Name: …" in a group, and "Draft: …"
   // for text typed but not sent.
   function preview(c: (typeof $conversations)[number]): { from: string; text: string; draft?: boolean; sender?: string } {
@@ -121,7 +132,9 @@
         class="row"
         class:active
         class:unread={count > 0}
-        on:click={() => (c.kind === 'channel' ? chat.toggleChannel(c.id) : chat.toggleDraft(c.id))}
+        on:pointerdown={() => (pressed = { kind: c.kind, id: c.id })}
+        on:pointercancel={() => (pressed = null)}
+        on:click={() => open(c)}
       >
         <ChatAvatar {labels} nations={others(c.conv)} isPublic={c.kind === 'channel' && c.conv.is_public} />
         <span class="text">

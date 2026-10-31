@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { rpc } from './rpc'
-import type { RealtimeChannel } from '@supabase/supabase-js'
+import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
 
 /**
  * Secret group chat ("press"). Mirrors the free-tier economy levers in the schema
@@ -224,6 +224,18 @@ async function ensureRealtimeAuth(): Promise<void> {
   }
 }
 
+// Calls `onRejoin` each time the topic is joined again after its first join — the
+// socket dropped (e.g. iOS suspended the app) and reconnected, and whatever was
+// broadcast in between is gone.
+function onRejoined(onRejoin?: () => void) {
+  let joined = false
+  return (status: REALTIME_SUBSCRIBE_STATES) => {
+    if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) return
+    if (joined) onRejoin?.()
+    joined = true
+  }
+}
+
 /**
  * Subscribe to live messages for a channel over its PRIVATE Broadcast topic. Delivery
  * is online-only and carries the full message payload, so the handler receives the
@@ -232,6 +244,7 @@ async function ensureRealtimeAuth(): Promise<void> {
 export async function subscribeToChannel(
   channelId: number,
   onMessage: (m: ChatMessage) => void,
+  onRejoin?: () => void,
 ): Promise<() => void> {
   await ensureRealtimeAuth()
   const channel: RealtimeChannel = supabase
@@ -239,7 +252,7 @@ export async function subscribeToChannel(
     .on('broadcast', { event: 'msg' }, (payload) => {
       onMessage(payload.payload as ChatMessage)
     })
-    .subscribe()
+    .subscribe(onRejoined(onRejoin))
   return () => {
     supabase.removeChannel(channel)
   }
@@ -254,6 +267,7 @@ export async function subscribeToInbox(
   gameId: string,
   nation: string,
   onChannel: (c: ChatChannel) => void,
+  onRejoin?: () => void,
 ): Promise<() => void> {
   await ensureRealtimeAuth()
   const channel: RealtimeChannel = supabase
@@ -261,7 +275,7 @@ export async function subscribeToInbox(
     .on('broadcast', { event: 'channel' }, (payload) => {
       onChannel(payload.payload as ChatChannel)
     })
-    .subscribe()
+    .subscribe(onRejoined(onRejoin))
   return () => {
     supabase.removeChannel(channel)
   }
