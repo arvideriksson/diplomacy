@@ -312,7 +312,7 @@
     </svelte:fragment>
     <svelte:fragment slot="left">
       {#if nation && game.phase !== 'lobby' && !game.settings?.gunboat}
-        <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} onUnread={(n) => (unread = n)} />
+        <ChatPanel gameId={game.id} {nation} players={game.players} powers={map.powers} phase={game.phase} deadline={game.deadline ?? null} onUnread={(n) => (unread = n)} />
       {/if}
     </svelte:fragment>
     <svelte:fragment slot="orders-extra" let:spotlight>

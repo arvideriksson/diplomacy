@@ -9,6 +9,7 @@
   import ChatThread from './ChatThread.svelte'
   import ConversationStrip from './ConversationStrip.svelte'
   import { compact } from '../lib/layout'
+  import { pressClosed } from '../lib/game'
 
   export let gameId: string
   /** The viewer's nation. Chat is unavailable without one (spectators get no press). */
@@ -17,10 +18,19 @@
   export let players: Record<string, PlayerInfo> = {}
   /** Map powers — supplies each nation's display name and color. */
   export let powers: PowerDefinition[] = []
+  /** game.phase and game.deadline — press closes once the deadline passes (grace period). */
+  export let phase = ''
+  export let deadline: string | null = null
   /** Total unread messages across conversations (for a tab badge). */
   export let onUnread: ((n: number) => void) | null = null
 
   let scroller: HTMLDivElement | null = null
+
+  // Re-checked every few seconds so press closes on its own as the deadline passes.
+  let now = Date.now()
+  const clock = setInterval(() => (now = Date.now()), 5000)
+  onDestroy(() => clearInterval(clock))
+  $: closed = pressClosed({ phase, deadline }, now)
   let scrolledUp = false
 
   // Where the reader left each thread they had scrolled back in (channel id → scrollTop),
@@ -178,6 +188,7 @@
                 {chat}
                 {labels}
                 {nation}
+                {closed}
                 bind:scroller
                 bind:scrolledUp
                 bind:details={covered}

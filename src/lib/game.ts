@@ -7,7 +7,7 @@ import type { Unit } from './types'
 import type { AnyOrder } from './orders/types'
 import type { StampedOrderRow } from './history'
 import type { RoundKey, Season } from './adjudicator/types'
-import type { GamePhase, Phase } from './phases'
+import { isOrderPhase, type GamePhase, type Phase } from './phases'
 
 export type { Unit, RoundKey }
 
@@ -98,6 +98,15 @@ export interface PlayerInfo {
   nation?: string
   display_name?: string
   joined_at: string
+}
+
+/**
+ * Whether press is closed: from the deadline until the phase resolves (the grace period)
+ * no message can be sent. Mirrors press_closed() in 20250101000150_press_closed_in_grace.sql,
+ * which is what actually enforces it.
+ */
+export function pressClosed(game: { phase: string; deadline?: string | null }, now = Date.now()): boolean {
+  return isOrderPhase(game.phase) && !!game.deadline && Date.parse(game.deadline) <= now
 }
 
 export const games = writable<GameState[]>([])

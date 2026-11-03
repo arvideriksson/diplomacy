@@ -8,6 +8,7 @@
   import { BODY_MAX, NAME_MAX, type ChatStore, type chatLabels } from '../lib/chatStore'
   import type { ChatMessage } from '../lib/chat'
   import { clockTime, dayLabel, sameDay } from '../lib/chatTime'
+  import { gifUrl } from '../lib/chatGif'
   import ChatAvatar from './ChatAvatar.svelte'
   import Icon from './Icon.svelte'
 
@@ -15,6 +16,8 @@
   export let labels: ReturnType<typeof chatLabels>
   /** The viewer's nation (own messages render as "mine"). */
   export let nation: string
+  /** Press is closed (grace period): history stays readable, the compose box is replaced. */
+  export let closed = false
   /** The message scroller, bound up so the panel can scroll to the newest message. */
   export let scroller: HTMLDivElement | null = null
   /** Single-pane layout: show a back arrow to the list. */
@@ -35,6 +38,10 @@
   // Other conversations with unread messages — what the back arrow's badge counts.
   $: elsewhere = backBadge - (newCount ? 1 : 0)
   $: sending = $activeId != null ? $pending[$activeId] ?? [] : []
+
+  // GIF links whose image failed to load fall back to showing the link as text.
+  let brokenGifs = new Set<string>()
+  const gifBroke = (url: string) => { brokenGifs.add(url); brokenGifs = brokenGifs }
 
   /** The details sheet (members, pin, rename, discard), drawn over the messages. */
   export let details = false
@@ -71,7 +78,7 @@
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && !coarse) {
+    if (e.key === 'Enter' && !e.shiftKey && !coarse && !closed) {
       e.preventDefault()
       chat.send()
     }
@@ -228,20 +235,28 @@
           {@const mine = m.sender === nation}
           {#if day}<div class="day"><span>{day}</span></div>{/if}
           {#if m.id === $unreadFrom}<div class="new-divider"><span>New messages</span></div>{/if}
+          {@const gif = gifUrl(m.body)}
+          {@const showGif = !!gif && !brokenGifs.has(gif)}
           <div class="row" class:mine class:first class:last data-msg={m.id}>
             {#if !mine && !direct}
               <span class="gutter">
                 {#if last}<ChatAvatar {labels} nations={[m.sender]} size={28} />{/if}
               </span>
             {/if}
-            <div class="bubble">
+            <div class="bubble" class:gif={showGif}>
               {#if first && !mine && !direct}
                 <span class="from">
                   <span class="name">{userOf(m.sender) ?? display(m.sender)}</span>
                   {#if userOf(m.sender)}<span class="nation">{display(m.sender)}</span>{/if}
                 </span>
               {/if}
-              <span class="body">{m.body}<span class="spacer" aria-hidden="true"></span></span>
+              {#if showGif && gif}
+                <a class="gif-link" href={m.body.trim()} target="_blank" rel="noopener noreferrer">
+                  <img src={gif} alt="GIF" loading="lazy" decoding="async" referrerpolicy="no-referrer" on:error={() => gifBroke(gif)} />
+                </a>
+              {:else}
+                <span class="body">{m.body}<span class="spacer" aria-hidden="true"></span></span>
+              {/if}
               <time class="time" datetime={m.created_at}>{clockTime(m.created_at)}</time>
             </div>
           </div>
@@ -282,6 +297,12 @@
       </div>
 
       {#if $error}<p class="err">{$error}</p>{/if}
+      {#if closed}
+      <p class="closed" role="status">
+        <Icon name="lock" size={15} round />
+        Press is closed until this round resolves.
+      </p>
+      {:else}
       {#if $input.length >= BODY_MAX - 500}
         <span class="counter body-counter" class:full={$input.length >= BODY_MAX}>{$input.length}/{BODY_MAX}</span>
       {/if}
@@ -303,6 +324,7 @@
           </svg>
         </button>
       </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -653,6 +675,49 @@
     line-height: 1.4;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .closed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+    text-align: center;
+  }
+  /* No bubble frame: the GIF itself is the message (incoming keeps the sender's name). */
+  .bubble.gif,
+  .row.mine .bubble.gif {
+    padding: 0;
+    background: none;
+  }
+  .bubble.gif .from {
+    padding: 0 4px 3px;
+  }
+  .gif-link {
+    display: block;
+    line-height: 0;
+  }
+  .gif-link img {
+    display: block;
+    width: 260px;
+    max-width: 100%;
+    min-height: 80px;
+    max-height: 320px;
+    object-fit: cover;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .bubble.gif .time {
+    right: 10px;
+    bottom: 9px;
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
   }
   /* Reserves room on the last line so the time can float into the corner. */
   .spacer {
