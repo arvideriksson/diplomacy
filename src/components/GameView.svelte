@@ -18,7 +18,7 @@
   import type { BoardState } from '../lib/adjudicator'
   import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
   import { powerName } from '../lib/powers'
-  import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox } from '../lib/sandbox'
+  import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox, purgeTemporarySandboxes } from '../lib/sandbox'
   import type { AnyOrder } from '../lib/orders/types'
   import { compact, type GameTab } from '../lib/layout'
 
@@ -156,7 +156,7 @@
   // it; switching is a plain state change, so the game stays loaded and live meanwhile.
   let sandboxId: string | null = new URLSearchParams(location.search).get('sandbox')
   $: mySandboxes = sandboxesOf($sandboxes, game.id)
-  $: sandbox = sandboxId ? mySandboxes.find((s) => s.id === sandboxId) : undefined
+  $: sandbox = sandboxId ? $sandboxes.find((s) => s.id === sandboxId && s.origin?.gameId === game.id) : undefined
   let tab: GameTab = 'map'
   // The viewer's current orders on the live board — copied into a new sandbox.
   let liveOrders: AnyOrder[] = []
@@ -171,10 +171,51 @@
     sandboxId = new URLSearchParams(location.search).get('sandbox')
   }
   onMount(() => {
+    // Leftover scratch boards (a closed tab) go; the one in the URL survives a reload.
+    purgeTemporarySandboxes(sandboxId)
     window.addEventListener('popstate', syncFromUrl)
-    return () => window.removeEventListener('popstate', syncFromUrl)
+    return () => {
+      window.removeEventListener('popstate', syncFromUrl)
+      dropTemporary(sandboxId)
+    }
   })
-  function newSandbox() {
+  // A temporary sandbox is gone as soon as it's left — by button, back gesture or route.
+  function dropTemporary(id: string | null) {
+    if (id && $sandboxes.find((s) => s.id === id)?.temporary) deleteSandbox(id)
+  }
+  let openSandboxId: string | null = sandboxId
+  $: if (sandboxId !== openSandboxId) {
+    dropTemporary(openSandboxId)
+    openSandboxId = sandboxId
+  }
+  // The map's sandbox button: a clean-slate scratch copy of the live board — no orders
+  // carried over — deleted on exit.
+  // The game's resolved phases, for a new sandbox's past. A failed fetch just means
+  // the sandbox starts at the live phase without history.
+  async function gameHistory(): Promise<HistoryFrame[]> {
+    try {
+      await ensureHistory()
+      return past
+    } catch {
+      return []
+    }
+  }
+  async function scratchSandbox() {
+    const history = await gameHistory()
+    const board = liveBoard()
+    const sb = createSandboxFromGame({
+      name: 'Scratch',
+      mapId: game.map_id,
+      board,
+      orders: [],
+      origin: { gameId: game.id, gameName: game.name },
+      history,
+      temporary: true,
+    })
+    enterSandbox(sb.id)
+  }
+  async function newSandbox() {
+    const history = await gameHistory()
     const board = liveBoard()
     const phaseLabel = isOrderPhase(board.phase) ? PHASE_LABEL[board.phase] : board.phase
     const round = `${board.season} ${board.year} ${phaseLabel}`
@@ -185,6 +226,7 @@
       board,
       orders: isFrontier ? liveOrders : [],
       origin: { gameId: game.id, gameName: game.name },
+      history,
     })
     enterSandbox(sb.id)
   }
@@ -247,10 +289,10 @@
     standingsInSidebar
   >
     <svelte:fragment slot="map-action">
-      {#if mySandboxes.length}
-        <button class="glass sb-chip" class:icon={$compact} on:click={() => enterSandbox(mySandboxes[0].id)} title="Open your latest sandbox" aria-label="Open your latest sandbox">
+      {#if !isComplete}
+        <button class="glass sb-chip" class:icon={$compact} on:click={scratchSandbox} title="Experiment in a temporary sandbox (discarded when you leave)" aria-label="Open a temporary sandbox">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3" /><path d="M7.5 15h9" /></svg>
-          {#if !$compact}<span>Sandbox ›</span>{/if}
+          {#if !$compact}<span>Sandbox</span>{/if}
         </button>
       {/if}
       {#if canManage}

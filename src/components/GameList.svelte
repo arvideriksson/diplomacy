@@ -2,7 +2,7 @@
   import { fade } from 'svelte/transition'
   import { games, createGame, gamesLoaded } from '../lib/game'
   import { user } from '../lib/auth'
-  import { sandboxes } from '../lib/sandbox'
+  import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import { maps, getMap } from '../lib/maps'
   import type { GameState } from '../lib/game'
   import type { Sandbox } from '../lib/sandbox'
@@ -202,7 +202,7 @@
 
   {#if $gamesLoaded}
     {@render section('My games', myGames, 'You haven’t joined any games yet.')}
-    {@render section('Sandboxes', $sandboxes, 'Create a sandbox to try the rules — you control every power and resolve turns instantly.', newSandboxButton)}
+    {@render section('Sandboxes', keptSandboxes($sandboxes), 'Create a sandbox to try the rules — you control every power and resolve turns instantly.', newSandboxButton)}
     {@render section('Open games', openGames, 'No open games right now.')}
     {@render section('Running games', runningGames, 'No games in progress.')}
   {/if}

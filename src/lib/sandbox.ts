@@ -38,6 +38,8 @@ export interface Sandbox {
   createdAt: string
   /** Set when copied from a game: the sandbox lives inside that game's view. */
   origin?: SandboxOrigin
+  /** Throwaway scratch board: deleted as soon as it is left, never listed. */
+  temporary?: boolean
 }
 
 const KEY = 'diplomacy:sandboxes'
@@ -114,7 +116,9 @@ export function createSandbox(name: string, mapId = 'classical'): Sandbox {
 
 /**
  * Copy a game's current board (and the viewer's draft orders for it) into a new
- * sandbox tied to that game. Reset returns to this copy, not the opening position.
+ * sandbox tied to that game. `history` — the game's resolved phases, oldest first —
+ * becomes the sandbox's past, so you can step back to the opening; the cursor
+ * starts on the copied (live) phase.
  */
 export function createSandboxFromGame(opts: {
   name: string
@@ -122,23 +126,39 @@ export function createSandboxFromGame(opts: {
   board: BoardState
   orders: AnyOrder[]
   origin: SandboxOrigin
+  history?: Frame[]
+  temporary?: boolean
 }): Sandbox {
+  const frames: Frame[] = [
+    ...structuredClone(opts.history ?? []),
+    { board: structuredClone(opts.board), orders: structuredClone(opts.orders) },
+  ]
   const s: Sandbox = {
     id: crypto.randomUUID(),
     name: opts.name,
     mapId: opts.mapId,
-    frames: [{ board: structuredClone(opts.board), orders: structuredClone(opts.orders) }],
-    cursor: 0,
+    frames,
+    cursor: frames.length - 1,
     createdAt: new Date().toISOString(),
     origin: opts.origin,
+    ...(opts.temporary ? { temporary: true } : {}),
   }
   mutate((list) => [s, ...list])
   return s
 }
 
-/** The sandboxes copied from a game, newest first. */
+/** The kept (non-temporary) sandboxes copied from a game, newest first. */
 export const sandboxesOf = (list: Sandbox[], gameId: string): Sandbox[] =>
-  list.filter((s) => s.origin?.gameId === gameId)
+  list.filter((s) => s.origin?.gameId === gameId && !s.temporary)
+
+/** The sandboxes worth listing: temporary scratch boards are never shown. */
+export const keptSandboxes = (list: Sandbox[]): Sandbox[] => list.filter((s) => !s.temporary)
+
+/** Delete leftover temporary sandboxes (e.g. from a closed tab), except `keepId`. */
+export function purgeTemporarySandboxes(keepId?: string | null): void {
+  if (!loadAll().some((s) => s.temporary && s.id !== keepId)) return
+  mutate((list) => list.filter((s) => !s.temporary || s.id === keepId))
+}
 
 export function deleteSandbox(id: string): void {
   mutate((list) => list.filter((s) => s.id !== id))

@@ -131,9 +131,12 @@
     {#if !$compact}
       <button class="glass exit-btn" on:click={onExit}>‹ {inGame ? 'Back to game' : 'Leave'}</button>
     {/if}
-    <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
-      <Icon name="trash" size={17} round />
-    </button>
+    <!-- A temporary sandbox deletes itself on leaving: no delete button. -->
+    {#if !sb.temporary}
+      <button class="glass exit-btn icon trash" on:click={handleDelete} aria-label="Delete sandbox" title="Delete sandbox">
+        <Icon name="trash" size={17} round />
+      </button>
+    {/if}
   </svelte:fragment>
 
   <svelte:fragment slot="toolbar">
