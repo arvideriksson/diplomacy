@@ -11,6 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:chat": "CHAT_LOCAL=1 vitest run src/lib/__tests__/chatDelivery.local.test.ts",
     "test:7p": "node --experimental-strip-types scripts/seven-player-game.mjs",
     "test:7p:live": "BACKEND=live node --experimental-strip-types scripts/seven-player-game.mjs",
     "build:edge": "esbuild src/lib/adjudicator/edge-entry.ts --bundle --format=esm --platform=neutral --outfile=supabase/functions/adjudicate/_engine.mjs",
