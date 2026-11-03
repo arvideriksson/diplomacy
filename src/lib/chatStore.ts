@@ -18,7 +18,7 @@ import {
   fetchOlder,
   latestMessages,
   searchMessages,
-  unreadCount,
+  unreadSince,
   sendMessage,
   markRead,
   fetchMyReads,
@@ -31,6 +31,7 @@ import {
   type ChatChannel,
   type ChatMessage,
   type ChatDraft,
+  type LiveTopic,
 } from './chat'
 
 // Max conversation-name length. Mirrors the cap enforced in the create/rename RPCs
@@ -103,11 +104,35 @@ function writeLocal(key: string, value: unknown) {
 const sameSet = (a: string[], b: string[]): boolean =>
   a.length === b.length && [...a].sort().join('\u0000') === [...b].sort().join('\u0000')
 
+const byTime = (a: ChatMessage, b: ChatMessage) =>
+  a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id
+
+/** Two message lists as one, deduped by id, oldest first. */
+function mergeMsgs(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
+  const all = new Map<number, ChatMessage>()
+  for (const m of a) all.set(m.id, m)
+  for (const m of b) all.set(m.id, m)
+  return [...all.values()].sort(byTime)
+}
+
+// created_at is the sending transaction's start time, and transactions commit in any
+// order: a message can become visible after a newer one was already fetched. Delta
+// fetches therefore reach back this far before the newest message held (ids dedupe).
+const DELTA_OVERLAP_MS = 30_000
+
+// How long the first load waits for its Realtime joins before reading anyway.
+const JOIN_WAIT_MS = 3000
+const withTimeout = (p: Promise<unknown>, ms: number) =>
+  Promise.race([p, new Promise((resolve) => setTimeout(resolve, ms))])
+function deltaCursor(iso: string | undefined): string | undefined {
+  if (!iso) return undefined
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? iso : new Date(t - DELTA_OVERLAP_MS).toISOString()
+}
+
 function insertMsg(arr: ChatMessage[], m: ChatMessage): ChatMessage[] {
   if (arr.some((x) => x.id === m.id)) return arr // dedupe (optimistic vs broadcast echo)
-  const next = [...arr, m]
-  next.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id))
-  return next
+  return [...arr, m].sort(byTime)
 }
 
 /**
@@ -127,6 +152,9 @@ export function createChatStore(
   const messagesByCh = writable<Record<number, ChatMessage[]>>({})
   const loaded = new Set<number>()
   const unread = writable<Record<number, number>>({})
+  // What `unread` counts: per channel, the others' messages not yet seen (id → time).
+  // By id, so a message both fetched and delivered live counts once.
+  const unseen = new Map<number, Map<number, string>>()
   // Newest message per channel, for the list's previews and ordering.
   const latest = writable<Record<number, ChatMessage>>({})
   let myReads: Record<number, string> = {}
@@ -211,22 +239,100 @@ export function createChatStore(
   // Debounced save of the open draft's body while typing (see saveActiveDraft).
   const draftSave = createDebouncer(() => saveActiveDraft(), 1000)
 
-  const unsubs = new Map<number, () => void>()
-  let inboxUnsub: (() => void) | null = null
+  const subs = new Map<number, LiveTopic>()
+  let inbox: LiveTopic | null = null
+  // Topics whose first join landed after the load had already read them (it waits a
+  // few seconds for joins, not forever): synced once the load is done.
+  let readsStarted = false
+  const lateJoins = new Set<number | 'inbox'>()
+
+  function publishUnread(id: number) {
+    const n = unseen.get(id)?.size ?? 0
+    unread.update((u) => (u[id] === n ? u : { ...u, [id]: n }))
+  }
+
+  /** Take the server's view of a channel's unread messages (fetched after `cursor`),
+   *  keeping live ones it couldn't have included: newer than anything it returned and
+   *  than the cursor. Anything older it left out was read (maybe on another device). */
+  function applyUnread(id: number, rows: { id: number; created_at: string }[], cursor: string | undefined) {
+    const floor = [cursor ?? '', ...rows.map((r) => r.created_at)].reduce((a, b) => (b > a ? b : a), '')
+    const next = new Map(rows.map((r) => [r.id, r.created_at] as const))
+    for (const [mid, at] of unseen.get(id) ?? []) if (at > floor) next.set(mid, at)
+    unseen.set(id, next)
+    publishUnread(id)
+  }
+
+  function addUnseen(m: ChatMessage) {
+    let set = unseen.get(m.channel_id)
+    if (!set) unseen.set(m.channel_id, (set = new Map()))
+    set.set(m.id, m.created_at)
+    publishUnread(m.channel_id)
+  }
+
+  /** Unread ids and the newest message for channels whose thread isn't loaded. */
+  async function syncSummaries(ids: number[]) {
+    if (!ids.length) return
+    const rows = await Promise.all(ids.map((id) => unreadSince(id, nation, myReads[id]).catch(() => null)))
+    ids.forEach((id, i) => {
+      const r = rows[i]
+      if (r) applyUnread(id, r, myReads[id])
+    })
+    const newest = await latestMessages(ids).catch(() => ({}) as Record<number, ChatMessage>)
+    latest.update((l) => {
+      const next = { ...l }
+      for (const m of Object.values(newest)) if (!next[m.channel_id] || next[m.channel_id].created_at < m.created_at) next[m.channel_id] = m
+      return next
+    })
+  }
+
+  /** Fetch what one channel's topic may have missed: a loaded thread's delta, else its
+   *  unread ids and preview. */
+  async function syncChannel(id: number) {
+    if (loaded.has(id)) {
+      const missed = await fetchMessages(id, deltaCursor(get(messagesByCh)[id]?.at(-1)?.created_at))
+      for (const m of missed) await onIncoming(m)
+    } else {
+      await syncSummaries([id])
+    }
+  }
+
+  // A channel topic joined. The first join fetches what was sent before it went live
+  // (e.g. the first message of a conversation that was announced a moment ago); a
+  // later one is a reconnect, which every topic does at once: one catch-up for the lot.
+  function onChannelJoined(id: number, first: boolean) {
+    if (get(status) !== 'ready') {
+      if (readsStarted) lateJoins.add(id) // else the load's reads come after this join
+      return
+    }
+    if (first) syncChannel(id).catch(() => {})
+    else onRejoin()
+  }
+
+  function onInboxJoined(first: boolean) {
+    if (get(status) !== 'ready') {
+      if (readsStarted) lateJoins.add('inbox')
+      return
+    }
+    if (first) refresh().catch(() => {})
+    else onRejoin()
+  }
 
   function store(m: ChatMessage) {
     messagesByCh.update((all) => ({ ...all, [m.channel_id]: insertMsg(all[m.channel_id] ?? [], m) }))
     latest.update((l) => (l[m.channel_id] && l[m.channel_id].created_at > m.created_at ? l : { ...l, [m.channel_id]: m }))
   }
 
-  /** The open channel's messages are all on screen: clear its unread count and cursor. */
+  /** The open channel's messages are all on screen: clear its unread count and move
+   *  the cursor to the newest one shown. */
   async function markSeen() {
     const id = get(activeId)
     if (id == null) return
     const last = get(messagesByCh)[id]?.at(-1)
-    if (last) myReads[id] = last.created_at
-    if (get(unread)[id]) unread.update((u) => ({ ...u, [id]: 0 }))
-    await markRead(id).catch(() => {})
+    unseen.delete(id)
+    publishUnread(id)
+    if (!last) return
+    myReads[id] = last.created_at
+    await markRead(id, last.created_at).catch(() => {})
   }
 
   async function onIncoming(m: ChatMessage) {
@@ -240,15 +346,16 @@ export function createChatStore(
       await scrollToBottom()
       await markSeen()
     } else if (m.sender !== nation) {
-      unread.update((u) => ({ ...u, [m.channel_id]: (u[m.channel_id] ?? 0) + 1 }))
+      const cursor = myReads[m.channel_id]
+      if (!cursor || m.created_at > cursor) addUnseen(m)
       if (isActive && get(unreadFrom) == null) unreadFrom.set(m.id)
     }
   }
 
-  async function subscribeAll() {
+  function subscribeAll() {
     for (const c of get(channels)) {
-      if (unsubs.has(c.id)) continue
-      unsubs.set(c.id, await subscribeToChannel(c.id, onIncoming, onRejoin))
+      if (subs.has(c.id)) continue
+      subs.set(c.id, subscribeToChannel(c.id, onIncoming, (first) => onChannelJoined(c.id, first)))
     }
   }
 
@@ -258,6 +365,10 @@ export function createChatStore(
     try {
       await loadAll()
       status.set('ready')
+      const late = [...lateJoins]
+      lateJoins.clear()
+      if (late.includes('inbox')) refresh().catch(() => {})
+      for (const id of late) if (id !== 'inbox') syncChannel(id).catch(() => {})
     } catch (e) {
       status.set('error')
       throw e
@@ -265,28 +376,30 @@ export function createChatStore(
   }
 
   async function loadAll() {
-    // Join the inbox before listing, so a channel created in between still arrives.
-    inboxUnsub ??= await subscribeToInbox(gameId, nation, onChannel, onRejoin)
+    // Go live first and read after, so nothing sent in between is missed: join every
+    // topic, wait (briefly) for the joins, then read. A join slower than the wait is
+    // synced on its own once the load is done (lateJoins).
+    readsStarted = false
+    inbox ??= subscribeToInbox(gameId, nation, onChannel, onInboxJoined)
+    await withTimeout(inbox.joined, JOIN_WAIT_MS)
     const list = await listChannels(gameId)
     channels.set(list)
+    subscribeAll()
     drafts.set(await listDrafts(gameId).catch(() => []))
+    await withTimeout(Promise.all(list.map((c) => subs.get(c.id)?.joined)), JOIN_WAIT_MS)
+    readsStarted = true
     myReads = await fetchMyReads(list.map((c) => c.id), nation)
-    const counts = await Promise.all(list.map((c) => unreadCount(c.id, nation, myReads[c.id]).catch(() => 0)))
-    unread.set(Object.fromEntries(list.map((c, i) => [c.id, counts[i]])))
-    latest.set(await latestMessages(list.map((c) => c.id)).catch(() => ({})))
-    await subscribeAll()
+    await syncSummaries(list.map((c) => c.id))
   }
 
-  // Unread counts and previews for channels just discovered, then live delivery.
+  // Channels just discovered: go live first, then read their cursors, unread ids and
+  // previews. A message sent before the topic joins is fetched again on its first join
+  // (onChannelJoined), so the first message of a new conversation can't fall between.
   async function addChannels(added: ChatChannel[]) {
-    if (added.length) {
-      const reads = await fetchMyReads(added.map((c) => c.id), nation)
-      const counts = await Promise.all(added.map((c) => unreadCount(c.id, nation, reads[c.id]).catch(() => 0)))
-      unread.update((u) => ({ ...u, ...Object.fromEntries(added.map((c, i) => [c.id, counts[i]])) }))
-      const newest = await latestMessages(added.map((c) => c.id)).catch(() => ({}))
-      latest.update((l) => ({ ...l, ...newest }))
-    }
-    await subscribeAll()
+    subscribeAll()
+    if (!added.length) return
+    myReads = { ...myReads, ...(await fetchMyReads(added.map((c) => c.id), nation).catch(() => ({}))) }
+    await syncSummaries(added.map((c) => c.id))
   }
 
   // A channel I belong to was created or renamed (announced on my inbox topic).
@@ -341,22 +454,19 @@ export function createChatStore(
   async function catchUpOnce() {
     if (!nation) return
     if (get(status) !== 'ready') return load()
+    // Topics the server closed while away (an expired token) join again right now
+    // rather than at their next backoff step.
+    inbox?.revive()
+    for (const s of subs.values()) s.revive()
     await refresh()
     const list = get(channels)
-    const all = get(messagesByCh)
     await Promise.all(
-      list.filter((c) => loaded.has(c.id)).map(async (c) => {
-        const missed = await fetchMessages(c.id, all[c.id]?.at(-1)?.created_at).catch(() => [])
-        for (const m of missed) await onIncoming(m)
-      }),
+      list.filter((c) => loaded.has(c.id)).map((c) => syncChannel(c.id).catch(() => {})),
     )
-    const others = list.filter((c) => !loaded.has(c.id))
+    const others = list.filter((c) => !loaded.has(c.id)).map((c) => c.id)
     // The cursor may have moved on another device while this tab was away.
-    myReads = { ...myReads, ...(await fetchMyReads(others.map((c) => c.id), nation).catch(() => ({}))) }
-    const counts = await Promise.all(others.map((c) => unreadCount(c.id, nation, myReads[c.id]).catch(() => 0)))
-    unread.update((u) => ({ ...u, ...Object.fromEntries(others.map((c, i) => [c.id, counts[i]])) }))
-    const newest = await latestMessages(others.map((c) => c.id)).catch(() => ({}))
-    latest.update((l) => ({ ...l, ...newest }))
+    myReads = { ...myReads, ...(await fetchMyReads(others, nation).catch(() => ({}))) }
+    await syncSummaries(others)
   }
 
   // Keep what was typed into the open channel's compose box when leaving it.
@@ -413,7 +523,8 @@ export function createChatStore(
     if (!loaded.has(id)) {
       try {
         const msgs = await fetchMessages(id)
-        messagesByCh.update((all) => ({ ...all, [id]: msgs }))
+        // Merge, don't replace: a message delivered live during the fetch stays.
+        messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], msgs) }))
         hasOlder.update((h) => ({ ...h, [id]: msgs.length >= 500 }))
         loaded.add(id)
       } catch (e) {
@@ -531,7 +642,7 @@ export function createChatStore(
           ? await createNamedChannel(gameId, others, d.name)
           : await getOrCreateChannel(gameId, others)
         if (!get(channels).some((x) => x.id === c.id)) channels.update((list) => [...list, c])
-        await subscribeAll()
+        subscribeAll()
         drafts.update((list) => list.filter((x) => x.id !== d.id))
         if (get(activeDraftId) === d.id) {
           activeDraftId.set(null)
@@ -677,10 +788,10 @@ export function createChatStore(
   function destroy() {
     saveActiveDraft() // best-effort final flush of the open draft's body (cancels the timer)
     rejoined.cancel()
-    for (const u of unsubs.values()) u()
-    unsubs.clear()
-    inboxUnsub?.()
-    inboxUnsub = null
+    for (const s of subs.values()) s.stop()
+    subs.clear()
+    inbox?.stop()
+    inbox = null
   }
 
   return {

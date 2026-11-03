@@ -169,19 +169,27 @@ export async function searchMessages(channelIds: number[], query: string): Promi
   return (data ?? []) as ChatMessage[]
 }
 
-/** Count of others' messages after a cursor — head:true returns the count with no row
- *  egress. The caller's own messages never count, whatever the cursor says. */
-export async function unreadCount(channelId: number, nation: string, sinceIso?: string): Promise<number> {
+/** Others' messages after a cursor (id + time only, newest first, capped) — unread
+ *  is tracked by id so a message counted here and also delivered live counts once.
+ *  The caller's own messages never count, whatever the cursor says. */
+export async function unreadSince(
+  channelId: number,
+  nation: string,
+  sinceIso?: string,
+): Promise<{ id: number; created_at: string }[]> {
   let q = supabase
     .from('chat_messages')
-    .select('*', { count: 'exact', head: true })
+    .select('id,created_at')
     .eq('channel_id', channelId)
     .neq('sender', nation)
   if (sinceIso) q = q.gt('created_at', sinceIso)
-  const { count, error } = await q
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(UNREAD_CAP)
   if (error) throw error
-  return count ?? 0
+  return (data ?? []) as { id: number; created_at: string }[]
 }
+
+/** Most unread messages fetched per channel (badges show this as the ceiling). */
+export const UNREAD_CAP = 100
 
 export async function sendMessage(channelId: number, body: string): Promise<ChatMessage> {
   return rpc<ChatMessage>('send_chat_message', {
@@ -190,8 +198,10 @@ export async function sendMessage(channelId: number, body: string): Promise<Chat
   })
 }
 
-export async function markRead(channelId: number): Promise<void> {
-  await rpc('mark_chat_read', { p_channel_id: channelId })
+/** Advance the read cursor to `upTo` — the newest message actually on screen, not the
+ *  server's clock, so a message committed but not yet delivered stays unread. */
+export async function markRead(channelId: number, upTo: string): Promise<void> {
+  await rpc('mark_chat_read', { p_channel_id: channelId, p_up_to: upTo })
 }
 
 /** The caller's read cursor per channel, for the given channels. Scoped by channel id
@@ -209,74 +219,122 @@ export async function fetchMyReads(channelIds: number[], nation: string): Promis
   return out
 }
 
-// Realtime needs the user's JWT to authorize private-channel subscriptions. Set it
-// once; the access token is stable for the session and refreshes are picked up here.
-let authedToken: string | null = null
+// Before joining a private topic, make sure Realtime holds a current access token: the
+// join carries it for the Realtime Authorization (RLS) check, so a join raced against an
+// unset token is refused. Pulled through supabase-js's accessToken callback rather than
+// passed in — a token passed in counts as "manual" and turns off realtime-js's own
+// refresh on every heartbeat, which is what keeps a long-lived join from expiring.
 async function ensureRealtimeAuth(): Promise<void> {
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token ?? null
-  if (token && token !== authedToken) {
-    // Must complete before we subscribe to a private topic — the join carries this
-    // token for the Realtime Authorization (RLS) check. Firing it un-awaited races
-    // the subscribe and can join a private channel with no/stale auth.
-    await supabase.realtime.setAuth(token)
-    authedToken = token
-  }
+  await supabase.realtime.setAuth()
 }
 
-// Calls `onRejoin` each time the topic is joined again after its first join — the
-// socket dropped (e.g. iOS suspended the app) and reconnected, and whatever was
-// broadcast in between is gone.
-function onRejoined(onRejoin?: () => void) {
-  let joined = false
-  return (status: REALTIME_SUBSCRIBE_STATES) => {
-    if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) return
-    if (joined) onRejoin?.()
-    joined = true
-  }
+/** A private Broadcast topic kept joined for as long as it's wanted. */
+export interface LiveTopic {
+  /** Leave the topic for good. */
+  stop(): void
+  /** Join again now if the server closed it (e.g. back from a suspended tab). */
+  revive(): void
+  /** Settles on the first successful join. */
+  joined: Promise<void>
 }
+
+// Backoff between attempts to re-join a topic the server closed.
+const REJOIN_MS = [1000, 2000, 5000, 10_000, 30_000]
 
 /**
- * Subscribe to live messages for a channel over its PRIVATE Broadcast topic. Delivery
- * is online-only and carries the full message payload, so the handler receives the
- * complete row with no follow-up fetch. Returns an unsubscribe function.
+ * Join a private Broadcast topic and keep it joined. `onJoined` runs after EVERY
+ * successful join — `first` on the very first — since whatever was broadcast before
+ * the join (or while it was down) never arrives and has to be fetched.
+ *
+ * A dropped socket or a refused/timed-out join is retried by realtime-js itself, but a
+ * topic the SERVER closes (it does when the access token expires, e.g. while a phone
+ * kept the app suspended past the token's lifetime) is removed from the socket for good.
+ * That's what made live press die silently; here a closed topic is joined afresh.
  */
-export async function subscribeToChannel(
+function keepJoined(
+  topic: string,
+  event: string,
+  onPayload: (payload: unknown) => void,
+  onJoined: (first: boolean) => void,
+): LiveTopic {
+  let current: RealtimeChannel | null = null
+  let stopped = false
+  let joinedOnce = false
+  let attempt = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let markJoined = () => {}
+  const joined = new Promise<void>((resolve) => (markJoined = resolve))
+
+  async function open() {
+    timer = null
+    if (stopped) return
+    await ensureRealtimeAuth().catch(() => {})
+    if (stopped || current) return
+    const ch = supabase.channel(topic, { config: { private: true } })
+    current = ch
+    ch.on('broadcast', { event }, (msg) => onPayload(msg.payload)).subscribe((status) => {
+      if (stopped || current !== ch) return
+      if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+        attempt = 0
+        const first = !joinedOnce
+        joinedOnce = true
+        markJoined()
+        onJoined(first)
+      } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
+        current = null
+        retryLater()
+      }
+      // CHANNEL_ERROR / TIMED_OUT: the channel stays on the socket and rejoins by itself.
+    })
+  }
+
+  function retryLater() {
+    if (stopped || timer) return
+    timer = setTimeout(open, REJOIN_MS[Math.min(attempt++, REJOIN_MS.length - 1)])
+  }
+
+  void open()
+  return {
+    joined,
+    stop() {
+      stopped = true
+      if (timer) clearTimeout(timer)
+      timer = null
+      const ch = current
+      current = null
+      if (ch) supabase.removeChannel(ch)
+    },
+    revive() {
+      if (stopped) return
+      if (current && current.state !== 'closed') return
+      if (timer) clearTimeout(timer)
+      timer = null
+      current = null
+      void open()
+    },
+  }
+}
+
+/** Live messages for a channel over its PRIVATE Broadcast topic (full payload, no
+ *  follow-up fetch). Online-only: `onJoined` is where the caller fetches what the
+ *  topic missed (see keepJoined). */
+export function subscribeToChannel(
   channelId: number,
   onMessage: (m: ChatMessage) => void,
-  onRejoin?: () => void,
-): Promise<() => void> {
-  await ensureRealtimeAuth()
-  const channel: RealtimeChannel = supabase
-    .channel(`chat:${channelId}`, { config: { private: true } })
-    .on('broadcast', { event: 'msg' }, (payload) => {
-      onMessage(payload.payload as ChatMessage)
-    })
-    .subscribe(onRejoined(onRejoin))
-  return () => {
-    supabase.removeChannel(channel)
-  }
+  onJoined: (first: boolean) => void,
+): LiveTopic {
+  return keepJoined(`chat:${channelId}`, 'msg', (p) => onMessage(p as ChatMessage), onJoined)
 }
 
 /**
- * Subscribe to the caller's private inbox for a game: every channel they belong to is
- * broadcast here when it's created or renamed (supabase/migrations/…_chat_channel_announce.sql).
- * Returns an unsubscribe function.
+ * The caller's private inbox for a game: every channel they belong to is broadcast here
+ * when it's created or renamed (supabase/migrations/…_chat_channel_announce.sql).
  */
-export async function subscribeToInbox(
+export function subscribeToInbox(
   gameId: string,
   nation: string,
   onChannel: (c: ChatChannel) => void,
-  onRejoin?: () => void,
-): Promise<() => void> {
-  await ensureRealtimeAuth()
-  const channel: RealtimeChannel = supabase
-    .channel(`chat-inbox:${gameId}:${nation}`, { config: { private: true } })
-    .on('broadcast', { event: 'channel' }, (payload) => {
-      onChannel(payload.payload as ChatChannel)
-    })
-    .subscribe(onRejoined(onRejoin))
-  return () => {
-    supabase.removeChannel(channel)
-  }
+  onJoined: (first: boolean) => void,
+): LiveTopic {
+  return keepJoined(`chat-inbox:${gameId}:${nation}`, 'channel', (p) => onChannel(p as ChatChannel), onJoined)
 }

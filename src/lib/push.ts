@@ -66,6 +66,7 @@ export async function initPush() {
   const reg = await registration()
   pushSupported.set(!!reg)
   if (!reg) return
+  listenForRotation()
   const sub = await reg.pushManager.getSubscription()
   if (sub && Notification.permission === 'granted') {
     pushEnabled.set(true)
@@ -76,6 +77,19 @@ export async function initPush() {
   if (optedOut()) return
   if (Notification.permission === 'granted') await enablePush().catch(() => {})
   else if (Notification.permission === 'default') armPromptOnFirstTap()
+}
+
+// The service worker re-subscribed after the browser rotated the endpoint
+// (public/push-sw.js): save the new one under this user, or pushes go to the dead one.
+let listening = false
+function listenForRotation() {
+  if (listening) return
+  listening = true
+  navigator.serviceWorker.addEventListener('message', async (e) => {
+    if (e.data?.type !== 'push-subscription-changed' || optedOut()) return
+    const sub = await (await registration())?.pushManager.getSubscription()
+    if (sub) await save(sub).catch(() => {})
+  })
 }
 
 export async function enablePush(): Promise<boolean> {

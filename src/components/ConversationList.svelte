@@ -6,6 +6,7 @@
   import type { ChatMessage } from '../lib/chat'
   import { createDebouncer } from '../lib/debounce'
   import { listTime } from '../lib/chatTime'
+  import { gifUrl } from '../lib/chatGif'
   import ChatAvatar from './ChatAvatar.svelte'
 
   export let chat: ChatStore
@@ -96,7 +97,7 @@
     if (typed) return { from: 'Draft', text: typed, draft: true }
     if (!c.last) return { from: '', text: 'No messages yet' }
     const from = c.last.sender === nation ? 'You' : labels.isDirect(c.conv) ? '' : who(c.last.sender)
-    return { from, text: c.last.body, sender: from && from !== 'You' ? c.last.sender : undefined }
+    return { from, text: gifUrl(c.last.body) ? 'GIF' : c.last.body, sender: from && from !== 'You' ? c.last.sender : undefined }
   }
 </script>
 
