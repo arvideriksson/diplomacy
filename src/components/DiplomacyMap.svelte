@@ -3,7 +3,7 @@
   import type { Unit } from '../lib/game'
   import type { MapDefinition } from '../lib/mapDefinition'
   import type { DiplicityMap, OrderState, StaticLayers } from '../lib/map/mapRenderer'
-  import { loadBaseRasters, loadMap } from '../lib/map/mapCache'
+  import { loadBaseRasters, loadMap, peekBaseRasters, peekMap, staticLayersFor } from '../lib/map/mapCache'
   import { baseRasterScale, rasterizeSvg, type Raster } from '../lib/map/rasterize'
   import { toRenderState } from '../lib/map/renderState'
   import { influencePaint } from '../lib/mapPrefs'
@@ -88,25 +88,39 @@
   const MIN_K = 1
   const MAX_K = 8
 
+  function useRenderer(r: DiplicityMap) {
+    renderer = r
+    viewBox = r.viewBox
+    provincePaths = r.provincePaths
+    namedCoastPaths = r.namedCoastPaths
+    hitPaths = [...provincePaths.entries(), ...namedCoastPaths.entries()]
+    staticLayers = staticLayersFor(mapDef.id, () => r.renderStatic(toRenderState({ mapDef })))
+  }
+  // Already loaded this session (e.g. switching between a game and its sandbox): set up
+  // now, so the first frame has the board rather than a blank flash.
+  {
+    const r = peekMap(mapDef.id)
+    if (r) {
+      useRenderer(r)
+      baseRasters = peekBaseRasters(mapDef.id) ?? null
+    }
+  }
+
   onMount(async () => {
     try {
-      renderer = await loadMap(mapDef.id)
-      viewBox = renderer.viewBox
-      provincePaths = renderer.provincePaths
-      namedCoastPaths = renderer.namedCoastPaths
-      hitPaths = [...provincePaths.entries(), ...namedCoastPaths.entries()]
-      staticLayers = renderer.renderStatic(toRenderState({ mapDef }))
+      if (!renderer) useRenderer(await loadMap(mapDef.id))
     } catch (e) {
       loadError = errorMessage(e)
       return
     }
     try {
-      baseRasters = await loadBaseRasters(mapDef.id, renderer, staticLayers)
+      baseRasters ??= await loadBaseRasters(mapDef.id, renderer!, staticLayers!)
       refreshDetail()
     } catch {
       // Keep the live vector layers.
     }
   })
+
 
   // ── layout ──────────────────────────────────────────────────────────
   // The board is letterboxed into the wrapper (like preserveAspectRatio="meet"); the stage div

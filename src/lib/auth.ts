@@ -3,6 +3,7 @@ import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { rpc } from './rpc'
 import { disablePush } from './push'
+import { clearDeviceCaches } from './deviceCache'
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS ?? '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean)
 
@@ -92,6 +93,8 @@ export async function setDisplayName(name: string) {
 export async function signOut() {
   // This device shouldn't keep buzzing for an account that left it.
   await disablePush().catch(() => {})
+  // Nor keep its press messages and game histories (lib/deviceCache).
+  await clearDeviceCaches().catch(() => {})
   const { error } = await supabase.auth.signOut()
   if (error) throw error
 }

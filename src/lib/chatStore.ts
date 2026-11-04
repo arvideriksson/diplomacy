@@ -6,6 +6,8 @@ import { derived, get, writable } from 'svelte/store'
 import { errorMessage } from './errors'
 import { createDebouncer } from './debounce'
 import { flagUrl } from './flags'
+import { deviceCache } from './deviceCache'
+import { user } from './auth'
 import { findPower, powerName, powerColor } from './powers'
 import type { PowerDefinition } from './mapDefinition'
 import type { PlayerInfo } from './game'
@@ -114,6 +116,14 @@ function mergeMsgs(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
   return [...all.values()].sort(byTime)
 }
 
+// The newest messages of each opened thread, kept on the device so reopening shows them
+// at once and fetches only what's newer. Press messages are never edited or deleted and
+// channel ids are never reused, so a cached message can't go stale.
+type CachedThread = { msgs: ChatMessage[]; hasOlder: boolean }
+const threadCache = deviceCache<CachedThread>('chatThreads', 1, 300)
+/** Messages kept per cached thread (the newest). Also the page size of a full fetch. */
+const THREAD_CACHE_MAX = 500
+
 // created_at is the sending transaction's start time, and transactions commit in any
 // order: a message can become visible after a newer one was already fetched. Delta
 // fetches therefore reach back this far before the newest message held (ids dedupe).
@@ -150,6 +160,33 @@ export function createChatStore(
   const activeId = writable<number | null>(null)
   const messagesByCh = writable<Record<number, ChatMessage[]>>({})
   const loaded = new Set<number>()
+  // Threads whose history is known (fetched, or confirmed empty) — until then an empty
+  // thread is still loading, not "no messages yet".
+  const threadReady = writable<Record<number, true>>({})
+  function markLoaded(id: number) {
+    loaded.add(id)
+    threadReady.update((r) => (r[id] ? r : { ...r, [id]: true }))
+    scheduleSave(id)
+  }
+  const cacheKey = (id: number) => `${get(user)?.id ?? 'anon'}:${id}`
+  // Loaded threads changed since their last save, written out together after a pause.
+  const dirtyThreads = new Set<number>()
+  const threadSave = createDebouncer(() => {
+    const all = get(messagesByCh)
+    for (const id of dirtyThreads) {
+      const msgs = all[id] ?? []
+      const kept = msgs.slice(-THREAD_CACHE_MAX)
+      threadCache.put(cacheKey(id), { msgs: kept, hasOlder: !!get(hasOlder)[id] || kept.length < msgs.length }).catch(() => {})
+    }
+    dirtyThreads.clear()
+  }, 1000)
+  function scheduleSave(id: number) {
+    // Only a loaded thread is a contiguous run of history; a live message stored into an
+    // unopened channel isn't, and caching it would hide the gap before it.
+    if (!loaded.has(id)) return
+    dirtyThreads.add(id)
+    threadSave.schedule()
+  }
   const unread = writable<Record<number, number>>({})
   // What `unread` counts: per channel, the others' messages not yet seen (id → time).
   // By id, so a message both fetched and delivered live counts once.
@@ -327,6 +364,7 @@ export function createChatStore(
 
   function store(m: ChatMessage) {
     messagesByCh.update((all) => ({ ...all, [m.channel_id]: insertMsg(all[m.channel_id] ?? [], m) }))
+    scheduleSave(m.channel_id)
     latest.update((l) => (l[m.channel_id] && l[m.channel_id].created_at > m.created_at ? l : { ...l, [m.channel_id]: m }))
   }
 
@@ -526,15 +564,34 @@ export function createChatStore(
     picking.set(false)
     input.set(get(unsent)[id] ?? '')
     if (!loaded.has(id)) {
+      // What this device saw last time shows at once; the fetch then asks only for newer.
+      const cached = await threadCache.get(cacheKey(id)).catch(() => null)
+      if (cached?.msgs.length && !loaded.has(id)) {
+        messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], cached.msgs) }))
+        hasOlder.update((h) => ({ ...h, [id]: cached.hasOlder }))
+        if (get(activeId) === id && !focusing) await scrollToBottom()
+      }
+      const since = cached?.msgs.at(-1)?.created_at
       try {
-        const msgs = await fetchMessages(id)
-        // Merge, don't replace: a message delivered live during the fetch stays.
-        messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], msgs) }))
-        hasOlder.update((h) => ({ ...h, [id]: msgs.length >= 500 }))
-        loaded.add(id)
+        const msgs = await fetchMessages(id, deltaCursor(since))
+        if (since && msgs.length >= THREAD_CACHE_MAX) {
+          // More arrived than one fetch returns: the cache no longer joins up with them.
+          // Keep only this fetch and anything live that's newer.
+          const from = msgs[0].created_at
+          messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs((all[id] ?? []).filter((m) => m.created_at >= from), msgs) }))
+          hasOlder.update((h) => ({ ...h, [id]: true }))
+        } else {
+          // Merge, don't replace: a message delivered live during the fetch stays.
+          messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], msgs) }))
+          if (!since) hasOlder.update((h) => ({ ...h, [id]: msgs.length >= THREAD_CACHE_MAX }))
+        }
+        markLoaded(id)
       } catch (e) {
-        error.set(errorMessage(e))
-        return
+        // Offline with a cached copy: keep showing it; the next open fetches again.
+        if (!cached?.msgs.length) {
+          error.set(errorMessage(e))
+          return
+        }
       }
     }
     // Open at the first unread message (by my read cursor) if there is one, else at the
@@ -600,6 +657,7 @@ export function createChatStore(
     const older = await fetchOlder(channelId, first.created_at)
     messagesByCh.update((all) => ({ ...all, [channelId]: [...older, ...(all[channelId] ?? [])] }))
     hasOlder.update((h) => ({ ...h, [channelId]: older.length >= 200 }))
+    scheduleSave(channelId)
     return older.length
   }
 
@@ -653,7 +711,7 @@ export function createChatStore(
           activeDraftId.set(null)
           activeId.set(c.id)
         }
-        loaded.add(c.id) // freshly created — its (empty) history is already known
+        markLoaded(c.id) // freshly created — its (empty) history is already known
         await deleteDraft(d.id).catch(() => {})
         await deliver(c.id, body)
       } catch (e) {
@@ -792,6 +850,7 @@ export function createChatStore(
   /** Stop live delivery and flush the open draft (best effort). */
   function destroy() {
     saveActiveDraft() // best-effort final flush of the open draft's body (cancels the timer)
+    threadSave.flush()
     rejoined.cancel()
     for (const s of subs.values()) s.stop()
     subs.clear()
@@ -803,6 +862,7 @@ export function createChatStore(
     channels,
     activeId,
     messagesByCh,
+    threadReady,
     unread,
     latest,
     conversations,

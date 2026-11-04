@@ -29,7 +29,7 @@
   /** Reports each scroll: the position, and whether it reached the newest message. */
   export let onScrolled: ((top: number, atBottom: boolean) => void) | null = null
 
-  const { openChan, active, activeId, activeDraft, activeMessages, renaming, renameInput, renamable, input, error, unread, unreadFrom, pending, pinned, hasOlder } = chat
+  const { openChan, active, activeId, activeDraft, activeMessages, renaming, renameInput, renamable, input, error, unread, unreadFrom, pending, pinned, hasOlder, threadReady } = chat
   $: ({ display, who, userOf, others, isDirect, channelLabel } = labels)
   $: direct = $openChan ? isDirect($openChan) : false
   $: members = $openChan ? others($openChan) : []
@@ -261,7 +261,10 @@
             </div>
           </div>
         {:else}
-          {#if sending.length === 0}
+          {#if sending.length === 0 && !$activeDraft && $activeId != null && !$threadReady[$activeId]}
+          <!-- Still fetching: "no messages" only once the server has said so. -->
+          <div class="thread-loading" aria-busy="true" aria-label="Loading messages"></div>
+          {:else if sending.length === 0}
           <div class="thread-empty">
             <ChatAvatar {labels} nations={members} isPublic={!!$openChan.is_public} size={64} />
             <p class="empty-title">{channelLabel($openChan)}</p>
@@ -778,6 +781,9 @@
     font: inherit;
     font-weight: 600;
     cursor: pointer;
+  }
+  .thread-loading {
+    flex: 1;
   }
   .thread-empty {
     margin: auto;

@@ -256,8 +256,13 @@
   {#key sandbox.id}
     <SandboxBoard {sandbox} {map} onExit={leaveSandbox} onDeleted={leaveSandbox} focusNation={nation} />
   {/key}
-{:else if frame}
+{/if}
+<!-- The game stays mounted (just hidden) while a sandbox is open, so coming back is
+     instant: no map rebuild, no orders or press refetch, no flash. -->
+{#if frame}
+  <div class="game-layer" class:hidden={!!sandbox}>
   <GameBoard
+    inactive={!!sandbox}
     bind:tab
     mapDef={map}
     {onExit}
@@ -365,6 +370,7 @@
       </div>
     </svelte:fragment>
   </GameBoard>
+  </div>
 {/if}
 
 {#if showAdmin}
@@ -377,6 +383,12 @@
 {/if}
 
 <style>
+  .game-layer {
+    display: contents;
+  }
+  .game-layer.hidden {
+    display: none;
+  }
   .sb-chip {
     display: inline-flex;
     align-items: center;

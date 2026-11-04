@@ -106,6 +106,8 @@
   /** The parent shows the supply-center standings in the orders-extra slot (spotlighting
    *  through the slot's `spotlight`), so the board doesn't add its own at the sidebar's end. */
   export let standingsInSidebar: boolean = false
+  /** Hidden behind another board (a game while its sandbox is open): ignore the keyboard. */
+  export let inactive: boolean = false
   /** Notified with the current order set whenever it changes (including on load). */
   export let onOrdersChange: ((orders: AnyOrder[]) => void) | null = null
 
@@ -382,6 +384,7 @@
 
   // Keyboard shortcuts: Escape cancels; each open action has its own key (M move, H hold, …).
   function onKeydown(e: KeyboardEvent) {
+    if (inactive) return
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
     // [ and ] toggle the left and right sidebars.
