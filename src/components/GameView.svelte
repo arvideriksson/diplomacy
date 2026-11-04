@@ -10,7 +10,7 @@
   import { survivingNations } from '../lib/draw'
   import Icon from './Icon.svelte'
   import { user } from '../lib/auth'
-  import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
+  import { fetchResolvedLog, subscribeToGame } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { replayFrames, mergeLog, newestStamp, type HistoryFrame, type StampedOrderRow } from '../lib/history'
   import { loadLog, saveLog, logKey } from '../lib/logCache'
@@ -113,32 +113,25 @@
   }
 
   // Live updates: when the adjudicator resolves a round it writes the games row, which
-  // Realtime pushes here. Reassigning `game` cascades to the round-change reload below
-  // (new board) and recomputes the `ready` prop — so the board advances without a reload.
+  // is broadcast on the game's topic. Reassigning `game` cascades to the round-change
+  // reload below (new board) and recomputes the `ready` prop — so the board advances
+  // without a reload. A ready toggle arrives as a small patch, not the whole row.
   //
   // The subscription is scoped to tab VISIBILITY: a hidden tab gets its WebSocket frozen
-  // by the browser anyway, so holding it open is pure waste — it just burns a concurrent
-  // connection and receives full-row broadcasts no one is looking at. So we drop the
-  // socket when hidden and re-open it on focus, after a refetch to catch up on whatever
-  // resolved while we were away. Net effect: ~one connection per window (not per tab),
-  // and broadcasts only reach tabs actually being viewed.
+  // by the browser anyway, so holding it open is pure waste. So we leave the topic when
+  // hidden and rejoin on focus; each join reads the row back only if it changed while
+  // we were away (subscribeToGame), so a focus with nothing new costs almost nothing.
   let channel: ReturnType<typeof subscribeToGame> | null = null
   function subscribe() {
-    if (!channel) channel = subscribeToGame(game.id, (updated) => (game = updated))
+    if (!channel) channel = subscribeToGame(game.id, () => game, (updated) => (game = updated))
   }
   function unsubscribe() {
-    channel?.unsubscribe()
+    channel?.stop()
     channel = null
   }
   function onVisibilityChange() {
-    if (document.visibilityState === 'visible') {
-      subscribe() // go live first, then refetch — so an update landing mid-catch-up isn't lost
-      fetchGame(game.id)
-        .then((g) => (game = g))
-        .catch(() => {})
-    } else {
-      unsubscribe()
-    }
+    if (document.visibilityState === 'visible') subscribe()
+    else unsubscribe()
   }
   onMount(() => {
     if (document.visibilityState === 'visible') subscribe()

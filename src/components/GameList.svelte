@@ -4,7 +4,7 @@
   import { user } from '../lib/auth'
   import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import { maps, getMap } from '../lib/maps'
-  import type { GameState } from '../lib/game'
+  import type { GameListItem } from '../lib/game'
   import type { Sandbox } from '../lib/sandbox'
   import type { Snippet } from 'svelte'
   import Modal from './Modal.svelte'
@@ -15,16 +15,16 @@
 
   // The viewer's order state in an active game: 'todo', 'done', 'unsent' (submitted, but
   // edited on this device since), or null.
-  const orderStatus = (game: GameState, uid: string | undefined): 'todo' | 'done' | 'unsent' | null => {
-    const nation = uid ? game.players[uid]?.nation : undefined
+  const orderStatus = (game: GameListItem): 'todo' | 'done' | 'unsent' | null => {
+    const nation = game.me?.nation
     if (!nation || !isOrderPhase(game.phase)) return null
     if (!game.ready?.[nation]) return 'todo'
     const edits = readDraftBackup({ gameId: game.id, nation, year: game.year, season: game.season, phase: game.phase })
     return edits ? 'unsent' : 'done'
   }
-  const timeLeft = (game: GameState) => (game.deadline ? ` · ${formatCountdown(new Date(game.deadline).getTime() - Date.now())}` : '')
+  const timeLeft = (game: GameListItem) => (game.deadline ? ` · ${formatCountdown(new Date(game.deadline).getTime() - Date.now())}` : '')
 
-  export let onSelectGame: (game: GameState) => void = () => {}
+  export let onSelectGame: (game: { id: string }) => void = () => {}
   export let onOpenSandbox: (id: string) => void = () => {}
   export let onCreateSandbox: (name: string, mapId: string) => void = () => {}
 
@@ -66,10 +66,10 @@
   }
 
   // Categorize remote games relative to the current player.
-  $: joined = (g: GameState) => !!($user && g.players[$user.id])
+  const joined = (g: GameListItem) => !!g.me
   $: myGames = $games.filter(joined)
   // Full lobbies can't be joined, so they aren't "open".
-  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby' && Object.keys(g.players).length < getMap(g.map_id).powers.length)
+  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby' && g.player_count < getMap(g.map_id).powers.length)
   $: runningGames = $games.filter((g) => !joined(g) && g.phase !== 'lobby')
 </script>
 
@@ -96,7 +96,7 @@
   </div>
 {/snippet}
 
-{#snippet gameCard(game: GameState)}
+{#snippet gameCard(game: GameListItem)}
   {#snippet badge()}
     {#if game.is_private}
       <span class="badge badge-amber">
@@ -120,16 +120,16 @@
     <span class="badge badge-caps">{game.phase}</span>
     {#if game.map_id && game.map_id !== 'classical'}<span class="badge badge-caps">{maps[game.map_id]?.name ?? game.map_id}</span>{/if}
     <span class="season">{game.season} {game.year}</span>
-    {#if orderStatus(game, $user?.id) === 'todo'}
+    {#if orderStatus(game) === 'todo'}
       <span class="status todo">Not submitted{timeLeft(game)}</span>
-    {:else if orderStatus(game, $user?.id) === 'unsent'}
+    {:else if orderStatus(game) === 'unsent'}
       <span class="status todo">Changes not sent{timeLeft(game)}</span>
-    {:else if orderStatus(game, $user?.id) === 'done'}
+    {:else if orderStatus(game) === 'done'}
       <span class="status done">✓ Submitted</span>
     {/if}
     <span class="player-count">
       <Icon name="users" size={14} />
-      {Object.keys(game.players).length}/{getMap(game.map_id).powers.length}
+      {game.player_count}/{getMap(game.map_id).powers.length}
     </span>
   {/snippet}
   {@render listCard(() => onSelectGame(game), game.name, badge, meta)}
@@ -152,7 +152,7 @@
 {/snippet}
 
 <!-- A collapsible section of cards (games or sandboxes), with an optional header action. -->
-{#snippet section(title: string, items: Array<GameState | Sandbox>, emptyText: string, action?: Snippet)}
+{#snippet section(title: string, items: Array<GameListItem | Sandbox>, emptyText: string, action?: Snippet)}
   <details class="section" open>
     <summary>
       <span class="chevron"><Icon name="chevron-right" size={16} /></span>

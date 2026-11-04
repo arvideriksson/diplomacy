@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import { rpc } from './rpc'
-import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from '@supabase/supabase-js'
+import { keepJoined, type LiveTopic } from './liveTopic'
+
+export type { LiveTopic }
 
 /**
  * Secret group chat ("press"). Mirrors the free-tier economy levers in the schema
@@ -133,26 +135,6 @@ export async function fetchOlder(channelId: number, beforeIso: string, limit = 2
   return ((data ?? []) as ChatMessage[]).reverse()
 }
 
-/** The newest message of each channel (for list previews): one single-row read per
- *  channel, so egress stays a few rows rather than whole histories. */
-export async function latestMessages(channelIds: number[]): Promise<Record<number, ChatMessage>> {
-  const rows = await Promise.all(
-    channelIds.map(async (id) => {
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('channel_id', id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-      if (error) throw error
-      return (data?.[0] ?? null) as ChatMessage | null
-    }),
-  )
-  const out: Record<number, ChatMessage> = {}
-  for (const m of rows) if (m) out[m.channel_id] = m
-  return out
-}
-
 /** Messages in these channels whose text contains `query` (newest first, capped) —
  *  RLS already limits the read to channels the caller belongs to. */
 export async function searchMessages(channelIds: number[], query: string): Promise<ChatMessage[]> {
@@ -169,27 +151,28 @@ export async function searchMessages(channelIds: number[], query: string): Promi
   return (data ?? []) as ChatMessage[]
 }
 
-/** Others' messages after a cursor (id + time only, newest first, capped) — unread
- *  is tracked by id so a message counted here and also delivered live counts once.
- *  The caller's own messages never count, whatever the cursor says. */
-export async function unreadSince(
-  channelId: number,
-  nation: string,
-  sinceIso?: string,
-): Promise<{ id: number; created_at: string }[]> {
-  let q = supabase
-    .from('chat_messages')
-    .select('id,created_at')
-    .eq('channel_id', channelId)
-    .neq('sender', nation)
-  if (sinceIso) q = q.gt('created_at', sinceIso)
-  const { data, error } = await q.order('created_at', { ascending: false }).limit(UNREAD_CAP)
-  if (error) throw error
-  return (data ?? []) as { id: number; created_at: string }[]
+/** Most unread messages fetched per channel (badges show this as the ceiling); mirrors
+ *  the limit in chat_overview(). */
+export const UNREAD_CAP = 100
+
+/** One channel's summary from `chat_overview`. Unread is the others' messages after the
+ *  caller's cursor (id + time only, newest first, capped) — tracked by id so a message
+ *  counted here and also delivered live counts once. */
+export interface ChannelOverview {
+  channel: ChatChannel
+  last_read_at: string | null
+  latest: ChatMessage | null
+  unread: { id: number; created_at: string }[]
 }
 
-/** Most unread messages fetched per channel (badges show this as the ceiling). */
-export const UNREAD_CAP = 100
+/** The caller's channels in a game (or just `channelIds`), each with its read cursor,
+ *  newest message and unread ids — one request instead of several per channel. Runs
+ *  under the caller's RLS and only covers channels their nation belongs to. */
+export async function chatOverview(gameId: string, channelIds?: number[]): Promise<ChannelOverview[]> {
+  if (channelIds && channelIds.length === 0) return []
+  return (await rpc<ChannelOverview[] | null>('chat_overview', { p_game_id: gameId, p_channel_ids: channelIds ?? null })) ?? []
+}
+
 
 export async function sendMessage(channelId: number, body: string): Promise<ChatMessage> {
   return rpc<ChatMessage>('send_chat_message', {
@@ -204,117 +187,6 @@ export async function markRead(channelId: number, upTo: string): Promise<void> {
   await rpc('mark_chat_read', { p_channel_id: channelId, p_up_to: upTo })
 }
 
-/** The caller's read cursor per channel, for the given channels. Scoped by channel id
- *  (not just nation) so a nation name can't bleed across games the user plays. */
-export async function fetchMyReads(channelIds: number[], nation: string): Promise<Record<number, string>> {
-  if (channelIds.length === 0) return {}
-  const { data, error } = await supabase
-    .from('chat_reads')
-    .select('channel_id,last_read_at')
-    .in('channel_id', channelIds)
-    .eq('nation', nation)
-  if (error) throw error
-  const out: Record<number, string> = {}
-  for (const r of data ?? []) out[(r as { channel_id: number }).channel_id] = (r as { last_read_at: string }).last_read_at
-  return out
-}
-
-// Before joining a private topic, make sure Realtime holds a current access token: the
-// join carries it for the Realtime Authorization (RLS) check, so a join raced against an
-// unset token is refused. Pulled through supabase-js's accessToken callback rather than
-// passed in — a token passed in counts as "manual" and turns off realtime-js's own
-// refresh on every heartbeat, which is what keeps a long-lived join from expiring.
-async function ensureRealtimeAuth(): Promise<void> {
-  await supabase.realtime.setAuth()
-}
-
-/** A private Broadcast topic kept joined for as long as it's wanted. */
-export interface LiveTopic {
-  /** Leave the topic for good. */
-  stop(): void
-  /** Join again now if the server closed it (e.g. back from a suspended tab). */
-  revive(): void
-  /** Settles on the first successful join. */
-  joined: Promise<void>
-}
-
-// Backoff between attempts to re-join a topic the server closed.
-const REJOIN_MS = [1000, 2000, 5000, 10_000, 30_000]
-
-/**
- * Join a private Broadcast topic and keep it joined. `onJoined` runs after EVERY
- * successful join — `first` on the very first — since whatever was broadcast before
- * the join (or while it was down) never arrives and has to be fetched.
- *
- * A dropped socket or a refused/timed-out join is retried by realtime-js itself, but a
- * topic the SERVER closes (it does when the access token expires, e.g. while a phone
- * kept the app suspended past the token's lifetime) is removed from the socket for good.
- * That's what made live press die silently; here a closed topic is joined afresh.
- */
-function keepJoined(
-  topic: string,
-  event: string,
-  onPayload: (payload: unknown) => void,
-  onJoined: (first: boolean) => void,
-): LiveTopic {
-  let current: RealtimeChannel | null = null
-  let stopped = false
-  let joinedOnce = false
-  let attempt = 0
-  let timer: ReturnType<typeof setTimeout> | null = null
-  let markJoined = () => {}
-  const joined = new Promise<void>((resolve) => (markJoined = resolve))
-
-  async function open() {
-    timer = null
-    if (stopped) return
-    await ensureRealtimeAuth().catch(() => {})
-    if (stopped || current) return
-    const ch = supabase.channel(topic, { config: { private: true } })
-    current = ch
-    ch.on('broadcast', { event }, (msg) => onPayload(msg.payload)).subscribe((status) => {
-      if (stopped || current !== ch) return
-      if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-        attempt = 0
-        const first = !joinedOnce
-        joinedOnce = true
-        markJoined()
-        onJoined(first)
-      } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
-        current = null
-        retryLater()
-      }
-      // CHANNEL_ERROR / TIMED_OUT: the channel stays on the socket and rejoins by itself.
-    })
-  }
-
-  function retryLater() {
-    if (stopped || timer) return
-    timer = setTimeout(open, REJOIN_MS[Math.min(attempt++, REJOIN_MS.length - 1)])
-  }
-
-  void open()
-  return {
-    joined,
-    stop() {
-      stopped = true
-      if (timer) clearTimeout(timer)
-      timer = null
-      const ch = current
-      current = null
-      if (ch) supabase.removeChannel(ch)
-    },
-    revive() {
-      if (stopped) return
-      if (current && current.state !== 'closed') return
-      if (timer) clearTimeout(timer)
-      timer = null
-      current = null
-      void open()
-    },
-  }
-}
-
 /** Live messages for a channel over its PRIVATE Broadcast topic (full payload, no
  *  follow-up fetch). Online-only: `onJoined` is where the caller fetches what the
  *  topic missed (see keepJoined). */
@@ -323,7 +195,7 @@ export function subscribeToChannel(
   onMessage: (m: ChatMessage) => void,
   onJoined: (first: boolean) => void,
 ): LiveTopic {
-  return keepJoined(`chat:${channelId}`, 'msg', (p) => onMessage(p as ChatMessage), onJoined)
+  return keepJoined(`chat:${channelId}`, { msg: (p) => onMessage(p as ChatMessage) }, onJoined)
 }
 
 /**
@@ -336,5 +208,5 @@ export function subscribeToInbox(
   onChannel: (c: ChatChannel) => void,
   onJoined: (first: boolean) => void,
 ): LiveTopic {
-  return keepJoined(`chat-inbox:${gameId}:${nation}`, 'channel', (p) => onChannel(p as ChatChannel), onJoined)
+  return keepJoined(`chat-inbox:${gameId}:${nation}`, { channel: (p) => onChannel(p as ChatChannel) }, onJoined)
 }

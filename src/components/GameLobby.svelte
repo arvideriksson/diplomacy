@@ -87,7 +87,7 @@
       if (!game) {
         game = await fetchGame(gameId)
       }
-      channel = subscribeToGame(gameId, (updated) => {
+      channel = subscribeToGame(gameId, () => game, (updated) => {
         // When the host starts the game, non-host players learn via this push. Bubble it
         // up through onStart (same path the host uses) so GameRoute swaps the lobby for
         // the board — otherwise they'd sit in the lobby until a manual reload.
@@ -101,9 +101,7 @@
   })
 
   onDestroy(() => {
-    if (channel) {
-      channel.unsubscribe()
-    }
+    channel?.stop()
   })
 
   async function saveSettings() {

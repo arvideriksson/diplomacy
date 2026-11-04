@@ -7,6 +7,7 @@
 //   npm run live:deploy-functions          bundle the engine and deploy the adjudicator + notify
 //   npm run live:diagnose-push             read-only: push subscriptions + recent notify replies
 //   npm run live:usage                     read-only: database / storage size and activity vs the free tier
+//   npm run live:egress                    read-only: what drives egress (rows per statement, row sizes, Realtime)
 //   npm run live:ping-notify               database → notify call that sends nothing (health check)
 //   npm run live:secrets-list              read-only: secret names + SHA-256 digests (no values)
 //   npm run live:functions-list            read-only: deployed Edge Functions
@@ -32,6 +33,7 @@ const COMMANDS = {
   'deploy-functions': { args: ['functions', 'deploy', 'adjudicate', 'notify'], extra: [] },
   'diagnose-push': { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/push.sql'], extra: [] },
   usage: { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/usage.sql'], extra: [] },
+  egress: { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/egress.sql'], extra: [] },
   'ping-notify': { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/ping-notify.sql'], extra: [] },
   'secrets-list': { outside: ['secrets', 'list'], extra: [] },
   'functions-list': { outside: ['functions', 'list'], extra: [] },

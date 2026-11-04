@@ -119,6 +119,24 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- ═══ public.broadcast_game_change()  — from 20250101000152_egress_cuts.sql
+-- ── 2/4. game pushes over a private Broadcast topic ─────────────────────────────
+create or replace function public.broadcast_game_change()
+returns trigger as $$
+declare
+  -- Columns whose change alone doesn't warrant re-sending the row.
+  quiet constant text[] := array['ready', 'resolving_at', 'updated_at'];
+begin
+  if (to_jsonb(new) - quiet) is distinct from (to_jsonb(old) - quiet) then
+    perform realtime.send(to_jsonb(new), 'game', 'game:' || new.id::text, true);
+  elsif new.ready is distinct from old.ready then
+    perform realtime.send(jsonb_build_object('ready', new.ready, 'updated_at', new.updated_at),
+                          'ready', 'game:' || new.id::text, true);
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
 -- ═══ public.canonical_channel_members(uuid, text[])  — from 20250101000134_sql_helpers.sql
 -- canonical_channel_members (re-issues 123).
 create or replace function public.canonical_channel_members(
@@ -173,6 +191,33 @@ returns boolean as $$
       and public.chat_is_member(c.game_id, c.members)
   );
 $$ language sql security definer stable;
+
+-- ═══ public.chat_overview(uuid, bigint[])  — from 20250101000152_egress_cuts.sql
+-- ── 3. press overview ────────────────────────────────────────────────────────────
+-- Per channel of the caller's nation in a game (all, or just p_channel_ids): the
+-- channel row, the caller's read cursor, the newest message, and the others' messages
+-- after the cursor (id + time, newest first, capped like the client's UNREAD_CAP).
+create or replace function public.chat_overview(p_game_id uuid, p_channel_ids bigint[] default null)
+returns table (channel jsonb, last_read_at timestamptz, latest jsonb, unread jsonb)
+language sql stable security invoker as $$
+  with me as (select public.current_nation(p_game_id) as nation)
+  select to_jsonb(c),
+         r.last_read_at,
+         (select to_jsonb(m) from public.chat_messages m
+           where m.channel_id = c.id order by m.created_at desc limit 1),
+         coalesce((select jsonb_agg(jsonb_build_object('id', u.id, 'created_at', u.created_at) order by u.created_at desc)
+                     from (select m.id, m.created_at from public.chat_messages m
+                            where m.channel_id = c.id and m.sender <> me.nation
+                              and (r.last_read_at is null or m.created_at > r.last_read_at)
+                            order by m.created_at desc limit 100) u), '[]'::jsonb)
+    from public.chat_channels c
+    cross join me
+    left join public.chat_reads r on r.channel_id = c.id and r.nation = me.nation
+   where c.game_id = p_game_id
+     and me.nation = any(c.members)
+     and (p_channel_ids is null or c.id = any(p_channel_ids))
+   order by c.is_public desc, c.id;
+$$;
 
 -- ═══ public.claim_nation(uuid, text)  — from 20250101000113_claim_nation.sql
 create or replace function public.claim_nation(p_game_id uuid, p_nation text)
@@ -635,6 +680,23 @@ begin
     where id = game_id;
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.list_games()  — from 20250101000152_egress_cuts.sql
+-- ── 1. games list ────────────────────────────────────────────────────────────────
+create or replace function public.list_games()
+returns table (
+  id uuid, name text, phase text, year integer, season text, map_id text,
+  is_private boolean, created_by uuid, updated_at timestamptz, deadline timestamptz,
+  ready jsonb, player_count integer, me jsonb
+)
+language sql stable security invoker as $$
+  select g.id, g.name, g.phase, g.year, g.season, g.map_id,
+         g.is_private, g.created_by, g.updated_at, g.deadline,
+         g.ready, (select count(*)::int from jsonb_object_keys(g.players)), g.players -> (auth.uid()::text)
+    from public.games g
+   where g.phase <> 'complete' or g.players ? (auth.uid()::text) or g.created_by = auth.uid()
+   order by g.updated_at desc;
+$$;
 
 -- ═══ public.lock_hosted_game(uuid)  — from 20250101000134_sql_helpers.sql
 -- ── lock_hosted_game (re-issues 129) ───────────────────────────────────────────

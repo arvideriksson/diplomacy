@@ -4,7 +4,6 @@
   import { Router, Route, navigate } from 'svelte-routing'
   import { initAuth, isAuthenticated, isSiteAdmin, needsDisplayName } from './lib/auth'
   import { fetchGames } from './lib/game'
-  import type { GameState } from './lib/game'
   import { immersive } from './lib/layout'
   import LoginButton from './components/LoginButton.svelte'
   import FloatingChrome from './components/FloatingChrome.svelte'
@@ -46,7 +45,7 @@
     ready = true
   })
 
-  function handleSelectGame(game: GameState) {
+  function handleSelectGame(game: { id: string }) {
     navigate(`/game/${game.id}`)
   }
 

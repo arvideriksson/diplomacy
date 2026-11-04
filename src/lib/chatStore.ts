@@ -11,17 +11,15 @@ import type { PowerDefinition } from './mapDefinition'
 import type { PlayerInfo } from './game'
 import {
   listChannels,
+  chatOverview,
   getOrCreateChannel,
   createNamedChannel,
   renameChannel,
   fetchMessages,
   fetchOlder,
-  latestMessages,
   searchMessages,
-  unreadSince,
   sendMessage,
   markRead,
-  fetchMyReads,
   subscribeToChannel,
   subscribeToInbox,
   listDrafts,
@@ -31,6 +29,7 @@ import {
   type ChatChannel,
   type ChatMessage,
   type ChatDraft,
+  type ChannelOverview,
   type LiveTopic,
 } from './chat'
 
@@ -269,20 +268,29 @@ export function createChatStore(
     publishUnread(m.channel_id)
   }
 
+  /** Take in channel summaries from chat_overview: the read cursor (only ever moved
+   *  forward — a cursor this tab advanced may not have reached the server yet), the
+   *  newest message, and the unread ids of channels whose thread isn't loaded (a loaded
+   *  thread tracks its own as messages arrive). */
+  function applyOverview(rows: ChannelOverview[]) {
+    for (const r of rows) {
+      const id = r.channel.id
+      const server = r.last_read_at ?? undefined
+      const cursor = server && (!myReads[id] || server > myReads[id]) ? server : myReads[id]
+      if (cursor) myReads[id] = cursor
+      if (!loaded.has(id)) applyUnread(id, r.unread.filter((u) => !cursor || u.created_at > cursor), cursor)
+    }
+    latest.update((l) => {
+      const next = { ...l }
+      for (const { latest: m } of rows) if (m && (!next[m.channel_id] || next[m.channel_id].created_at < m.created_at)) next[m.channel_id] = m
+      return next
+    })
+  }
+
   /** Unread ids and the newest message for channels whose thread isn't loaded. */
   async function syncSummaries(ids: number[]) {
     if (!ids.length) return
-    const rows = await Promise.all(ids.map((id) => unreadSince(id, nation, myReads[id]).catch(() => null)))
-    ids.forEach((id, i) => {
-      const r = rows[i]
-      if (r) applyUnread(id, r, myReads[id])
-    })
-    const newest = await latestMessages(ids).catch(() => ({}) as Record<number, ChatMessage>)
-    latest.update((l) => {
-      const next = { ...l }
-      for (const m of Object.values(newest)) if (!next[m.channel_id] || next[m.channel_id].created_at < m.created_at) next[m.channel_id] = m
-      return next
-    })
+    applyOverview(await chatOverview(gameId, ids))
   }
 
   /** Fetch what one channel's topic may have missed: a loaded thread's delta, else its
@@ -388,8 +396,9 @@ export function createChatStore(
     drafts.set(await listDrafts(gameId).catch(() => []))
     await withTimeout(Promise.all(list.map((c) => subs.get(c.id)?.joined)), JOIN_WAIT_MS)
     readsStarted = true
-    myReads = await fetchMyReads(list.map((c) => c.id), nation)
-    await syncSummaries(list.map((c) => c.id))
+    // Read once the topics are live, so nothing sent in between is missed.
+    myReads = {}
+    applyOverview(await chatOverview(gameId))
   }
 
   // Channels just discovered: go live first, then read their cursors, unread ids and
@@ -397,8 +406,6 @@ export function createChatStore(
   // (onChannelJoined), so the first message of a new conversation can't fall between.
   async function addChannels(added: ChatChannel[]) {
     subscribeAll()
-    if (!added.length) return
-    myReads = { ...myReads, ...(await fetchMyReads(added.map((c) => c.id), nation).catch(() => ({}))) }
     await syncSummaries(added.map((c) => c.id))
   }
 
@@ -410,13 +417,15 @@ export function createChatStore(
   }
 
   // New and renamed channels arrive on the inbox topic while online. Broadcast misses
-  // whatever happened while hidden or offline, so catchUp re-lists once on return.
+  // whatever happened while hidden or offline, so catchUp re-reads on return: the
+  // channel list together with every channel's cursor, preview and unread ids, in one
+  // request.
   async function refresh() {
     if (!nation) return
-    const list = await listChannels(gameId)
-    const known = new Set(get(channels).map((c) => c.id))
-    channels.set(list) // also picks up renames
-    await addChannels(list.filter((c) => !known.has(c.id)))
+    const rows = await chatOverview(gameId)
+    channels.set(rows.map((r) => r.channel)) // also picks up renames
+    subscribeAll() // channels new to this tab: their first join syncs them again
+    applyOverview(rows)
   }
 
   // Back from a hidden tab or a dropped connection: Broadcast only reaches online
@@ -459,14 +468,10 @@ export function createChatStore(
     inbox?.revive()
     for (const s of subs.values()) s.revive()
     await refresh()
-    const list = get(channels)
+    // Loaded threads fetch the messages they missed (their summaries came with refresh).
     await Promise.all(
-      list.filter((c) => loaded.has(c.id)).map((c) => syncChannel(c.id).catch(() => {})),
+      get(channels).filter((c) => loaded.has(c.id)).map((c) => syncChannel(c.id).catch(() => {})),
     )
-    const others = list.filter((c) => !loaded.has(c.id)).map((c) => c.id)
-    // The cursor may have moved on another device while this tab was away.
-    myReads = { ...myReads, ...(await fetchMyReads(others, nation).catch(() => ({}))) }
-    await syncSummaries(others)
   }
 
   // Keep what was typed into the open channel's compose box when leaving it.

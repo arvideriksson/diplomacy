@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store'
 import { supabase } from './supabase'
 import { rpc } from './rpc'
+import { keepJoined, type LiveTopic } from './liveTopic'
 import { metaDisplayName } from './auth'
 import { getMap } from './maps'
 import type { Unit } from './types'
@@ -109,20 +110,29 @@ export function pressClosed(game: { phase: string; deadline?: string | null }, n
   return isOrderPhase(game.phase) && !!game.deadline && Date.parse(game.deadline) <= now
 }
 
-export const games = writable<GameState[]>([])
+/**
+ * A row of the games list (`list_games()`): just what the list shows — no board
+ * snapshot or settings, and the viewer's own player entry (`me`) instead of everyone's.
+ */
+export type GameListItem = Pick<
+  GameState,
+  'id' | 'name' | 'phase' | 'year' | 'season' | 'map_id' | 'is_private' | 'created_by' | 'updated_at' | 'deadline' | 'ready'
+> & {
+  player_count: number
+  /** The viewer's entry in `players`, or null if they aren't in the game. */
+  me: PlayerInfo | null
+}
+
+export const games = writable<GameListItem[]>([])
 export const currentGame = writable<GameState | null>(null)
 /** False until the first fetchGames resolves — gates the "no games yet" empty state. */
 export const gamesLoaded = writable(false)
 
 export async function fetchGames() {
   try {
-    const { data, error } = await supabase
-      .from('games')
-      .select('*')
-      .order('updated_at', { ascending: false })
-
-    if (error) throw error
-    games.set(data ?? [])
+    // The viewer's games plus the public ones still open or running (RLS + list_games).
+    const data = (await rpc<GameListItem[] | null>('list_games')) ?? []
+    games.set(data)
     return data
   } finally {
     gamesLoaded.set(true)
@@ -139,6 +149,16 @@ export async function fetchGame(id: string) {
   if (error) throw error
   currentGame.set(data)
   return data as GameState
+}
+
+/** The game row if it changed after `since` (its `updated_at`), else null — a check
+ *  that costs a few hundred bytes when nothing happened instead of the whole row. */
+export async function fetchGameIfNewer(id: string, since: string): Promise<GameState | null> {
+  const { data, error } = await supabase.from('games').select('*').eq('id', id).gt('updated_at', since).limit(1)
+  if (error) throw error
+  const game = (data?.[0] ?? null) as GameState | null
+  if (game) currentGame.set(game)
+  return game
 }
 
 /** Run a game-mutating RPC, then refetch the game (also refreshing `currentGame`). */
@@ -353,17 +373,47 @@ export async function adminDeleteAllGames(): Promise<number> {
   return rpc<number>('admin_delete_all_games')
 }
 
-export function subscribeToGame(id: string, callback: (game: GameState) => void) {
-  return supabase
-    .channel(`game:${id}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'games', filter: `id=eq.${id}` },
-      (payload) => {
-        const game = payload.new as GameState
-        currentGame.set(game)
-        callback(game)
-      }
-    )
-    .subscribe()
+/**
+ * Live updates for a game over its private Broadcast topic `game:<id>` (see the
+ * egress_cuts migration): the full row when the game changed, a {ready, updated_at}
+ * patch when only readiness did. Broadcast reaches online subscribers only, so every
+ * (re)join reads the row back — but only if it changed after the last FULL row this
+ * subscription saw (a patch may postdate a full update the socket missed).
+ */
+export function subscribeToGame(
+  id: string,
+  current: () => GameState | null,
+  onChange: (game: GameState) => void,
+): LiveTopic {
+  let fullSince = current()?.updated_at ?? ''
+  // A read that started before a broadcast can land after it: never step backwards.
+  const stale = (at: string) => {
+    const now = current()?.updated_at
+    return !!now && at < now
+  }
+  const full = (g: GameState) => {
+    if (stale(g.updated_at)) return
+    fullSince = g.updated_at
+    currentGame.set(g)
+    onChange(g)
+  }
+  return keepJoined(
+    `game:${id}`,
+    {
+      game: (p) => full(p as GameState),
+      ready: (p) => {
+        const g = current()
+        if (!g) return
+        const { ready, updated_at } = p as Pick<GameState, 'ready' | 'updated_at'>
+        if (stale(updated_at)) return
+        const next = { ...g, ready, updated_at }
+        currentGame.set(next)
+        onChange(next)
+      },
+    },
+    () => {
+      const read = fullSince ? fetchGameIfNewer(id, fullSince) : fetchGame(id)
+      read.then((g) => g && full(g)).catch(() => {})
+    },
+  )
 }

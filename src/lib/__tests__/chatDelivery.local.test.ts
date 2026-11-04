@@ -30,7 +30,7 @@ vi.mock('../supabase', async () => {
 
 const { supabase } = await import('../supabase')
 const { createChatStore } = await import('../chatStore')
-const { unreadSince, markRead } = await import('../chat')
+const { chatOverview, markRead } = await import('../chat')
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function until(cond: () => boolean, ms = 6000): Promise<boolean> {
@@ -60,6 +60,8 @@ describe.skipIf(!RUN)('press delivery (local stack)', () => {
   let gameId = ''
   let me = { id: '', nation: 'england' }
   let sender: SupabaseClient
+  /** In the game, but not in the conversations the tests open (Germany). */
+  let bystander: SupabaseClient
   let store: ReturnType<typeof createChatStore>
 
   beforeAll(async () => {
@@ -83,6 +85,7 @@ describe.skipIf(!RUN)('press delivery (local stack)', () => {
     await ok(clients[0].rpc('start_game', { p_game_id: gameId }))
     me = { id: ids[0], nation: POWERS[0] }
     sender = clients[1]
+    bystander = clients[3]
 
     store = createChatStore(gameId, me.nation, async () => {}, () => false)
     await store.load()
@@ -123,8 +126,28 @@ describe.skipIf(!RUN)('press delivery (local stack)', () => {
     const first = (await ok(sender.rpc('send_chat_message', { p_channel_id: id, p_body: 'one' }))) as { created_at: string }
     const second = (await ok(sender.rpc('send_chat_message', { p_channel_id: id, p_body: 'two' }))) as { id: number }
     await markRead(id, first.created_at)
-    const reads = await ok(supabase.from('chat_reads').select('last_read_at').eq('channel_id', id).eq('nation', me.nation).single())
-    const unread = await unreadSince(id, me.nation, (reads as { last_read_at: string }).last_read_at)
-    expect(unread.map((r) => r.id)).toEqual([second.id])
+    const [row] = await chatOverview(gameId, [id])
+    expect(row.last_read_at).toBe(first.created_at)
+    expect(row.unread.map((r) => r.id)).toEqual([second.id])
+    expect(row.latest?.id).toBe(second.id)
+  })
+
+  it('chat_overview shows nobody a conversation they are not in', async () => {
+    const c = await ok(sender.rpc('create_named_channel', { p_game_id: gameId, p_members: [me.nation], p_name: 'secret' }))
+    const id = (c as { id: number }).id
+    await ok(sender.rpc('send_chat_message', { p_channel_id: id, p_body: 'for austria only' }))
+
+    // A player in the same game, asking for that channel by id and for the whole game.
+    const asked = await ok(bystander.rpc('chat_overview', { p_game_id: gameId, p_channel_ids: [id] }))
+    expect(asked).toEqual([])
+    const all = (await ok(bystander.rpc('chat_overview', { p_game_id: gameId }))) as { channel: { id: number; members: string[] } }[]
+    expect(all.length).toBeGreaterThan(0) // the public channel
+    expect(all.every((r) => r.channel.members.includes('germany'))).toBe(true)
+    expect(all.some((r) => r.channel.id === id)).toBe(false)
+
+    // Someone not in the game at all.
+    const outsider = fresh()
+    await ok(outsider.auth.signInAnonymously())
+    expect(await ok(outsider.rpc('chat_overview', { p_game_id: gameId }))).toEqual([])
   })
 })
