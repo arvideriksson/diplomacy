@@ -13,12 +13,13 @@
   import { fetchGame, fetchResolvedLog, subscribeToGame } from '../lib/game'
   import type { GameState } from '../lib/game'
   import { replayFrames, mergeLog, newestStamp, type HistoryFrame, type StampedOrderRow } from '../lib/history'
+  import { loadLog, saveLog, logKey } from '../lib/logCache'
   import { getMap } from '../lib/maps'
   import { initialBoard, roundRank, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
   import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
   import { powerName } from '../lib/powers'
-  import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox, purgeTemporarySandboxes } from '../lib/sandbox'
+  import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox, prependHistory, purgeTemporarySandboxes } from '../lib/sandbox'
   import type { AnyOrder } from '../lib/orders/types'
   import { compact, type GameTab } from '../lib/layout'
 
@@ -49,7 +50,8 @@
 
   // Past phases are replayed from the resolved log, which is fetched only once someone
   // steps back (or opens the revert menu) and from then on topped up with just the rows
-  // written since — never re-downloaded whole on each open or resolution.
+  // written since — never re-downloaded whole on each open or resolution. The log is
+  // also kept on the device (lib/logCache), so a reload fetches only the delta too.
   let log: StampedOrderRow[] | null = null
   let logSince: string | null = null
   let logFresh = false
@@ -69,13 +71,23 @@
     if (logFresh) return Promise.resolve()
     historyLoad ??= (async () => {
       try {
+        // First use this page load: start from the on-device copy, so only rows written
+        // since it was saved are fetched rather than the whole log.
+        const key = logKey($user?.id, game.id)
+        if (log === null) {
+          const cached = await loadLog(key)
+          if (cached && log === null) ({ rows: log, since: logSince } = cached)
+        }
         // Loop in case the game advanced (or was reverted) while a fetch was in flight.
+        let changed = false
         for (let r = ''; r !== lastRound; ) {
           r = lastRound
           const delta = await fetchResolvedLog(game.id, logSince)
           log = mergeLog(log ?? [], delta, game)
           logSince = newestStamp(delta) ?? logSince
+          changed ||= delta.length > 0
         }
+        if (changed) saveLog(key, log ?? [], logSince).catch(() => {})
         // replayFrames' last frame is the reconstructed current board — drop it and
         // use the authoritative live board for the frontier instead.
         past = replayFrames(map, log ?? [], { year: game.year, season: game.season, phase: game.phase }).slice(0, -1)
@@ -188,34 +200,31 @@
     dropTemporary(openSandboxId)
     openSandboxId = sandboxId
   }
+  // A sandbox from this game gets its resolved phases as its past. It opens at once —
+  // waiting on the log fetch made the first tap look dead — with the past included if
+  // already loaded, else spliced in front when it arrives (a failed fetch: no past).
+  function openWithHistory(create: (history: HistoryFrame[]) => string) {
+    const id = create(logFresh ? past : [])
+    enterSandbox(id)
+    if (!logFresh) ensureHistory().then(() => prependHistory(id, past), () => {})
+  }
   // The map's sandbox button: a clean-slate scratch copy of the live board — no orders
   // carried over — deleted on exit.
-  // The game's resolved phases, for a new sandbox's past. A failed fetch just means
-  // the sandbox starts at the live phase without history.
-  async function gameHistory(): Promise<HistoryFrame[]> {
-    try {
-      await ensureHistory()
-      return past
-    } catch {
-      return []
-    }
-  }
-  async function scratchSandbox() {
-    const history = await gameHistory()
-    const board = liveBoard()
-    const sb = createSandboxFromGame({
+  function scratchSandbox() {
+    openWithHistory((history) => createSandboxFromGame({
       name: 'Scratch',
       mapId: game.map_id,
-      board,
+      board: liveBoard(),
       orders: [],
       origin: { gameId: game.id, gameName: game.name },
       history,
       temporary: true,
-    })
-    enterSandbox(sb.id)
+    }).id)
   }
-  async function newSandbox() {
-    const history = await gameHistory()
+  function newSandbox() {
+    openWithHistory((history) => createKeptSandbox(history).id)
+  }
+  function createKeptSandbox(history: HistoryFrame[]) {
     const board = liveBoard()
     const phaseLabel = isOrderPhase(board.phase) ? PHASE_LABEL[board.phase] : board.phase
     const round = `${board.season} ${board.year} ${phaseLabel}`
@@ -228,7 +237,7 @@
       origin: { gameId: game.id, gameName: game.name },
       history,
     })
-    enterSandbox(sb.id)
+    return sb
   }
   // Back from a sandbox to the game lands on the map; into one, also on the map.
   function leaveSandbox() {

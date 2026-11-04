@@ -9,7 +9,7 @@
 // past phase's orders forks the timeline (the future is discarded).
 
 import { writable } from 'svelte/store'
-import { adjudicate, initialBoard } from './adjudicator'
+import { adjudicate, initialBoard, roundRank } from './adjudicator'
 import type { AdjudicationResult, AnyOrder, BoardState, OrderResult } from './adjudicator'
 import { getMap } from './maps'
 
@@ -145,6 +145,22 @@ export function createSandboxFromGame(opts: {
   }
   mutate((list) => [s, ...list])
   return s
+}
+
+/**
+ * Give a sandbox opened before its game's history had loaded its past: `history` goes
+ * in front of the existing frames and the cursor shifts with it, so the viewed phase
+ * (and anything entered meanwhile) is untouched. Only phases before the sandbox's
+ * first one are taken (the game may have advanced while the log loaded). A no-op if
+ * the sandbox is gone.
+ */
+export function prependHistory(id: string, history: Frame[]): void {
+  update(id, (s) => {
+    const first = roundRank(s.frames[0].board)
+    const past = history.filter((f) => roundRank(f.board) < first)
+    if (!past.length) return s
+    return { ...s, frames: [...structuredClone(past), ...s.frames], cursor: s.cursor + past.length }
+  })
 }
 
 /** The kept (non-temporary) sandboxes copied from a game, newest first. */

@@ -83,6 +83,18 @@ describe('mergeLog', () => {
     expect(merged.map((r) => r.year)).toEqual([1901])
   })
 
+  it('a re-resolved round also drops later cached rounds the new timeline lacks', () => {
+    const cached = [
+      row(1901, 'Spring', 'movement', 'germany'),
+      row(1901, 'Fall', 'movement', 'germany'),
+      row(1901, 'Fall', 'retreat', 'germany'),
+    ]
+    // Reverted to Fall 1901 movement; it resolved again with no dislodgement (no retreat).
+    const merged = mergeLog(cached, [row(1901, 'Fall', 'movement', 'germany', [{ type: 'Hold' }])], live)
+    expect(merged.map((r) => `${r.season} ${r.phase}`)).toEqual(['Spring movement', 'Fall movement'])
+    expect(merged[1].orders).toHaveLength(1)
+  })
+
   it('newestStamp picks the latest updated_at', () => {
     expect(newestStamp([])).toBeNull()
     expect(newestStamp([

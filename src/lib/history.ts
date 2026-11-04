@@ -30,9 +30,12 @@ export function replayFrames(
 }
 
 /**
- * Merge freshly fetched rows (`fetchResolvedLog(id, since)`) into the cached log. A round
- * present in the delta replaces that whole round (it was resolved again after a revert),
- * and anything at or after the live round is dropped (a revert deleted or reopened it).
+ * Merge freshly fetched rows (`fetchResolvedLog(id, since)`) into the cached log.
+ * Resolved rows are immutable, so a delta normally holds only rounds newer than the
+ * cache. If it reaches back to an older round, that round was resolved again after a
+ * host revert — which deleted every later round — so the cache is cut at the delta's
+ * oldest round (a later retreat/build phase may not exist in the new timeline at all).
+ * Anything at or after the live round is dropped too (a revert deleted or reopened it).
  */
 export function mergeLog<R extends ResolvedOrderRow>(
   cached: R[],
@@ -40,8 +43,8 @@ export function mergeLog<R extends ResolvedOrderRow>(
   live: Parameters<typeof roundRank>[0],
 ): R[] {
   const frontier = roundRank(live)
-  const replaced = new Set(delta.map(roundRank))
-  return [...cached.filter((r) => !replaced.has(roundRank(r))), ...delta].filter((r) => roundRank(r) < frontier)
+  const cut = Math.min(frontier, ...delta.map(roundRank))
+  return [...cached.filter((r) => roundRank(r) < cut), ...delta].filter((r) => roundRank(r) < frontier)
 }
 
 /** The newest `updated_at` among rows (ISO strings compare chronologically), if any. */
