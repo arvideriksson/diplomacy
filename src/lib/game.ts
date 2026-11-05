@@ -316,6 +316,11 @@ export async function leaveGame(gameId: string) {
   await rpc('leave_game', { game_id: gameId })
 }
 
+/** Delete a game that hasn't started (host only; see delete_lobby_game). */
+export async function deleteLobbyGame(gameId: string) {
+  await rpc('delete_lobby_game', { p_game_id: gameId })
+}
+
 export async function kickPlayer(gameId: string, playerId: string) {
   await rpc('kick_player', { game_id: gameId, player_id: playerId })
 }

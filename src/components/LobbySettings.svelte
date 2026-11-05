@@ -1,25 +1,27 @@
 <script lang="ts">
-  // Lobby "Game Settings" card: pacing, variant and the toggle settings. Presentational —
-  // the lobby owns the values and persists each change through the callbacks.
+  // The lobby's settings, beside the seats. The host gets square segmented controls in
+  // two groups (turn timers, the game); everyone else sees the values read-only.
+  // Presentational: the lobby owns the values and persists each change.
   import type { PhaseTimers } from '../lib/game'
   import { maps } from '../lib/maps'
-  import PacingSettings from './PacingSettings.svelte'
-  import ToggleSetting from './ToggleSetting.svelte'
-  import Icon from './Icon.svelte'
+  import { formatMinutes } from '../lib/time'
+  import Segmented from './Segmented.svelte'
+  import Toggle from './Toggle.svelte'
 
   /** Only the host may change settings. */
   export let isAdmin: boolean
   /** The map can only be chosen before the game starts. */
   export let canChooseMap: boolean
   export let timers: PhaseTimers
+  /** Minutes the phase waits past its deadline; null = one movement timer. */
   export let grace: number | null
+  /** First phase length (minutes); null = the movement timer. */
   export let firstTurn: number | null
   export let earlyResolution: boolean
   export let mapId: string
   export let gunboat: boolean
   export let randomNations: boolean
   export let isPrivate: boolean
-  /** The host-controls toggle's value. */
   export let hostControls: boolean
   /** Host controls are on for the game (it must then stay private). */
   export let hostControlsLocked: boolean
@@ -34,121 +36,232 @@
   export let onTogglePrivate: () => void
   export let onHostControlsChange: (v: boolean) => void
 
-  // Variant = which board to play. Derived from the map registry, so adding a map
-  // here makes it selectable automatically.
-  const MAP_OPTIONS = Object.values(maps).map((m) => ({
-    value: m.id,
-    label: m.name,
-  }))
+  const H = 60
+  const D = 1440
+  const CUSTOM = -1
+  const fmt = (min: number) => formatMinutes(min, { zeroLabel: 'Off' })
+  const opts = (mins: number[]) => mins.map((m) => ({ value: m, label: fmt(m) }))
+
+  const MOVE_PRESETS = [12 * H, D, 2 * D, 3 * D, 7 * D]
+  const ADJUST_PRESETS = [6 * H, 12 * H, D]
+  const moveOptions = [...opts(MOVE_PRESETS), { value: CUSTOM, label: 'Custom' }]
+  const adjustOptions = [...opts(ADJUST_PRESETS), { value: CUSTOM, label: 'Custom' }]
+  const firstOptions = [{ value: null as number | null, label: 'Same' }, ...opts([2 * D, 3 * D, 7 * D, 14 * D])]
+  const graceOptions = [{ value: null as number | null, label: 'Moves' }, ...opts([0, 12 * H, D, 2 * D, 7 * D])]
+  const mapOptions = Object.values(maps).map((m) => ({ value: m.id, label: m.name }))
+  const powerOptions = [
+    { value: false, label: 'Players choose' },
+    { value: true, label: 'Random' },
+  ]
+
+  // A custom timer: shown when the value isn't a preset, or after picking Custom.
+  const UNITS = [
+    { id: 'hours', label: 'hours', factor: H },
+    { id: 'days', label: 'days', factor: D },
+  ] as const
+  type Unit = (typeof UNITS)[number]['id']
+  type Field = { open: boolean; num: number; unit: Unit }
+  const toField = (min: number, open: boolean): Field =>
+    min % D === 0 ? { open, num: min / D, unit: 'days' } : { open, num: Math.max(1, Math.round(min / H)), unit: 'hours' }
+  const fieldMinutes = (f: Field) => Math.max(H, Math.round((Number(f.num) || 0) * UNITS.find((u) => u.id === f.unit)!.factor))
+
+  let moveField = toField(timers.movement, !MOVE_PRESETS.includes(timers.movement))
+  let adjustField = toField(timers.retreat, !ADJUST_PRESETS.includes(timers.retreat))
+  // Follow outside changes (another tab, a realtime update) unless the field is open.
+  $: if (!moveField.open) moveField = toField(timers.movement, false)
+  $: if (!adjustField.open) adjustField = toField(timers.retreat, false)
+  $: moveValue = moveField.open || !MOVE_PRESETS.includes(timers.movement) ? CUSTOM : timers.movement
+  $: adjustValue = adjustField.open || !ADJUST_PRESETS.includes(timers.retreat) ? CUSTOM : timers.retreat
+
+  function pickMove(v: number) {
+    if (v === CUSTOM) return (moveField = { ...toField(timers.movement, true) })
+    moveField = toField(v, false)
+    onTimersChange({ ...timers, movement: v })
+  }
+  // Retreats and builds share one timer.
+  function pickAdjust(v: number) {
+    if (v === CUSTOM) return (adjustField = { ...toField(timers.retreat, true) })
+    adjustField = toField(v, false)
+    onTimersChange({ ...timers, retreat: v, build: v })
+  }
+  const applyMove = () => onTimersChange({ ...timers, movement: fieldMinutes(moveField) })
+  const applyAdjust = () => {
+    const v = fieldMinutes(adjustField)
+    onTimersChange({ ...timers, retreat: v, build: v })
+  }
+
+  // Read-only summary for everyone but the host.
+  const long = (min: number) => {
+    if (min === 0) return 'Off'
+    if (min % D === 0) return min === D ? '1 day' : `${min / D} days`
+    if (min % H === 0) return min === H ? '1 hour' : `${min / H} hours`
+    return `${min} minutes`
+  }
+  $: summary = [
+    ['Moves', long(timers.movement)],
+    ['Retreats and builds', timers.retreat === timers.build ? long(timers.retreat) : `${long(timers.retreat)} / ${long(timers.build)}`],
+    ['First turn', firstTurn == null ? 'Same as moves' : long(firstTurn)],
+    ['Grace period', grace == null ? `${long(timers.movement)} (same as moves)` : long(grace)],
+    ['Early resolution', earlyResolution ? 'On' : 'Off'],
+    ['Map', maps[mapId]?.name ?? mapId],
+    ['Powers', randomNations ? 'Random' : 'Players choose'],
+    ['Press', gunboat ? 'None (gunboat)' : 'Full'],
+    ['Listed publicly', isPrivate ? 'No' : 'Yes'],
+    ['Host controls', hostControls ? 'On' : 'Off'],
+  ]
 </script>
 
-<section class="card lobby-settings">
-  <div class="card-head">
-    <Icon name="gear" />
-    <h2>Game Settings</h2>
-  </div>
+{#if isAdmin}
+  <section>
+    <h2>Turn timers</h2>
+    <div class="list">
+      <div class="setting">
+        <span class="label">Moves</span>
+        <Segmented label="Moves" options={moveOptions} value={moveValue} onChange={pickMove} />
+        {#if moveValue === CUSTOM}
+          <div class="custom">
+            <input class="input" type="number" min="1" bind:value={moveField.num} on:change={applyMove} aria-label="Moves, custom length" />
+            <select class="input" bind:value={moveField.unit} on:change={applyMove} aria-label="Unit">
+              {#each UNITS as u (u.id)}<option value={u.id}>{u.label}</option>{/each}
+            </select>
+          </div>
+        {/if}
+      </div>
+      <div class="setting">
+        <span class="label">Retreats and builds</span>
+        <Segmented label="Retreats and builds" options={adjustOptions} value={adjustValue} onChange={pickAdjust} />
+        {#if adjustValue === CUSTOM}
+          <div class="custom">
+            <input class="input" type="number" min="1" bind:value={adjustField.num} on:change={applyAdjust} aria-label="Retreats and builds, custom length" />
+            <select class="input" bind:value={adjustField.unit} on:change={applyAdjust} aria-label="Unit">
+              {#each UNITS as u (u.id)}<option value={u.id}>{u.label}</option>{/each}
+            </select>
+          </div>
+        {/if}
+      </div>
+      <div class="setting">
+        <span class="label">First turn <span class="hint">for opening talks</span></span>
+        <Segmented label="First turn" options={firstOptions} value={firstTurn} onChange={onFirstTurnChange} />
+      </div>
+      <div class="setting">
+        <span class="label">Grace period <span class="hint">after a missed deadline</span></span>
+        <Segmented label="Grace period" options={graceOptions} value={grace} onChange={onGraceChange} />
+      </div>
+      <div class="setting line">
+        <span class="label">Resolve early when everyone is ready</span>
+        <Toggle checked={earlyResolution} label="Resolve early when everyone is ready" onChange={onEarlyChange} />
+      </div>
+    </div>
+  </section>
 
-  <PacingSettings
-    {timers}
-    {grace}
-    {firstTurn}
-    {earlyResolution}
-    disabled={!isAdmin}
-    {onTimersChange}
-    {onGraceChange}
-    {onFirstTurnChange}
-    {onEarlyChange}
-  />
-
-  <div class="setting-group">
-    <span class="setting-label">Variant</span>
-    <div class="variant-options">
-      {#each MAP_OPTIONS as opt}
-        <button
-          class="variant-card"
-          class:active={mapId === opt.value}
-          disabled={!canChooseMap}
-          on:click={() => onMapChange(opt.value)}
-        >
-          <span class="variant-name">{opt.label}</span>
-        </button>
+  <section>
+    <h2>Game</h2>
+    <div class="list">
+      <div class="setting">
+        <span class="label">Map</span>
+        <Segmented label="Map" options={mapOptions} value={mapId} disabled={!canChooseMap} onChange={onMapChange} />
+      </div>
+      <div class="setting">
+        <span class="label">Powers</span>
+        <Segmented label="Powers" options={powerOptions} value={randomNations} onChange={onRandomNationsChange} />
+      </div>
+      <div class="setting line">
+        <span class="label">Gunboat <span class="hint">no press</span></span>
+        <Toggle checked={gunboat} label="Gunboat" onChange={onGunboatChange} />
+      </div>
+      <div class="setting line">
+        <span class="label">Listed publicly{#if hostControlsLocked}<span class="hint">off while host controls are on</span>{/if}</span>
+        <Toggle checked={!isPrivate} label="Listed publicly" disabled={hostControlsLocked} onChange={onTogglePrivate} />
+      </div>
+      <div class="setting line">
+        <span class="label">Host controls <span class="hint">revert, force-resolve and change timers mid-game; private games only</span></span>
+        <Toggle checked={hostControls} label="Host controls" disabled={!isPrivate} onChange={onHostControlsChange} />
+      </div>
+    </div>
+  </section>
+{:else}
+  <section>
+    <h2>Settings</h2>
+    <div class="list">
+      {#each summary as [k, v] (k)}
+        <div class="kv"><span>{k}</span><b>{v}</b></div>
       {/each}
     </div>
-  </div>
-
-  <ToggleSetting
-    label="Gunboat"
-    tip="No press: players cannot chat or negotiate."
-    checked={gunboat}
-    disabled={!isAdmin}
-    onChange={onGunboatChange}
-  />
-  <ToggleSetting
-    label="Random nation assignment"
-    tip="Powers are dealt at random when the game starts."
-    checked={randomNations}
-    disabled={!isAdmin}
-    onChange={onRandomNationsChange}
-  />
-  <ToggleSetting
-    label="Public"
-    tip={hostControlsLocked ? 'Turn off host controls to make the game public.' : ''}
-    checked={!isPrivate}
-    disabled={!isAdmin || hostControlsLocked}
-    onChange={onTogglePrivate}
-  />
-  <ToggleSetting
-    label="Host controls"
-    tip="The host can revert turns, resolve phases early and change the deadline and timers mid-game. Fixed once the game starts. Private games only."
-    checked={hostControls}
-    disabled={!isAdmin || !isPrivate}
-    onChange={onHostControlsChange}
-  />
-</section>
+  </section>
+{/if}
 
 <style>
-  .variant-options {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .variant-card {
+  section {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 12px 14px;
-    border-radius: var(--radius-md);
+  }
+  h2 {
+    margin: 0;
+    padding: 0 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .list {
+    background: var(--bg-card);
     border: 1px solid var(--border);
-    background: var(--bg-elevated);
-    cursor: pointer;
-    text-align: left;
-    transition: all 0.12s;
-    font-family: var(--font);
   }
-
-  .variant-card:hover:not(:disabled) {
-    border-color: var(--border-strong);
+  .setting {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
   }
-
-  .variant-card.active {
-    border-color: var(--accent);
-    background: var(--accent-subtle);
+  .setting:first-child,
+  .kv:first-child {
+    border-top: none;
   }
-
-  .variant-card:disabled {
-    cursor: default;
-    opacity: 0.65;
+  .setting.line {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
   }
-
-  .variant-card.active:disabled {
-    opacity: 1;
-  }
-
-  .variant-name {
-    font-size: 14px;
+  .label {
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text);
+  }
+  .hint {
+    display: block;
+    margin-top: 1px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-tertiary);
+  }
+  .custom {
+    display: flex;
+    gap: 8px;
+  }
+  .custom input {
+    width: 90px;
+  }
+  .custom select {
+    width: auto;
+  }
+  .kv {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    min-height: 42px;
+    padding: 0 14px;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .kv span {
+    color: var(--text-secondary);
+  }
+  .kv b {
+    font-weight: 600;
+    text-align: right;
   }
 </style>

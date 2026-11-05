@@ -2,18 +2,15 @@
   import { onMount, onDestroy } from 'svelte'
   import { user } from '../lib/auth'
   import {
-    fetchGame, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
-    claimNation, DEFAULT_SETTINGS,
+    fetchGame, fetchGames, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
+    claimNation, deleteLobbyGame, DEFAULT_SETTINGS,
   } from '../lib/game'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
   import { getMap } from '../lib/maps'
-  import { initialBoard } from '../lib/adjudicator'
   import { actionRunner } from '../lib/action'
   import LobbySettings from './LobbySettings.svelte'
-  import PowerPicker from './PowerPicker.svelte'
-  import InviteCard from './InviteCard.svelte'
-  import PlayerList from './PlayerList.svelte'
-  import LobbyActions from './LobbyActions.svelte'
+  import LobbySeats from './LobbySeats.svelte'
+  import Icon from './Icon.svelte'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -65,9 +62,6 @@
         {} as Record<string, { uid: string; info: PlayerInfo }>,
       )
     : {}
-  // Centers each power starts with (home centers plus any variant extras, e.g. 1900 Egypt).
-  $: startCenters = Object.values(initialBoard(map).supplyCenters)
-  $: homeCenters = (id: string): number => startCenters.filter((n) => n === id).length
 
   // Failed actions report inline instead of becoming unhandled rejections. Power
   // claims report next to the picker; everything else under the title.
@@ -187,6 +181,54 @@
     saveSettings()
   }
 
+  // ── Invite, the ⋯ menu, delete and leave ─────────────────────────────────────
+  $: inviteLink = `${window.location.origin}/join/${gameId}`
+  // Phones get the share sheet; everything else copies the link.
+  const canShare = typeof navigator !== 'undefined' && 'share' in navigator && matchMedia('(pointer: coarse)').matches
+  let copied = false
+  async function invite() {
+    if (canShare) {
+      try {
+        await navigator.share({ title: game?.name ?? 'Diplomacy', url: inviteLink })
+      } catch {
+        /* dismissed */
+      }
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      copied = true
+      setTimeout(() => (copied = false), 2000)
+    } catch {
+      error = `Copy this link: ${inviteLink}`
+    }
+  }
+
+  let menuOpen = false
+  let confirming: 'delete' | 'leave' | null = null
+  let removing = false
+  $: others = game ? Object.keys(game.players).filter((uid) => uid !== $user?.id).length : 0
+  $: deleteNote =
+    others === 0
+      ? 'The lobby closes. This can’t be undone.'
+      : `The lobby closes and ${others === 1 ? 'the other player loses their seat' : `the ${others} other players lose their seats`}. This can’t be undone.`
+
+  function ask(what: 'delete' | 'leave') {
+    menuOpen = false
+    confirming = what
+  }
+
+  async function handleDelete() {
+    if (!game || !isAdmin) return
+    removing = true
+    const deleted = await run(async () => (await deleteLobbyGame(gameId), true))
+    removing = false
+    if (deleted) {
+      fetchGames().catch(() => {})
+      onBack()
+    }
+  }
+
   // A toggle setting: apply the new value locally, then persist.
   const setAndSave = (apply: (v: boolean) => void) => (v: boolean) => {
     apply(v)
@@ -194,14 +236,16 @@
   }
 </script>
 
+<svelte:window on:click={() => (menuOpen = false)} />
+
 {#if loading}
   <div class="loading">
     <div class="spinner"></div>
   </div>
 {:else if game}
   <div class="lobby">
-    <div class="lobby-top">
-      <div class="lobby-title-row">
+    <header class="lobby-head">
+      <div class="ttl">
         {#if isAdmin}
           <input
             class="title-input"
@@ -209,17 +253,90 @@
             on:blur={saveSettings}
             on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
             placeholder="Game name"
+            aria-label="Game name"
           />
         {:else}
           <h1>{game.name}</h1>
         {/if}
-        <span class="badge badge-caps phase-badge">{game.phase}</span>
+        <span class="sub">Lobby · {map.name}{#if game.is_private}<span class="lock" title="Private"><Icon name="lock" size={11} /></span>{/if}</span>
       </div>
-      {#if error}<p class="form-error">{error}</p>{/if}
-    </div>
+      <div class="head-actions">
+        <button class="btn btn-line" type="button" on:click={invite}>
+          {#if copied}<Icon name="check" size={15} />Copied{:else}<Icon name="copy" size={15} /><span class="lbl">{canShare ? 'Invite' : 'Copy invite link'}</span>{/if}
+        </button>
+        {#if isAdmin || isMember}
+          <div class="menu-wrap">
+            <button class="btn btn-line more" type="button" aria-label="More" aria-expanded={menuOpen} on:click|stopPropagation={() => (menuOpen = !menuOpen)}>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" /></svg>
+            </button>
+            {#if menuOpen}
+              <div class="menu" role="menu">
+                {#if isAdmin}
+                  <button role="menuitem" class="danger" on:click|stopPropagation={() => ask('delete')}>Delete game</button>
+                {:else}
+                  <button role="menuitem" class="danger" on:click|stopPropagation={() => ask('leave')}>Leave game</button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </header>
 
-    <div class="lobby-grid">
-      <div class="lobby-main">
+    {#if error}<p class="form-error">{error}</p>{/if}
+
+    {#if confirming}
+      <div class="confirm" role="alertdialog" aria-label={confirming === 'delete' ? 'Delete game' : 'Leave game'}>
+        {#if confirming === 'delete'}
+          <b>Delete {game.name}?</b>
+          <p>{deleteNote}</p>
+        {:else}
+          <b>Leave {game.name}?</b>
+          <p>Your seat opens for someone else. You can rejoin while it’s open.</p>
+        {/if}
+        <div class="confirm-actions">
+          <button class="btn btn-danger" type="button" disabled={removing} on:click={confirming === 'delete' ? handleDelete : handleLeave}>
+            {confirming === 'delete' ? (removing ? 'Deleting…' : 'Delete game') : 'Leave game'}
+          </button>
+          <button class="btn btn-fill" type="button" on:click={() => (confirming = null)}>Cancel</button>
+        </div>
+      </div>
+    {/if}
+
+    <div class="cols">
+      <section class="seats-col">
+        <h2>Seats</h2>
+        <div class="list">
+          <LobbySeats
+            players={game.players}
+            {powers}
+            randomNations={settingsRandomNations}
+            hostId={game.created_by}
+            userId={$user?.id}
+            isAdmin={!!isAdmin}
+            isMember={!!isMember && game.phase === 'lobby'}
+            onClaim={claimPower}
+            onKick={handleKick}
+          />
+          <div class="lfoot">
+            <span class="count">{playerCount} of {maxPlayers} {maxPlayers === 1 ? 'seat' : 'seats'} taken</span>
+            <span class="action">
+              {#if canJoin}
+                <button class="btn btn-primary" type="button" disabled={joiningGame} on:click={handleJoin}>{joiningGame ? 'Joining…' : 'Join game'}</button>
+              {:else if isAdmin}
+                <button class="btn btn-primary" type="button" disabled={!canStart || starting} title={playerCount < 2 ? 'A game needs at least two players' : undefined} on:click={handleStartGame}>{starting ? 'Starting…' : 'Start game'}</button>
+              {:else if isMember}
+                <span class="note">The host starts the game</span>
+              {:else if playerCount >= maxPlayers}
+                <span class="note">Game is full</span>
+              {/if}
+            </span>
+          </div>
+        </div>
+        {#if claimError}<p class="form-error">{claimError}</p>{/if}
+      </section>
+
+      <div class="settings-col">
         <LobbySettings
           isAdmin={!!isAdmin}
           canChooseMap={!!canChooseMap}
@@ -243,42 +360,20 @@
           onTogglePrivate={togglePrivate}
           onHostControlsChange={setAndSave((v) => (settingsHostControls = v))}
         />
-
-        {#if game.phase === 'lobby' && !settingsRandomNations && isMember}
-          <PowerPicker {powers} {holderByNation} {myNation} error={claimError} onClaim={claimPower} />
-        {/if}
-      </div>
-
-      <div class="lobby-sidebar">
-        {#if game.phase === 'lobby'}
-          <InviteCard {gameId} />
-        {/if}
-
-        <PlayerList
-          players={game.players}
-          {powers}
-          {maxPlayers}
-          hostId={game.created_by}
-          userId={$user?.id}
-          isAdmin={!!isAdmin}
-          onLeave={handleLeave}
-          onKick={handleKick}
-        />
-
-        <LobbyActions
-          canJoin={!!canJoin}
-          joining={joiningGame}
-          full={playerCount >= maxPlayers}
-          isAdmin={!!isAdmin}
-          isMember={!!isMember}
-          canStart={!!canStart}
-          {starting}
-          needsPlayers={playerCount < 2}
-          onJoin={handleJoin}
-          onStart={handleStartGame}
-        />
       </div>
     </div>
+
+    <!-- Phones: the main action pinned to the bottom of the screen. -->
+    {#if canJoin || isAdmin}
+      <div class="sticky-action">
+        <span class="count">{playerCount} of {maxPlayers}</span>
+        {#if canJoin}
+          <button class="btn btn-primary" type="button" disabled={joiningGame} on:click={handleJoin}>{joiningGame ? 'Joining…' : 'Join game'}</button>
+        {:else}
+          <button class="btn btn-primary" type="button" disabled={!canStart || starting} on:click={handleStartGame}>{starting ? 'Starting…' : 'Start game'}</button>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -289,119 +384,244 @@
     justify-content: center;
     padding: 80px 0;
   }
-
-  .lobby-top {
-    margin-bottom: 28px;
+  .lobby {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
   }
 
-  .lobby-title-row {
+  /* Title, then the invite and ⋯ actions. */
+  .lobby-head {
     display: flex;
     align-items: center;
     gap: 12px;
   }
-
+  .ttl {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  h1,
   .title-input {
+    margin: 0;
+    font-family: var(--font-display);
     font-size: 26px;
     font-weight: 700;
     letter-spacing: -0.3px;
+    line-height: 1.2;
     color: var(--text);
+  }
+  .title-input {
+    width: 100%;
+    min-width: 0;
+    padding: 0 0 2px;
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 0 0 2px;
     outline: none;
-    font-family: var(--font-display);
-    transition: border-color 0.15s;
-    flex: 1;
-    min-width: 0;
   }
-
   .title-input:hover {
     border-bottom-color: var(--border);
   }
-
   .title-input:focus {
     border-bottom-color: var(--accent);
   }
+  .sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+  }
+  .lock {
+    display: flex;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  .btn-line {
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .more {
+    width: 36px;
+    padding: 0;
+  }
+  .menu-wrap {
+    position: relative;
+  }
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 20;
+    min-width: 180px;
+    padding: 4px 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-lg);
+  }
+  .menu button {
+    display: block;
+    width: 100%;
+    padding: 9px 14px;
+    border: none;
+    background: none;
+    font: 500 14px var(--font);
+    text-align: left;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .menu button:hover {
+    background: var(--bg-hover);
+  }
+  .menu .danger {
+    color: var(--red);
+  }
 
-  h1 {
-    font-family: var(--font-display);
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
+  /* In-page confirmation for delete and leave. */
+  .confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    background: var(--red-subtle);
+    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  }
+  .confirm b {
+    font-weight: 600;
+  }
+  .confirm p {
     margin: 0;
+    font-size: 13.5px;
+    color: var(--text-secondary);
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .btn-danger {
+    color: #fff;
+    background: var(--red);
+    border-color: var(--red);
+  }
+  .btn-fill {
+    background: var(--bg-fill);
     color: var(--text);
   }
 
-  .phase-badge {
-    font-size: 12px;
-    padding: 3px 10px;
-  }
-
-  .lobby-top .form-error {
-    margin-top: 12px;
-  }
-
-  .lobby-grid {
+  /* Seats beside settings. */
+  .cols {
     display: grid;
-    /* minmax(0, …) so a long unbreakable child (the invite URL) can't widen the column. */
-    grid-template-columns: minmax(0, 1fr) 340px;
-    gap: 20px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
     align-items: start;
   }
+  .seats-col,
+  .settings-col {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+  }
+  .seats-col {
+    gap: 0;
+  }
+  h2 {
+    margin: 0;
+    padding: 0 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .list {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+  }
+  .lfoot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 54px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .count,
+  .note {
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+  }
+  .form-error {
+    margin: 8px 2px 0;
+    font-size: 13px;
+    color: var(--red);
+  }
+  .sticky-action {
+    display: none;
+  }
 
-  /* One column: flatten both columns into a single stack and reorder it so what a
-     player acts on comes first — power, invite, players — then the settings, with
-     Join / Start pinned to the bottom of the screen. */
-  @media (max-width: 768px) {
-    .lobby-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      align-items: stretch;
-    }
-
-    .lobby-main,
-    .lobby-sidebar {
-      display: contents;
-    }
-
-    .lobby-grid :global(.card),
-    .lobby-grid :global(.lobby-actions) {
-      margin: 0;
-    }
-
-    .lobby-grid :global(.power-picker) { order: 1; }
-    .lobby-grid :global(.invite-card) { order: 2; }
-    .lobby-grid :global(.players-card) { order: 3; }
-    .lobby-grid :global(.lobby-settings) { order: 4; }
-    .lobby-grid :global(.lobby-actions) {
-      order: 5;
-      position: sticky;
-      bottom: 0;
-      z-index: 5;
-      margin: 0 -16px;
-      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-      background: linear-gradient(to bottom, transparent, var(--bg) 14px);
-    }
-    /* Nothing to show (a non-member watching a full lobby): drop the sticky bar. */
-    .lobby-grid :global(.lobby-actions:empty) {
-      display: none;
+  @media (max-width: 760px) {
+    .cols {
+      grid-template-columns: 1fr;
     }
   }
 
   @media (max-width: 600px) {
-    .lobby-top {
-      margin-bottom: 16px;
+    .lobby {
+      padding-bottom: 84px;
     }
-
-    .title-input,
-    h1 {
+    /* The title gets the full width; the actions drop below it. */
+    .lobby-head {
+      flex-wrap: wrap;
+    }
+    .ttl {
+      flex-basis: 100%;
+    }
+    h1,
+    .title-input {
       font-size: 22px;
     }
-
-    h1 {
-      overflow-wrap: anywhere;
+    /* Rows run edge to edge (App's main has 16px gutters). */
+    .list,
+    .confirm {
+      margin: 0 -16px;
+      border-left: none;
+      border-right: none;
+    }
+    .lfoot .action {
+      display: none;
+    }
+    .sticky-action {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+    }
+    .sticky-action .btn {
+      flex: 1;
+      height: 44px;
+      font-size: 15px;
     }
   }
 </style>
