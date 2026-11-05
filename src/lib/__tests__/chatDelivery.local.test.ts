@@ -76,7 +76,7 @@ describe.skipIf(!RUN)('press delivery (local stack)', () => {
           players: { [ids[0]]: { role: 'host', display_name: 'T0', joined_at: new Date().toISOString() } },
           is_private: false, created_by: ids[0],
         })
-        .select()
+        .select('id')
         .single(),
     )
     gameId = (game as { id: string }).id

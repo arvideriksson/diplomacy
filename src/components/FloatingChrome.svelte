@@ -2,20 +2,25 @@
   import { useLocation } from 'svelte-routing'
   import UserMenu from './UserMenu.svelte'
   import Icon from './Icon.svelte'
+  import HomeBar from './HomeBar.svelte'
 
   export let onBack: () => void
 
   const location = useLocation()
 </script>
 
-{#if $location.pathname !== '/'}
+<!-- Home has a top bar (mark, New game, user menu); other pages float a back button
+     and the user menu over the content. -->
+{#if $location.pathname === '/'}
+  <HomeBar />
+{:else}
   <button class="float glass back" on:click={onBack} title="Back to games" aria-label="Back to games">
     <Icon name="back" strokeWidth={2.2} round />
   </button>
+  <div class="float user"><UserMenu /></div>
+  <!-- Phones: fades scrolled content out under the floating buttons. -->
+  <div class="scrim" aria-hidden="true"></div>
 {/if}
-<div class="float user"><UserMenu /></div>
-<!-- Phones: fades scrolled content out under the floating buttons. -->
-<div class="scrim" aria-hidden="true"></div>
 
 <style>
   .float {

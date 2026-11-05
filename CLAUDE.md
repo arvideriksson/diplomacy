@@ -81,7 +81,9 @@ Because the Edge Function adjudicated the round, it *knows* what comes next: it 
 A nation has a **single** `orders` row per `(game, year, season, phase)` holding its order set whether drafted or submitted — what makes it count is `games.ready[nation]`, not a separate table. There are exactly two client write paths to that row:
 
 - **Drafting (not ready).** While the nation is not ready, the client autosaves edits via `save_draft_orders` — silent (the `orders` table is not in the realtime publication, so a draft is never broadcast) and never touching `ready`.
-- **Submitting / resubmitting.** `submit_orders` overwrites the row and sets `ready = true`, which *is* broadcast (others see who has readied). The adjudicator honors a nation's orders only if it's ready; an unsubmitted draft is treated as a hold.
+- **Submitting / resubmitting.** `submit_orders` overwrites the row and sets `ready = true`. The adjudicator honors a nation's orders only if it's ready; an unsubmitted draft is treated as a hold.
+
+**Who has readied is secret until the grace period** (`20250101000154_hide_readiness.sql`). Players can't read `games.ready` (a column grant: every other `games` column is granted, so a new column must be added to that grant), a ready toggle bumps neither `updated_at` nor a broadcast, and the full-row broadcast strips `ready`. A client learns its own flag and, once the deadline has passed, who the phase is waiting on from `game_readiness`; during a grace period a ready toggle broadcasts the new `waiting` list. Server-side code (the Edge Function, SECURITY DEFINER RPCs) reads `ready` as before. Never expose another power's flag outside a grace period.
 
 Once a nation is ready, `save_draft_orders` refuses to write (server-side guard), so an autosave can never clobber a submitted set. Post-submit edits live only in the client and persist solely on an explicit resubmit (which stays ready) — there is currently **no un-ready path**, so readiness clears only at resolution. Both RPCs stamp the round being edited and silently drop / reject a write that races a resolution, so a stale write can't land in the next round's row.
 

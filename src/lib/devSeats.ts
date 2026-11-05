@@ -108,6 +108,8 @@ export async function fillLobby(game: GameState): Promise<void> {
     if (!inGame && count >= powers.length) continue
 
     const client = seatClient(seat)
+    const { data: readiness } = await client.rpc('game_readiness', { p_game_id: game.id })
+    if ((readiness as { ready: boolean | null } | null)?.ready) continue
     const id = await ensureSeat(seat)
     if (!game.players[id]) {
       const { error } = await client.rpc('join_public_game', { game_id: game.id })
@@ -127,6 +129,23 @@ export async function fillLobby(game: GameState): Promise<void> {
  * the active seat is the last one out. With early resolution on, the active seat's own
  * submit then resolves the round. Returns the nations it readied.
  */
+/**
+ * Each seat's own ready flag, read with that seat's session (players can only read
+ * their own; see migration 154). Seats without a power in the game are left out.
+ */
+export async function seatReadiness(game: GameState): Promise<Record<number, boolean>> {
+  const out: Record<number, boolean> = {}
+  await Promise.all(
+    SEATS.map(async (seat) => {
+      const known = seatUser(seat)
+      if (!known || !game.players[known.id]?.nation) return
+      const { data } = await seatClient(seat).rpc('game_readiness', { p_game_id: game.id })
+      out[seat] = !!(data as { ready: boolean | null } | null)?.ready
+    }),
+  )
+  return out
+}
+
 export async function readyOtherSeats(game: GameState): Promise<string[]> {
   const round = { p_year: game.year, p_season: game.season, p_phase: game.phase }
   const readied: string[] = []
@@ -134,7 +153,7 @@ export async function readyOtherSeats(game: GameState): Promise<string[]> {
     if (seat === activeDevSeat()) continue
     const known = seatUser(seat)
     const nation = known ? game.players[known.id]?.nation : undefined
-    if (!nation || game.ready?.[nation]) continue
+    if (!nation) continue
 
     const client = seatClient(seat)
     const { data: row, error: readErr } = await client

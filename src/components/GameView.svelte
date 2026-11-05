@@ -43,10 +43,9 @@
   // Only games created with host controls get the in-game admin menu. A finished game
   // keeps it so the host can still revert out of the ending.
   $: canManage = isCreator && (isActive || isComplete) && !!game.settings?.host_controls
-  // Played powers that haven't submitted this round — who a grace period waits on.
-  $: awaiting = [...new Set(Object.values(game.players).map((p) => p.nation).filter((n): n is string => !!n))]
-    .filter((n) => !game.ready?.[n])
-    .map((n) => powerName(map.powers, n))
+  // Who a grace period waits on. The server only says during a grace period (nobody
+  // learns who has readied before then), so this is empty the rest of the time.
+  $: awaiting = (game.waiting ?? []).map((n) => powerName(map.powers, n))
 
   // Past phases are replayed from the resolved log, which is fetched only once someone
   // steps back (or opens the revert menu) and from then on topped up with just the rows

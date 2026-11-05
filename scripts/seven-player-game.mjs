@@ -72,7 +72,7 @@ async function main() {
       is_private: false,
       created_by: host.id,
     })
-    .select()
+    .select('id')
     .single()
   if (createErr) throw new Error(`createGame failed: ${createErr.message}`)
   log(`  ✓ game ${game.id}`)

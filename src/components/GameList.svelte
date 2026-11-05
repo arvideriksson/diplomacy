@@ -1,47 +1,120 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition'
-  import { games, createGame, gamesLoaded } from '../lib/game'
-  import { user } from '../lib/auth'
-  import { sandboxes, keptSandboxes } from '../lib/sandbox'
-  import { maps, getMap } from '../lib/maps'
+  // Home: your games (most urgent first), open lobbies to join, games to watch, your
+  // finished games and your sandboxes — flat rows split by hairlines, like the in-game
+  // sidebar.
+  import { onDestroy } from 'svelte'
+  import { games, gamesLoaded } from '../lib/game'
   import type { GameListItem } from '../lib/game'
+  import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import type { Sandbox } from '../lib/sandbox'
-  import type { Snippet } from 'svelte'
+  import { maps, getMap } from '../lib/maps'
+  import { flagUrl } from '../lib/flags'
+  import { findPower, powerName } from '../lib/powers'
+  import { victoryFor } from '../lib/adjudicator'
+  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { readDraftBackup } from '../lib/draftBackup'
   import Modal from './Modal.svelte'
   import Icon from './Icon.svelte'
-  import { isOrderPhase } from '../lib/phases'
-  import { formatCountdown } from '../lib/time'
-  import { readDraftBackup } from '../lib/draftBackup'
+
+  export let onSelectGame: (game: { id: string }) => void = () => {}
+  export let onOpenSandbox: (id: string) => void = () => {}
+  export let onCreateSandbox: (name: string, mapId: string) => void = () => {}
+
+  /** Rows in Watch before "All N" expands it. */
+  const WATCH_PREVIEW = 5
+
+  // Countdowns re-render twice a minute.
+  let now = Date.now()
+  const tick = setInterval(() => (now = Date.now()), 30_000)
+  onDestroy(() => clearInterval(tick))
 
   // The viewer's order state in an active game: 'todo', 'done', 'unsent' (submitted, but
   // edited on this device since), or null.
-  const orderStatus = (game: GameListItem): 'todo' | 'done' | 'unsent' | null => {
+  function orderStatus(game: GameListItem): 'todo' | 'done' | 'unsent' | null {
     const nation = game.me?.nation
     if (!nation || !isOrderPhase(game.phase)) return null
     if (!game.ready?.[nation]) return 'todo'
     const edits = readDraftBackup({ gameId: game.id, nation, year: game.year, season: game.season, phase: game.phase })
     return edits ? 'unsent' : 'done'
   }
-  const timeLeft = (game: GameListItem) => (game.deadline ? ` · ${formatCountdown(new Date(game.deadline).getTime() - Date.now())}` : '')
 
-  export let onSelectGame: (game: { id: string }) => void = () => {}
-  export let onOpenSandbox: (id: string) => void = () => {}
-  export let onCreateSandbox: (name: string, mapId: string) => void = () => {}
+  /** "5h 12m", "3d 4h", "40m": time to the deadline, or null without one. */
+  function left(game: GameListItem, at: number): string | null {
+    if (!game.deadline) return null
+    const ms = Date.parse(game.deadline) - at
+    if (ms <= 0) return 'Resolving'
+    const m = Math.floor(ms / 60_000)
+    const d = Math.floor(m / 1440)
+    const h = Math.floor((m % 1440) / 60)
+    if (d > 0) return `${d}d ${h}h`
+    if (h > 0) return `${h}h ${m % 60}m`
+    return `${Math.max(1, m)}m`
+  }
 
-  let newGameName = ''
-  let creating = false
+  const seats = (g: GameListItem) => getMap(g.map_id).powers.length
+  const color = (g: GameListItem, nation: string) => findPower(getMap(g.map_id).powers, nation)?.color ?? 'transparent'
+  const name = (g: GameListItem, nation: string) => powerName(getMap(g.map_id).powers, nation)
+
+  /** "Fall 1903 · Movement", with the map named when it isn't the classical one. */
+  function when(g: GameListItem): string {
+    const map = g.map_id && g.map_id !== 'classical' ? ` · ${maps[g.map_id]?.name ?? g.map_id}` : ''
+    if (g.phase === 'lobby') return `Lobby${map}`
+    if (g.phase === 'complete') return `${g.season} ${g.year} · Ended${map}`
+    return `${g.season} ${g.year} · ${isOrderPhase(g.phase) ? PHASE_LABEL[g.phase] : 'Resolving'}${map}`
+  }
+
+  /** How a finished game ended: a tie, a concession, or a solo from the final board. */
+  function outcome(g: GameListItem): { kind: 'won' | 'tie'; nations: string[] } | null {
+    if (g.result?.kind === 'draw') return { kind: 'tie', nations: g.result.nations }
+    if (g.result?.kind === 'concession') return { kind: 'won', nations: g.result.nations }
+    if (g.final_centers) {
+      const v = victoryFor(getMap(g.map_id), g.final_centers)
+      if (v) return { kind: 'won', nations: [v.nation] }
+    }
+    return null
+  }
+
+  // Most urgent first: orders due (soonest deadline first), then submitted games, then
+  // lobbies.
+  function urgency(g: GameListItem): number {
+    const s = orderStatus(g)
+    if (s === 'todo' || s === 'unsent') return 0
+    if (isOrderPhase(g.phase)) return 1
+    return 2
+  }
+  const deadlineOf = (g: GameListItem) => (g.deadline ? Date.parse(g.deadline) : Infinity)
+
+  // Categorize remote games relative to the current player.
+  const joined = (g: GameListItem) => !!g.me
+  $: myGames = $games
+    .filter((g) => joined(g) && g.phase !== 'complete')
+    .sort((a, b) => urgency(a) - urgency(b) || deadlineOf(a) - deadlineOf(b))
+  $: finished = $games.filter((g) => joined(g) && g.phase === 'complete')
+  // Full lobbies can't be joined, so they aren't "open".
+  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby' && g.player_count < seats(g))
+  $: watchGames = $games.filter((g) => !joined(g) && g.phase !== 'lobby' && g.phase !== 'complete')
+  let watchAll = false
+  $: watchShown = watchAll ? watchGames : watchGames.slice(0, WATCH_PREVIEW)
+  $: kept = keptSandboxes($sandboxes)
+
+  const sandboxName = (s: Sandbox) => (s.origin ? `${s.origin.gameName} · ${s.name}` : s.name)
+  function sandboxWhen(s: Sandbox): string {
+    const b = s.frames[s.cursor].board
+    const phase = isOrderPhase(b.phase) ? PHASE_LABEL[b.phase] : b.phase
+    return `${b.season} ${b.year} · ${phase}`
+  }
 
   // Maps available for sandboxes, e.g. [['classical', 'Classical'], ['1900', '1900']].
   const mapOptions = Object.entries(maps).map(([id, def]) => [id, def.name] as const)
 
   // Sandbox-name modal.
   let showNewSandbox = false
-  let sandboxName = ''
+  let sandboxNameInput = ''
   let sandboxMapId = 'classical'
   let sandboxInput: HTMLInputElement | undefined
 
   function openNewSandbox() {
-    sandboxName = 'Test game'
+    sandboxNameInput = 'Test game'
     sandboxMapId = 'classical'
     showNewSandbox = true
     // Focus + select the prefilled name once the modal mounts.
@@ -49,162 +122,169 @@
   }
 
   function confirmNewSandbox() {
-    onCreateSandbox(sandboxName.trim() || 'Test game', sandboxMapId)
+    onCreateSandbox(sandboxNameInput.trim() || 'Test game', sandboxMapId)
     showNewSandbox = false
   }
 
-  async function handleCreate() {
-    if (!newGameName.trim() || !$user) return
-    creating = true
-    try {
-      const game = await createGame(newGameName.trim(), $user.id)
-      newGameName = ''
-      onSelectGame(game)
-    } finally {
-      creating = false
+  const onKey = (open: () => void) => (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      open()
     }
   }
-
-  // Categorize remote games relative to the current player.
-  const joined = (g: GameListItem) => !!g.me
-  $: myGames = $games.filter(joined)
-  // Full lobbies can't be joined, so they aren't "open".
-  $: openGames = $games.filter((g) => !joined(g) && g.phase === 'lobby' && g.player_count < getMap(g.map_id).powers.length)
-  $: runningGames = $games.filter((g) => !joined(g) && g.phase !== 'lobby')
 </script>
 
-<!-- Shared card shell: a clickable row with a title, a badge, a meta line and an arrow. -->
-{#snippet listCard(onOpen: () => void, title: string, badge: Snippet, meta: Snippet)}
-  <div
-    class="game-card"
-    role="button"
-    tabindex="0"
-    on:click={onOpen}
-    on:keydown={(e) => e.key === 'Enter' && onOpen()}
-    transition:fade={{ duration: 200 }}
-  >
-    <div class="card-left">
-      <div class="card-title-row">
-        <h3>{title}</h3>
-        {@render badge()}
-      </div>
-      <div class="card-meta">
-        {@render meta()}
-      </div>
-    </div>
-    <span class="card-arrow"><Icon name="chevron-right" /></span>
+<!-- Seat pips: one square per power, filled for each player in the game. -->
+{#snippet pips(g: GameListItem)}
+  <span class="pips" aria-hidden="true">
+    {#each Array(seats(g)) as _, i (i)}<i class:on={i < g.player_count}></i>{/each}
+  </span>
+{/snippet}
+
+{#snippet chevron()}
+  <span class="chev"><Icon name="chevron-right" size={16} /></span>
+{/snippet}
+
+<!-- One of your games: your power's edge and flag, then what it's waiting on. -->
+{#snippet myRow(g: GameListItem)}
+  {@const nation = g.me?.nation ?? ''}
+  {@const status = orderStatus(g)}
+  {@const end = g.phase === 'complete' ? outcome(g) : null}
+  <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
+    <span class="edge" style:background={nation ? color(g, nation) : 'transparent'}></span>
+    {#if nation && flagUrl[nation]}
+      <img class="flag" src={flagUrl[nation]} alt="" width="26" height="26" />
+    {:else}
+      <span class="glyph"><Icon name="users" size={14} /></span>
+    {/if}
+    <span class="text">
+      <span class="name">{g.name}{#if g.is_private}<span class="lock" title="Private"><Icon name="lock" size={12} /></span>{/if}</span>
+      <span class="meta">{when(g)}</span>
+    </span>
+    <span class="status">
+      {#if g.phase === 'lobby'}
+        {@render pips(g)}
+        <span class="sub">{g.player_count} of {seats(g)}</span>
+      {:else if g.phase === 'complete'}
+        {#if end}
+          <span class="main">
+            <span class="flags">{#each end.nations as n (n)}{#if flagUrl[n]}<img src={flagUrl[n]} alt="" width="16" height="16" />{/if}{/each}</span>
+            {end.kind === 'won' ? 'Won' : `${end.nations.length}-way tie`}
+          </span>
+          <span class="sub">{end.kind === 'won' ? name(g, end.nations[0]) : 'Agreed'}</span>
+        {:else}
+          <span class="main quiet">Ended</span>
+        {/if}
+      {:else if status === 'todo' || status === 'unsent'}
+        <span class="main due">{left(g, now) ?? 'Now'}</span>
+        <span class="sub">{status === 'todo' ? 'Orders due' : 'Changes not sent'}</span>
+      {:else if isOrderPhase(g.phase)}
+        {#if left(g, now)}<span class="main quiet">{left(g, now)}</span>{/if}
+        <span class="sub">Submitted</span>
+      {/if}
+    </span>
+    {@render chevron()}
   </div>
 {/snippet}
 
-{#snippet gameCard(game: GameListItem)}
-  {#snippet badge()}
-    {#if game.is_private}
-      <span class="badge badge-amber">
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-        </svg>
-        Private
-      </span>
-    {:else}
-      <span class="badge badge-green">
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M2 12h20" />
-        </svg>
-        Public
-      </span>
-    {/if}
-  {/snippet}
-  {#snippet meta()}
-    <span class="badge badge-caps">{game.phase}</span>
-    {#if game.map_id && game.map_id !== 'classical'}<span class="badge badge-caps">{maps[game.map_id]?.name ?? game.map_id}</span>{/if}
-    <span class="season">{game.season} {game.year}</span>
-    {#if orderStatus(game) === 'todo'}
-      <span class="status todo">Not submitted{timeLeft(game)}</span>
-    {:else if orderStatus(game) === 'unsent'}
-      <span class="status todo">Changes not sent{timeLeft(game)}</span>
-    {:else if orderStatus(game) === 'done'}
-      <span class="status done">✓ Submitted</span>
-    {/if}
-    <span class="player-count">
-      <Icon name="users" size={14} />
-      {game.player_count}/{getMap(game.map_id).powers.length}
-    </span>
-  {/snippet}
-  {@render listCard(() => onSelectGame(game), game.name, badge, meta)}
-{/snippet}
-
-{#snippet sandboxCard(s: Sandbox)}
-  {#snippet badge()}
-    <span class="badge badge-amber">
-      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3" />
-      </svg>
-      Sandbox
-    </span>
-  {/snippet}
-  {#snippet meta()}
-    <span class="badge badge-caps">{s.frames[s.cursor].board.phase}</span>
-    <span class="season">{s.frames[s.cursor].board.season} {s.frames[s.cursor].board.year}</span>
-  {/snippet}
-  {@render listCard(() => onOpenSandbox(s.id), s.origin ? `${s.origin.gameName} · ${s.name}` : s.name, badge, meta)}
-{/snippet}
-
-<!-- A collapsible section of cards (games or sandboxes), with an optional header action. -->
-{#snippet section(title: string, items: Array<GameListItem | Sandbox>, emptyText: string, action?: Snippet)}
-  <details class="section" open>
-    <summary>
-      <span class="chevron"><Icon name="chevron-right" size={16} /></span>
-      <span class="section-title">{title}</span>
-      <span class="count">{items.length}</span>
-      {@render action?.()}
-    </summary>
-    <div class="section-body">
-      {#if items.length === 0}
-        <p class="empty-line">{emptyText}</p>
+<div class="home">
+  {#if $gamesLoaded}
+    <section>
+      <h2>Your games</h2>
+      {#if myGames.length}
+        <div class="list">
+          {#each myGames as g (g.id)}{@render myRow(g)}{/each}
+        </div>
       {:else}
-        <div class="games">
-          {#each items as item (item.id)}
-            {#if 'frames' in item}
-              {@render sandboxCard(item)}
-            {:else}
-              {@render gameCard(item)}
-            {/if}
+        <p class="empty">You haven’t joined any games yet.</p>
+      {/if}
+    </section>
+
+    <section>
+      <h2>Open games</h2>
+      {#if openGames.length}
+        <div class="list">
+          {#each openGames as g (g.id)}
+            <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
+              <span class="edge"></span>
+              <span class="glyph"><Icon name="plus" size={14} strokeWidth={2.4} round /></span>
+              <span class="text">
+                <span class="name">{g.name}</span>
+                <span class="meta">{when(g)}</span>
+              </span>
+              <span class="status">
+                {@render pips(g)}
+                <span class="sub">{seats(g) - g.player_count} {seats(g) - g.player_count === 1 ? 'seat' : 'seats'} left</span>
+              </span>
+              <span class="join">Join</span>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="empty">No open games right now.</p>
+      {/if}
+    </section>
+
+    <section>
+      <div class="head">
+        <h2>Watch</h2>
+        {#if watchGames.length > WATCH_PREVIEW}
+          <button class="link" type="button" on:click={() => (watchAll = !watchAll)}>
+            {watchAll ? 'Show fewer' : `All ${watchGames.length}`}
+          </button>
+        {/if}
+      </div>
+      {#if watchGames.length}
+        <div class="list">
+          {#each watchShown as g (g.id)}
+            <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
+              <span class="edge"></span>
+              <span class="glyph"><Icon name="eye" size={14} /></span>
+              <span class="text">
+                <span class="name">{g.name}</span>
+                <span class="meta">{when(g)}</span>
+              </span>
+              <span class="status"></span>
+              {@render chevron()}
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="empty">No games in progress.</p>
+      {/if}
+    </section>
+
+    {#if finished.length}
+      <section>
+        <h2>Finished</h2>
+        <div class="list">
+          {#each finished as g (g.id)}{@render myRow(g)}{/each}
+        </div>
+      </section>
+    {/if}
+
+    <section>
+      <div class="head">
+        <h2>Sandboxes</h2>
+        <button class="link" type="button" on:click={openNewSandbox}>New sandbox</button>
+      </div>
+      {#if kept.length}
+        <div class="list">
+          {#each kept as s (s.id)}
+            <div class="row" role="link" tabindex="0" on:click={() => onOpenSandbox(s.id)} on:keydown={onKey(() => onOpenSandbox(s.id))}>
+              <span class="edge"></span>
+              <span class="glyph"><Icon name="flask" size={14} round /></span>
+              <span class="text">
+                <span class="name">{sandboxName(s)}</span>
+                <span class="meta">{sandboxWhen(s)}</span>
+              </span>
+              <span class="status"></span>
+              {@render chevron()}
+            </div>
           {/each}
         </div>
       {/if}
-    </div>
-  </details>
-{/snippet}
-
-{#snippet newSandboxButton()}
-  <button class="btn btn-primary btn-sm header-btn" on:click|preventDefault|stopPropagation={openNewSandbox}>+ New sandbox</button>
-{/snippet}
-
-<div class="game-list">
-  <div class="actions-row">
-    <div class="card action-card">
-      <div class="action-label">Create a new game</div>
-      <div class="action-form">
-        <input
-          class="input"
-          bind:value={newGameName}
-          placeholder="Game name"
-          on:keydown={(e) => e.key === 'Enter' && handleCreate()}
-        />
-        <button class="btn btn-primary" on:click={handleCreate} disabled={creating || !newGameName.trim()}>
-          {creating ? 'Creating...' : 'Create'}
-        </button>
-      </div>
-    </div>
-  </div>
-
-  {#if $gamesLoaded}
-    {@render section('My games', myGames, 'You haven’t joined any games yet.')}
-    {@render section('Sandboxes', keptSandboxes($sandboxes), 'Create a sandbox to try the rules — you control every power and resolve turns instantly.', newSandboxButton)}
-    {@render section('Open games', openGames, 'No open games right now.')}
-    {@render section('Running games', runningGames, 'No games in progress.')}
+    </section>
   {/if}
 </div>
 
@@ -214,7 +294,7 @@
     <input
       id="sandbox-name"
       bind:this={sandboxInput}
-      bind:value={sandboxName}
+      bind:value={sandboxNameInput}
       class="input"
       placeholder="Sandbox name"
       on:keydown={(e) => e.key === 'Enter' && confirmNewSandbox()}
@@ -230,7 +310,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" on:click={() => (showNewSandbox = false)}>Cancel</button>
-      <button class="btn btn-primary" on:click={confirmNewSandbox} disabled={!sandboxName.trim()}>
+      <button class="btn btn-primary" on:click={confirmNewSandbox} disabled={!sandboxNameInput.trim()}>
         Create sandbox
       </button>
     </div>
@@ -238,190 +318,194 @@
 {/if}
 
 <style>
-  .game-list {
-    width: 100%;
-  }
-
-  .actions-row {
-    margin-bottom: 28px;
-  }
-
-  .action-card {
-    padding: 18px 20px;
-  }
-
-  .action-label {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-  }
-
-  .action-form {
-    display: flex;
-    gap: 8px;
-  }
-
-  .action-form .input {
-    flex: 1;
-  }
-
-  /* Collapsible section dividers. */
-  .section {
-    border-top: 1px solid var(--border);
-  }
-
-  .section summary {
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 4px;
-    cursor: pointer;
-    user-select: none;
-    outline: none;
-  }
-
-  .section summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .section summary:focus-visible {
-    box-shadow: 0 0 0 3px var(--accent-subtle);
-    border-radius: var(--radius-sm);
-  }
-
-  .chevron {
-    display: flex;
-    color: var(--text-tertiary);
-    flex-shrink: 0;
-    transition: transform 0.18s ease;
-  }
-
-  .section[open] .chevron {
-    transform: rotate(90deg);
-  }
-
-  .section-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--text);
-    letter-spacing: -0.2px;
-  }
-
-  .count {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    background: var(--bg-input);
-    border-radius: var(--radius-full);
-    padding: 1px 9px;
-    min-width: 20px;
-    text-align: center;
-  }
-
-  .header-btn {
-    margin-left: auto;
-  }
-
-  .section-body {
-    padding: 0 0 16px;
-  }
-
-  .empty-line {
-    margin: 0;
-    padding: 4px 4px 8px;
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .games {
+  .home {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 28px;
+    width: 100%;
   }
-
-  .game-card {
+  section {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+  }
+  .head {
+    display: flex;
+    align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    padding: 16px 20px;
+  }
+  h2 {
+    margin: 0;
+    padding: 0 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .link {
+    padding: 0 2px;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: 600 13px var(--font);
+    cursor: pointer;
+  }
+  .empty {
+    margin: 0;
+    padding: 2px 2px 0;
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  /* Flat rows split by hairlines; the edge carries your power's color. */
+  .list {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 3px 26px minmax(0, 1fr) auto minmax(16px, auto);
+    column-gap: 12px;
+    align-items: center;
+    min-height: 58px;
+    padding: 8px 14px 8px 0;
+    border-top: 1px solid var(--border);
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
     outline: none;
   }
-
-  .game-card:hover {
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-md);
+  .row:first-child {
+    border-top: none;
   }
-
-  .game-card:focus-visible {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-subtle);
+  @media (hover: hover) {
+    .row:hover {
+      background: var(--bg-hover);
+    }
   }
-
-  .game-card:active {
-    transform: scale(0.995);
+  .row:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--accent);
   }
-
-  .card-left {
+  .edge {
+    align-self: stretch;
+    margin: -8px 0;
+  }
+  .flag {
+    display: block;
+  }
+  .glyph {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-fill);
+    color: var(--text-tertiary);
+  }
+  .text {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
-    flex: 1;
   }
-
-  .card-title-row {
+  .name {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-
-  .card-title-row h3 {
-    margin: 0;
-    font-size: 15px;
+    gap: 6px;
+    min-width: 0;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--text);
+  }
+  .lock {
+    display: flex;
+    flex: none;
+    color: var(--text-tertiary);
+  }
+  .meta {
+    font-size: 12.5px;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
-  .card-meta {
+  .status {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-align: right;
   }
-
-  .season {
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .player-count {
+  .main {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    font-size: 13px;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .main.quiet {
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .main.due {
+    color: var(--amber);
+  }
+  .main.due::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+  }
+  .sub {
+    font-size: 12px;
     color: var(--text-tertiary);
   }
-
-  .card-arrow {
+  .flags {
+    display: inline-flex;
+  }
+  .flags img {
+    display: block;
+  }
+  .flags img + img {
+    margin-left: -4px;
+  }
+  .pips {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px 0;
+  }
+  .pips i {
+    width: 7px;
+    height: 7px;
+    background: var(--bg-fill);
+  }
+  .pips i.on {
+    background: var(--text-secondary);
+  }
+  .chev {
     display: flex;
     color: var(--text-tertiary);
-    flex-shrink: 0;
-    transition: transform 0.15s;
+  }
+  .join {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
   }
 
-  .game-card:hover .card-arrow {
-    transform: translateX(2px);
+  @media (max-width: 600px) {
+    /* Rows run edge to edge on phones (App's main has 16px gutters). */
+    .list {
+      margin: 0 -16px;
+      border-left: none;
+      border-right: none;
+    }
+    .modal-actions .btn {
+      flex: 1;
+    }
   }
 
   .field-label {
@@ -431,22 +515,18 @@
     color: var(--text-secondary);
     margin: 14px 0 6px;
   }
-
   .field-label:first-of-type {
     margin-top: 0;
   }
-
   .select-wrap {
     position: relative;
   }
-
   .map-select {
     padding-right: 36px;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
   }
-
   .select-chevron {
     display: flex;
     position: absolute;
@@ -456,53 +536,10 @@
     color: var(--text-tertiary);
     pointer-events: none;
   }
-
   .modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
     margin-top: 18px;
-  }
-
-  @media (max-width: 600px) {
-    .actions-row {
-      margin-bottom: 20px;
-    }
-
-    .action-card {
-      padding: 16px;
-    }
-
-    .section summary {
-      padding: 12px 0;
-      min-height: 52px;
-    }
-
-    .game-card {
-      padding: 14px 12px 14px 16px;
-    }
-
-    .card-meta {
-      gap: 6px 10px;
-    }
-
-    .empty-line {
-      padding: 0 0 8px;
-    }
-
-    .modal-actions .btn {
-      flex: 1;
-    }
-  }
-  .status {
-    font-size: 12px;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  .status.todo {
-    color: var(--amber);
-  }
-  .status.done {
-    color: var(--green);
   }
 </style>

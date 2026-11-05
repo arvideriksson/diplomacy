@@ -80,8 +80,45 @@ export interface GameState {
   snapshot?: unknown | null
   /** How the game ended by agreement (a tie or a win by concession); null otherwise. */
   result?: GameResult | null
-  /** Per-nation early-resolution flags, e.g. { france: true }. */
+  /** The viewer's own ready flag, keyed by their nation ({ england: true }). Players
+   *  can't read anyone else's: the column is hidden (migration 154) and this is filled
+   *  in from game_readiness. Empty for spectators. */
   ready?: Record<string, boolean>
+  /** During a grace period, the powers the phase is still waiting on; null otherwise. */
+  waiting?: string[] | null
+}
+
+/** Every games column a player may read: all but `ready` (see migration 154). */
+const GAME_COLUMNS =
+  'id, name, phase, year, season, players, created_by, created_at, updated_at, is_private, settings, map_id, deadline, snapshot, resolving_at, grace_ends_at, result'
+
+interface Readiness {
+  nation: string | null
+  ready: boolean | null
+  waiting: string[] | null
+}
+
+/** The viewer's own flag, and who's left during a grace period. */
+async function fetchReadiness(id: string): Promise<Readiness | null> {
+  return rpc<Readiness | null>('game_readiness', { p_game_id: id })
+}
+
+function withReadiness(g: GameState, r: Readiness | null): GameState {
+  return {
+    ...g,
+    ready: r?.nation && r.ready != null ? { [r.nation]: r.ready } : {},
+    waiting: r?.waiting ?? null,
+  }
+}
+
+/** The game row with the viewer's readiness merged in. */
+async function readGame(id: string, since?: string): Promise<GameState | null> {
+  let q = supabase.from('games').select(GAME_COLUMNS).eq('id', id)
+  if (since) q = q.gt('updated_at', since)
+  const [{ data, error }, readiness] = await Promise.all([q.limit(1), fetchReadiness(id).catch(() => null)])
+  if (error) throw error
+  const row = (data?.[0] ?? null) as GameState | null
+  return row && withReadiness(row, readiness)
 }
 
 /** A game ended by the players' votes (see the draw_votes migration). */
@@ -119,8 +156,16 @@ export type GameListItem = Pick<
   'id' | 'name' | 'phase' | 'year' | 'season' | 'map_id' | 'is_private' | 'created_by' | 'updated_at' | 'deadline' | 'ready'
 > & {
   player_count: number
+  // `ready` holds only the viewer's own nation here (migration 153): the list never
+  // reveals who else has readied.
   /** The viewer's entry in `players`, or null if they aren't in the game. */
   me: PlayerInfo | null
+  /** How a game ended by agreement (null for a solo or an unfinished game). Absent from
+   *  servers before migration 153. */
+  result?: GameResult | null
+  /** Final supply-center ownership, for complete games only — the client derives a solo
+   *  winner from it with victoryFor. Absent from servers before migration 153. */
+  final_centers?: Record<string, string> | null
 }
 
 export const games = writable<GameListItem[]>([])
@@ -140,23 +185,16 @@ export async function fetchGames() {
 }
 
 export async function fetchGame(id: string) {
-  const { data, error } = await supabase
-    .from('games')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error) throw error
-  currentGame.set(data)
-  return data as GameState
+  const game = await readGame(id)
+  if (!game) throw new Error('Game not found')
+  currentGame.set(game)
+  return game
 }
 
 /** The game row if it changed after `since` (its `updated_at`), else null — a check
  *  that costs a few hundred bytes when nothing happened instead of the whole row. */
 export async function fetchGameIfNewer(id: string, since: string): Promise<GameState | null> {
-  const { data, error } = await supabase.from('games').select('*').eq('id', id).gt('updated_at', since).limit(1)
-  if (error) throw error
-  const game = (data?.[0] ?? null) as GameState | null
+  const game = await readGame(id, since)
   if (game) currentGame.set(game)
   return game
 }
@@ -191,7 +229,7 @@ export async function createGame(name: string, userId: string, isPrivate: boolea
       is_private: isPrivate,
       created_by: userId,
     })
-    .select()
+    .select(GAME_COLUMNS)
     .single()
 
   if (error) throw error
@@ -207,12 +245,13 @@ export async function updateGame(id: string, updates: Partial<Pick<GameState, 'n
     .from('games')
     .update(updates)
     .eq('id', id)
-    .select()
+    .select(GAME_COLUMNS)
     .single()
 
   if (error) throw error
-  currentGame.set(data)
-  return data as GameState
+  const game = withReadiness(data as GameState, await fetchReadiness(id).catch(() => null))
+  currentGame.set(game)
+  return game
 }
 
 /**
@@ -302,6 +341,8 @@ export async function submitOrders(
     p_season: round?.season ?? null,
     p_phase: round?.phase ?? null,
   })
+  // Nothing broadcasts a ready flag any more, so pick up our own.
+  readinessRefresh.get(gameId)?.()
 }
 
 /**
@@ -373,12 +414,18 @@ export async function adminDeleteAllGames(): Promise<number> {
   return rpc<number>('admin_delete_all_games')
 }
 
+/** Per subscribed game: re-read the viewer's readiness (after a submit). */
+const readinessRefresh = new Map<string, () => void>()
+
 /**
  * Live updates for a game over its private Broadcast topic `game:<id>` (see the
- * egress_cuts migration): the full row when the game changed, a {ready, updated_at}
- * patch when only readiness did. Broadcast reaches online subscribers only, so every
- * (re)join reads the row back — but only if it changed after the last FULL row this
- * subscription saw (a patch may postdate a full update the socket missed).
+ * egress_cuts and hide_readiness migrations): the full row (without `ready`) when the
+ * game changed, and during a grace period a {waiting} list when someone readies.
+ * Readiness is never broadcast otherwise, so the viewer's own flag is read with each
+ * full row, after their own submit, and when the deadline passes (the grace period
+ * starts without any write to broadcast). Broadcast reaches online subscribers only,
+ * so every (re)join reads the row back — but only if it changed after the last full
+ * row this subscription saw.
  */
 export function subscribeToGame(
   id: string,
@@ -386,34 +433,87 @@ export function subscribeToGame(
   onChange: (game: GameState) => void,
 ): LiveTopic {
   let fullSince = current()?.updated_at ?? ''
+  let stopped = false
   // A read that started before a broadcast can land after it: never step backwards.
   const stale = (at: string) => {
     const now = current()?.updated_at
     return !!now && at < now
   }
-  const full = (g: GameState) => {
-    if (stale(g.updated_at)) return
-    fullSince = g.updated_at
+  const publish = (g: GameState) => {
     currentGame.set(g)
     onChange(g)
+    armDeadline(g)
   }
-  return keepJoined(
+  const full = (g: GameState) => {
+    if (stopped || stale(g.updated_at)) return
+    fullSince = g.updated_at
+    publish(g)
+  }
+  // Merge a fresh readiness read into whatever the game is now.
+  const refresh = () => {
+    fetchReadiness(id)
+      .then((r) => {
+        const g = current()
+        if (!stopped && g) publish(withReadiness(g, r))
+      })
+      .catch(() => {})
+  }
+  readinessRefresh.set(id, refresh)
+
+  // The grace period begins when the deadline passes; nothing is written then, so
+  // nothing is broadcast — read who it's waiting on at that moment.
+  let deadlineTimer: ReturnType<typeof setTimeout> | null = null
+  let armedFor: string | null = null
+  function armDeadline(g: GameState) {
+    const at = g.deadline && isOrderPhase(g.phase) ? Date.parse(g.deadline) : NaN
+    const key = Number.isFinite(at) ? g.deadline! : null
+    if (key === armedFor) return
+    if (deadlineTimer) clearTimeout(deadlineTimer)
+    deadlineTimer = null
+    armedFor = key
+    const ms = at - Date.now()
+    // Timers past ~24 days overflow; a game that far out re-arms on its next update.
+    if (key && ms > 0 && ms < 2 ** 31 - 1) deadlineTimer = setTimeout(refresh, ms + 1000)
+  }
+  const initial = current()
+  if (initial) armDeadline(initial)
+
+  const topic = keepJoined(
     `game:${id}`,
     {
-      game: (p) => full(p as GameState),
-      ready: (p) => {
+      // The row arrives without `ready`; read the viewer's own flag to go with it.
+      game: (p) => {
+        const g = p as GameState
+        fetchReadiness(id)
+          .catch(() => null)
+          .then((r) => full(withReadiness(g, r)))
+      },
+      waiting: (p) => {
         const g = current()
-        if (!g) return
-        const { ready, updated_at } = p as Pick<GameState, 'ready' | 'updated_at'>
-        if (stale(updated_at)) return
-        const next = { ...g, ready, updated_at }
-        currentGame.set(next)
-        onChange(next)
+        if (stopped || !g) return
+        const { waiting } = p as { waiting: string[] }
+        const mine = Object.keys(g.ready ?? {})[0]
+        publish({ ...g, waiting, ready: mine ? { [mine]: !waiting.includes(mine) } : {} })
       },
     },
     () => {
-      const read = fullSince ? fetchGameIfNewer(id, fullSince) : fetchGame(id)
-      read.then((g) => g && full(g)).catch(() => {})
+      if (fullSince) {
+        // Unchanged row: still re-read readiness (it may have moved while away).
+        fetchGameIfNewer(id, fullSince)
+          .then((g) => (g ? full(g) : refresh()))
+          .catch(() => {})
+      } else {
+        fetchGame(id).then(full).catch(() => {})
+      }
     },
   )
+  return {
+    ...topic,
+    stop() {
+      stopped = true
+      if (deadlineTimer) clearTimeout(deadlineTimer)
+      if (readinessRefresh.get(id) === refresh) readinessRefresh.delete(id)
+      topic.stop()
+    },
+  }
 }

@@ -143,6 +143,16 @@
     width: 100%;
   }
 
+  /* Home has an in-flow top bar instead of floating chrome: nothing to clear. */
+  :global(.home-bar) ~ main {
+    padding-top: 28px;
+  }
+  @media (max-width: 600px) {
+    :global(.home-bar) ~ main {
+      padding-top: 20px;
+    }
+  }
+
   /* Once the content column reaches the floating back button and avatar, clear them. */
   @media (max-width: 1060px) {
     main {

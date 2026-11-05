@@ -5,7 +5,7 @@
   import { useLocation } from 'svelte-routing'
   import { currentGame, fetchGame } from '../lib/game'
   import { activeDevSeat, backendTarget } from '../lib/supabase'
-  import { SEATS, seatUser, switchSeat, fillLobby, readyOtherSeats } from '../lib/devSeats'
+  import { SEATS, seatUser, switchSeat, fillLobby, readyOtherSeats, seatReadiness } from '../lib/devSeats'
   import { flagUrl } from '../lib/flags'
 
   const location = useLocation()
@@ -17,10 +17,18 @@
 
   // The game on screen, if any (currentGame lingers after leaving a game route).
   $: game = $currentGame && $location.pathname.startsWith(`/game/${$currentGame.id}`) ? $currentGame : null
+  // Every seat's own flag, read per seat (nobody can read another power's). Refreshed
+  // whenever the game on screen changes and after "Ready all other seats".
+  let readyBySeat: Record<number, boolean> = {}
+  const loadReadiness = (g: typeof game) => {
+    if (!g) return (readyBySeat = {})
+    seatReadiness(g).then((r) => (readyBySeat = r)).catch(() => {})
+  }
+  $: loadReadiness(game)
   $: seats = SEATS.map((seat) => {
     const u = seatUser(seat)
     const nation = u && game ? game.players[u.id]?.nation : undefined
-    return { seat, user: u, nation, ready: !!(nation && game?.ready?.[nation]) }
+    return { seat, user: u, nation, ready: !!(nation && readyBySeat[seat]) }
   })
   $: activeNation = seats[active - 1]?.nation
   $: inPlay = game && ['movement', 'retreat', 'build'].includes(game.phase)
@@ -49,6 +57,7 @@
   const readyOthers = () =>
     run('Readying other seats…', async () => {
       const nations = await readyOtherSeats(game!)
+      loadReadiness(game)
       return nations.length ? `Readied ${nations.join(', ')}.` : 'Nothing left to ready.'
     })
 

@@ -119,8 +119,8 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.broadcast_game_change()  — from 20250101000152_egress_cuts.sql
--- ── 2/4. game pushes over a private Broadcast topic ─────────────────────────────
+-- ═══ public.broadcast_game_change()  — from 20250101000154_hide_readiness.sql
+-- ── 4. broadcasts carry no readiness ─────────────────────────────────────────────
 create or replace function public.broadcast_game_change()
 returns trigger as $$
 declare
@@ -128,10 +128,10 @@ declare
   quiet constant text[] := array['ready', 'resolving_at', 'updated_at'];
 begin
   if (to_jsonb(new) - quiet) is distinct from (to_jsonb(old) - quiet) then
-    perform realtime.send(to_jsonb(new), 'game', 'game:' || new.id::text, true);
-  elsif new.ready is distinct from old.ready then
-    perform realtime.send(jsonb_build_object('ready', new.ready, 'updated_at', new.updated_at),
-                          'ready', 'game:' || new.id::text, true);
+    perform realtime.send(to_jsonb(new) - 'ready', 'game', 'game:' || new.id::text, true);
+  elsif new.ready is distinct from old.ready and public.in_grace(new) then
+    perform realtime.send(jsonb_build_object('waiting', to_jsonb(public.unready_nations(new))),
+                          'waiting', 'game:' || new.id::text, true);
   end if;
   return null;
 end;
@@ -444,6 +444,28 @@ returns text[] as $$
    where value ->> 'nation' is not null;
 $$ language sql immutable;
 
+-- ═══ public.game_readiness(uuid)  — from 20250101000154_hide_readiness.sql
+-- {nation, ready, waiting} for a game the caller can see (same rule as the games
+-- select policy), else null. `waiting` is null outside a grace period.
+create or replace function public.game_readiness(p_game_id uuid)
+returns jsonb as $$
+declare
+  g public.games;
+  me text;
+begin
+  select * into g from public.games
+   where id = p_game_id
+     and (not is_private or created_by = auth.uid() or players ? (auth.uid()::text));
+  if not found then return null; end if;
+  me := g.players -> (auth.uid()::text) ->> 'nation';
+  return jsonb_build_object(
+    'nation', me,
+    'ready', case when me is not null then public.is_ready(g.ready, me) end,
+    'waiting', case when public.in_grace(g) then to_jsonb(public.unready_nations(g)) end
+  );
+end;
+$$ language plpgsql stable security definer;
+
 -- ═══ public.get_or_create_channel(uuid, text[])  — from 20250101000131_reuse_helpers.sql
 create or replace function public.get_or_create_channel(
   p_game_id uuid,
@@ -556,6 +578,16 @@ begin
     'target', jsonb_build_object('year', p_year, 'season', p_season, 'phase', p_phase)));
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.in_grace(games)  — from 20250101000154_hide_readiness.sql
+-- ── 2. readiness reads ───────────────────────────────────────────────────────────
+-- In a grace period: an order phase whose deadline has passed (and hasn't resolved).
+create or replace function public.in_grace(g public.games)
+returns boolean as $$
+  select g.phase in ('movement', 'retreat', 'build')
+     and g.deadline is not null
+     and g.deadline <= now();
+$$ language sql stable;
 
 -- ═══ public.is_admin()  — from 20250101000106_admin.sql
 create or replace function public.is_admin()
@@ -681,18 +713,26 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.list_games()  — from 20250101000152_egress_cuts.sql
--- ── 1. games list ────────────────────────────────────────────────────────────────
+-- ═══ public.list_games()  — from 20250101000154_hide_readiness.sql
+-- list_games (153) read g.ready directly; it runs as the caller, so it now asks
+-- my_ready for the caller's own flag.
 create or replace function public.list_games()
 returns table (
   id uuid, name text, phase text, year integer, season text, map_id text,
   is_private boolean, created_by uuid, updated_at timestamptz, deadline timestamptz,
-  ready jsonb, player_count integer, me jsonb
+  ready jsonb, player_count integer, me jsonb,
+  result jsonb, final_centers jsonb
 )
 language sql stable security invoker as $$
   select g.id, g.name, g.phase, g.year, g.season, g.map_id,
          g.is_private, g.created_by, g.updated_at, g.deadline,
-         g.ready, (select count(*)::int from jsonb_object_keys(g.players)), g.players -> (auth.uid()::text)
+         case when g.players -> (auth.uid()::text) ? 'nation'
+              then jsonb_build_object(g.players -> (auth.uid()::text) ->> 'nation',
+                                      coalesce(public.my_ready(g.id), false))
+              else '{}'::jsonb end,
+         (select count(*)::int from jsonb_object_keys(g.players)), g.players -> (auth.uid()::text),
+         g.result,
+         case when g.phase = 'complete' then g.snapshot -> 'supplyCenters' end
     from public.games g
    where g.phase <> 'complete' or g.players ? (auth.uid()::text) or g.created_by = auth.uid()
    order by g.updated_at desc;
@@ -759,6 +799,16 @@ begin
   perform public.fire_adjudicator(p_game_id, '{}'::jsonb, false);
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.my_ready(uuid)  — from 20250101000154_hide_readiness.sql
+-- The caller's own ready flag in a game, or null if they hold no power there.
+create or replace function public.my_ready(p_game_id uuid)
+returns boolean as $$
+  select case when g.players -> (auth.uid()::text) ? 'nation'
+              then public.is_ready(g.ready, g.players -> (auth.uid()::text) ->> 'nation') end
+    from public.games g
+   where g.id = p_game_id;
+$$ language sql stable security definer;
 
 -- ═══ public.nation_users(jsonb, text[])  — from 20250101000147_push_notifications.sql
 -- Users playing the given nations in a players map.
@@ -1393,6 +1443,22 @@ begin
   end loop;
 end;
 $$ language plpgsql security definer;
+
+-- ═══ public.touch_game_updated_at()  — from 20250101000154_hide_readiness.sql
+-- ── 3. updated_at ignores readiness ──────────────────────────────────────────────
+create or replace function public.touch_game_updated_at()
+returns trigger as $$
+declare
+  quiet constant text[] := array['ready', 'resolving_at', 'updated_at'];
+begin
+  if (to_jsonb(new) - quiet) is distinct from (to_jsonb(old) - quiet) then
+    new.updated_at = now();
+  else
+    new.updated_at = old.updated_at;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
 
 -- ═══ public.unready_nations(games)  — from 20250101000147_push_notifications.sql
 -- Nations in a game that haven't readied for the current round.
