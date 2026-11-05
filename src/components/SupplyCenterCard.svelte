@@ -1,13 +1,15 @@
 <script lang="ts">
   // Supply-center standings as a row in the order sidebar / Orders tab, folded to its
-  // header until opened. Hovering a power spotlights its centers on the map.
-  import type { PowerDefinition } from '../lib/mapDefinition'
-  import { scCountByNation } from '../lib/adjudicator/state'
+  // header until opened. Hovering a power spotlights its centers on the map. Flat
+  // "ledger" rows: flush to the sidebar's edges, hairline dividers, a square color edge.
+  import type { MapDefinition } from '../lib/mapDefinition'
+  import { scCountByNation, supplyCenterProvinces } from '../lib/adjudicator/state'
+  import { victoryThreshold } from '../lib/adjudicator/resolve'
   import { flagUrl } from '../lib/flags'
   import { sameNation } from '../lib/powers'
 
-  /** Powers to show, in map order. */
-  export let powers: PowerDefinition[] = []
+  /** The board's map: its powers (in map order), centers and victory rule. */
+  export let map: MapDefinition
   /** Supply-center ownership (province → nation), from the board snapshot. */
   export let supplyCenters: Record<string, string> = {}
   /** The viewer's nation — its row is shaded in the power color. Empty = none. */
@@ -18,8 +20,8 @@
   const isMine = (id: string): boolean => !!nation && sameNation(id, nation)
 
   // Delegate hover for the whole card: spotlight the row under the pointer. Clearing is
-  // deferred so the 2px sliver between rows doesn't flash the whole board on its way to
-  // the next row — a real move onto the header/padding still clears after the delay.
+  // deferred so moving between rows doesn't flash the whole board on the way to the
+  // next row — a real move onto the header/footer still clears after the delay.
   let clearTimer: ReturnType<typeof setTimeout> | null = null
   function clearNow() {
     if (clearTimer) { clearTimeout(clearTimer); clearTimer = null }
@@ -41,42 +43,52 @@
     if (collapsed) clearNow() // clear any spotlight when folding away
   }
 
-  // 18 of 34 centers wins a standard game; harmless elsewhere as a progress hint.
-  const WIN = 18
-
+  // The same target the adjudicator applies, so the header can't disagree with a result.
+  $: win = victoryThreshold(map)
+  $: strict = !!map.rules?.strictVictory
+  $: total = supplyCenterProvinces(map).length
   $: counts = scCountByNation(supplyCenters)
   // Standings: most centers first, ties broken by map order for stability.
-  $: rows = powers
+  $: rows = map.powers
     .map((p) => ({ ...p, count: counts[p.id] ?? 0 }))
     .sort((a, b) => b.count - a.count)
+  $: unowned = Math.max(0, total - rows.reduce((n, p) => n + p.count, 0))
+  $: goalTitle = strict
+    ? `A power wins with ${win} of ${total} supply centers, if no other power has as many`
+    : `A power wins with ${win} of ${total} supply centers`
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_mouse_events_have_key_events -->
 <div class="sc-card" class:collapsed on:mouseover={handleOver} on:mouseleave={clearNow}>
   <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
-    <span>Supply Centers</span>
+    <span class="title">Supply Centers</span>
+    <span class="goal" title={goalTitle}><b>{win}</b> to win{#if strict}, sole lead{/if}</span>
     <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 6l4 4 4-4" />
     </svg>
   </button>
   {#if !collapsed}
-  <ul class="sc-rows">
-    {#each rows as p (p.id)}
-      <li
-        class="sc-row"
-        class:eliminated={p.count === 0}
-        class:winner={p.count >= WIN}
-        class:mine={isMine(p.id)}
-        style="--c:{p.color}"
-        data-nation={p.id}
-      >
-        <span class="stripe" style="background:{p.color}"></span>
-        <img class="flag" src={flagUrl[p.id]} alt="" width="22" height="22" />
-        <span class="name">{p.name}</span>
-        <span class="count">{p.count}</span>
-      </li>
-    {/each}
-  </ul>
+    <ul class="sc-rows">
+      {#each rows as p (p.id)}
+        <li
+          class="sc-row"
+          class:eliminated={p.count === 0}
+          class:winner={p.count >= win}
+          class:mine={isMine(p.id)}
+          style="--c:{p.color}"
+          data-nation={p.id}
+        >
+          <span class="edge"></span>
+          <img class="flag" src={flagUrl[p.id]} alt="" width="22" height="22" />
+          <span class="name">{p.name}</span>
+          <span class="count">{p.count}</span>
+        </li>
+      {/each}
+    </ul>
+    <div class="sc-foot">
+      <span>Unowned</span>
+      <span class="count">{unowned}</span>
+    </div>
   {/if}
 </div>
 
@@ -89,7 +101,6 @@
   .sc-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     width: 100%;
     min-height: 40px;
@@ -99,6 +110,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.6px;
+    text-align: left;
     color: var(--text-secondary);
     background: none;
     border: none;
@@ -108,6 +120,23 @@
     .sc-head:hover {
       background: var(--bg-hover);
     }
+  }
+  .title {
+    flex: 1;
+    min-width: 0;
+  }
+  .goal {
+    flex: none;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-tertiary);
+  }
+  .goal b {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
   }
   .chevron {
     flex: none;
@@ -122,67 +151,79 @@
   .sc-rows {
     list-style: none;
     margin: 0;
-    padding: 0 6px 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    padding: 0;
   }
+  /* Flush rows split by hairlines; the color edge runs the full row height. */
   .sc-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 3px 22px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 8px;
-    min-height: 36px;
-    padding: 0 8px 0 0;
-    border-radius: 8px;
-    overflow: hidden;
+    column-gap: 11px;
+    height: 38px;
+    padding-right: 14px;
+    border-top: 1px solid var(--border);
     transition: background 0.1s ease;
   }
   .sc-row:hover {
-    background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+    background: var(--bg-hover);
   }
-  .stripe {
-    flex: none;
-    width: 5px;
+  .edge {
     align-self: stretch;
+    background: var(--c);
   }
   .flag {
-    flex: none;
     width: 22px;
     height: 22px;
     display: block;
   }
   .name {
-    flex: 1;
-    min-width: 0;
     font-weight: 600;
-    color: var(--text, #1a1a1a);
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .count {
-    flex: none;
-    min-width: 20px;
+    min-width: 22px;
     text-align: right;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: var(--c);
+  }
+  .sc-row .count {
+    font-size: 15px;
+    color: var(--text);
   }
   /* The viewer's own nation, shaded in its color. */
   .sc-row.mine {
-    background: color-mix(in srgb, var(--c) 16%, transparent);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
   }
   .sc-row.mine:hover {
-    background: color-mix(in srgb, var(--c) 24%, transparent);
+    background: color-mix(in srgb, var(--c) 18%, transparent);
   }
   .sc-row.mine .name {
     font-weight: 700;
   }
-  /* Knocked-out powers fade back; the leader-at-victory gets a gold ring. */
-  .sc-row.eliminated {
-    opacity: 0.45;
+  /* Knocked-out powers recede; a power at the win target gets an amber wash. */
+  .sc-row.eliminated .name,
+  .sc-row.eliminated .count {
+    color: var(--text-tertiary);
+  }
+  .sc-row.eliminated .flag {
+    opacity: 0.4;
+    filter: grayscale(1);
   }
   .sc-row.winner {
-    background: color-mix(in srgb, var(--amber) 18%, transparent);
+    background: color-mix(in srgb, var(--amber) 16%, transparent);
+  }
+  .sc-foot {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 14px 10px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+  .sc-foot .count {
+    font-weight: 500;
   }
 </style>

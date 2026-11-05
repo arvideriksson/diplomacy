@@ -1275,7 +1275,7 @@
              own rows (standingsInSidebar); otherwise (a sandbox) they close the sidebar. -->
         {#if !standingsInSidebar && phase !== 'lobby' && Object.keys(supplyCenters).length}
           <div class="standings">
-            <SupplyCenterCard powers={mapDef.powers} {supplyCenters} {nation} onHover={(n) => (spotlightNation = n ?? '')} />
+            <SupplyCenterCard map={mapDef} {supplyCenters} {nation} onHover={(n) => (spotlightNation = n ?? '')} />
           </div>
         {/if}
 

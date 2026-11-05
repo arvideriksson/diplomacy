@@ -352,7 +352,7 @@
         </section>
       {/if}
       {#if Object.keys(frame.board.supplyCenters).length}
-        <SupplyCenterCard powers={map.powers} supplyCenters={frame.board.supplyCenters} {nation} onHover={spotlight} />
+        <SupplyCenterCard {map} supplyCenters={frame.board.supplyCenters} {nation} onHover={spotlight} />
       {/if}
       <!-- The vote acts on the live game: not shown while browsing past phases. -->
       {#if nation && isFrontier && (isActive || isComplete) && game.phase !== 'lobby'}

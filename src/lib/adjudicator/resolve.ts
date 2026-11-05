@@ -97,10 +97,15 @@ function finalize(
   return { newBoardState: next, results, victory: victoryFor(map, next.supplyCenters) }
 }
 
+/** Centers a power needs for a solo win: the map's own target, else a bare majority. */
+export function victoryThreshold(map: MapDefinition): number {
+  return map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1
+}
+
 /** The winner, if any, given supply-center ownership and the map's victory rule. */
 export function victoryFor(map: MapDefinition, owners: Record<string, string>): AdjudicationResult['victory'] {
   const sc = scCountByNation(owners)
-  const threshold = map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1
+  const threshold = victoryThreshold(map)
   let victory: AdjudicationResult['victory']
   for (const [nation, centers] of Object.entries(sc)) {
     if (centers >= threshold && (!victory || centers > victory.centers)) {

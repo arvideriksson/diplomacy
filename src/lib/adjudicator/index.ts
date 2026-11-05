@@ -2,7 +2,7 @@
 // dependency-free: safe to import from the browser (Vite) and from a Supabase
 // Edge Function (Deno). Never import browser/Node-coupled modules here.
 
-export { adjudicate, victoryFor } from './resolve'
+export { adjudicate, victoryFor, victoryThreshold } from './resolve'
 export { idleNations, isIdle } from './idle'
 export { foldGame, replayLog, roundRank } from './fold'
 export type { LogRow, ReplayFrame, ResolvedRound } from './fold'
