@@ -47,21 +47,21 @@
   .right img {
     object-position: 78% 50%;
   }
-  /* A short fade into the page colour, so cards never butt against the painting. */
+  /* A hard edge with a hairline where the painting meets the content column, drawn
+     over the image (an inset shadow would sit underneath it). */
   .art::after {
     content: '';
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 28px;
+    width: 1px;
+    background: var(--border-strong);
   }
   .left::after {
     right: 0;
-    background: linear-gradient(90deg, transparent, var(--bg));
   }
   .right::after {
     left: 0;
-    background: linear-gradient(270deg, transparent, var(--bg));
   }
   @media (prefers-color-scheme: dark) {
     img {
