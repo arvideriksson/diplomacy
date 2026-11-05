@@ -329,7 +329,7 @@
         <section class="sb-launch">
           <button class="fold" type="button" aria-expanded={sandboxOpen} on:click={() => (sandboxOpen = !sandboxOpen)}>
             <h4>Sandbox</h4>
-            <svg class="chev" class:open={sandboxOpen} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+            <svg class="chev" class:open={sandboxOpen} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
           </button>
           {#if sandboxOpen}
           <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {frame.board.season} {frame.board.year}</button>
@@ -360,7 +360,7 @@
           <DrawVote
             gameId={game.id}
             {nation}
-            powers={map.powers}
+            {map}
             nations={playedNations}
             alive={survivingNations(liveBoard(), playedNations)}
             complete={isComplete}
@@ -421,12 +421,6 @@
   .sb-launch {
     padding: 10px 14px;
   }
-  .utils :global(.draw) {
-    padding: 10px 14px;
-    background: none;
-    border: none;
-    border-radius: 0;
-  }
   .sb-launch h4 {
     margin: 0;
     font-size: 11px;
@@ -465,13 +459,14 @@
     margin-left: auto;
     fill: none;
     stroke: var(--text-tertiary);
-    stroke-width: 2.2;
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
-    transition: transform 0.15s;
+    transform: rotate(-90deg);
+    transition: transform 0.15s ease;
   }
   .chev.open {
-    transform: rotate(90deg);
+    transform: none;
   }
   .sb-launch .sb-new {
     width: 100%;
