@@ -70,6 +70,7 @@
   }
 
   .modal-head h2 {
+    font-family: var(--font-display);
     font-size: 17px;
     font-weight: 700;
     margin: 0;

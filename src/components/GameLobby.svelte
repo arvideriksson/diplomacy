@@ -303,14 +303,14 @@
   .title-input {
     font-size: 26px;
     font-weight: 700;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
     color: var(--text);
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
     padding: 0 0 2px;
     outline: none;
-    font-family: var(--font);
+    font-family: var(--font-display);
     transition: border-color 0.15s;
     flex: 1;
     min-width: 0;
@@ -325,9 +325,10 @@
   }
 
   h1 {
+    font-family: var(--font-display);
     font-size: 26px;
     font-weight: 700;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
     margin: 0;
     color: var(--text);
   }

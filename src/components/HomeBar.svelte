@@ -91,9 +91,10 @@
     min-width: 0;
   }
   .word {
+    font-family: var(--font-display);
     font-size: 13px;
     font-weight: 700;
-    letter-spacing: 2.4px;
+    letter-spacing: 2.6px;
     text-transform: uppercase;
     color: var(--text);
   }

@@ -1,7 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
 :root {
-  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --font: 'Source Sans 3', system-ui, -apple-system, sans-serif;
+  /* The wordmark and page titles: a Caslon serif, like a treaty heading. */
+  --font-display: 'Libre Caslon Text', Georgia, 'Times New Roman', serif;
   --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
 
   --bg: #f5f5f0;

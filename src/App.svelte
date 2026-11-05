@@ -224,6 +224,7 @@
 
   .auth-word {
     padding-left: 4.2px;
+    font-family: var(--font-display);
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 4.2px;
