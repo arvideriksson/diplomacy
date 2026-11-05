@@ -9,14 +9,12 @@
   import FloatingChrome from './components/FloatingChrome.svelte'
   import ArtColumns from './components/ArtColumns.svelte'
   import GameList from './components/GameList.svelte'
-  import DiplomacyMap from './components/DiplomacyMap.svelte'
   import GameRoute from './components/GameRoute.svelte'
   import JoinRoute from './components/JoinRoute.svelte'
   import AdminPanel from './components/AdminPanel.svelte'
   import NameDialog from './components/NameDialog.svelte'
   import SandboxView from './components/SandboxView.svelte'
-  import { classicalMap } from './lib/maps/classical'
-  import { initialBoard } from './lib/adjudicator'
+  import BrandMark from './components/BrandMark.svelte'
   import { createSandbox } from './lib/sandbox'
   import { supabaseConfigured } from './lib/supabase'
   import { initPush } from './lib/push'
@@ -38,8 +36,6 @@
     openSandbox(createSandbox(name, mapId).id)
   }
 
-  // Opening position for the sign-in page: starting units, home centers tinted by owner.
-  const demoBoard = initialBoard(classicalMap)
 
   onMount(async () => {
     await initAuth()
@@ -86,12 +82,15 @@
       </Route>
     {/if}
     {#if !$isAuthenticated && !location.pathname.startsWith('/sandbox/') && !location.pathname.startsWith('/editor')}
+      <!-- Sign-in: the Congress of Berlin (Anton von Werner, 1881; public domain) edge to
+           edge, the mark and the sign-in button on a borderless glass card. -->
       <div class="auth-page" in:fade={{ duration: 200 }}>
+        <img class="auth-painting" src="/art/congress-of-berlin.webp" alt="" />
         <div class="auth-card">
-          <div class="auth-hero">
-            <h1>Diplomacy</h1>
+          <div class="auth-brand">
+            <BrandMark size={52} />
+            <span class="auth-word">Diplomacy</span>
           </div>
-          <DiplomacyMap mapDef={classicalMap} units={demoBoard.units} ownership={demoBoard.supplyCenters} interactive={false} />
           <div class="login-container">
             <LoginButton />
           </div>
@@ -174,24 +173,65 @@
     overflow: hidden;
   }
 
+  /* Full-screen, over everything: the painting, darkened softly toward the card. */
   .auth-page {
-    display: flex;
-    justify-content: center;
-    padding-top: 40px;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: #000;
   }
 
-  .auth-card {
-    text-align: center;
-    max-width: 680px;
+  .auth-painting {
+    position: absolute;
+    inset: 0;
     width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
-  .auth-hero h1 {
-    font-size: 44px;
+  .auth-page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: radial-gradient(ellipse at 50% 52%, rgba(10, 8, 6, 0.42) 0%, rgba(10, 8, 6, 0.18) 38%, rgba(10, 8, 6, 0) 70%);
+  }
+
+  /* Borderless glass: barely tinted, the painting blurred behind it. */
+  .auth-card {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    min-width: 340px;
+    padding: 34px 40px 30px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(22px) saturate(1.35);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.18);
+  }
+
+  .auth-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .auth-word {
+    padding-left: 4.2px;
+    font-size: 15px;
     font-weight: 700;
-    margin: 0 0 32px;
-    letter-spacing: -1.5px;
-    color: var(--text);
+    letter-spacing: 4.2px;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
   }
 
   .login-container {
@@ -199,7 +239,23 @@
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    margin-top: 36px;
+  }
+
+  /* The Google button stays white on the painting in either theme. */
+  .login-container :global(.login-btn) {
+    background: #fff;
+    color: #1a1a1a;
+    border-color: rgba(0, 0, 0, 0.15);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .auth-painting {
+      filter: brightness(0.82);
+    }
+
+    .auth-card {
+      background: rgba(20, 20, 22, 0.18);
+    }
   }
 
   /* Phones: 16px gutters, the floating back button / avatar cleared, and room at the
@@ -209,22 +265,35 @@
       padding: calc(68px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
     }
 
-    /* The sign-in page has no floating chrome to clear. */
-    main:has(.auth-page) {
-      padding-top: calc(48px + env(safe-area-inset-top));
-    }
-
+    /* Phones: the painting crops to the handshake; the card sits low, clear of the
+       faces and within thumb reach. */
     .auth-page {
-      padding-top: 24px;
+      place-items: end center;
+      padding: 24px 20px calc(56px + env(safe-area-inset-bottom));
     }
 
-    .auth-hero h1 {
-      font-size: 36px;
-      margin-bottom: 20px;
+    .auth-painting {
+      object-position: 74% 50%;
     }
 
-    .login-container {
-      margin-top: 28px;
+    .auth-page::before {
+      background: linear-gradient(180deg, rgba(10, 8, 6, 0) 45%, rgba(10, 8, 6, 0.45) 100%);
+    }
+
+    .auth-card {
+      width: 100%;
+      max-width: 330px;
+      min-width: 0;
+      padding: 30px 24px 26px;
+    }
+
+    .login-container,
+    .login-container :global(.login-btn) {
+      width: 100%;
+    }
+
+    .login-container :global(.login-btn) {
+      justify-content: center;
     }
   }
 </style>
