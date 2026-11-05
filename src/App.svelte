@@ -83,7 +83,7 @@
     {/if}
     {#if !$isAuthenticated && !location.pathname.startsWith('/sandbox/') && !location.pathname.startsWith('/editor')}
       <!-- Sign-in: the Congress of Berlin (Anton von Werner, 1881; public domain) edge to
-           edge, the mark and the sign-in button on a borderless glass card. -->
+           edge, the mark and the sign-in button straight on top. -->
       <div class="auth-page" in:fade={{ duration: 200 }}>
         <img class="auth-painting" src="/art/congress-of-berlin.webp" alt="" />
         <div class="auth-card">
@@ -197,10 +197,10 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: radial-gradient(ellipse at 50% 52%, rgba(10, 8, 6, 0.42) 0%, rgba(10, 8, 6, 0.18) 38%, rgba(10, 8, 6, 0) 70%);
+    background: radial-gradient(ellipse at 50% 52%, rgba(10, 8, 6, 0.55) 0%, rgba(10, 8, 6, 0.25) 40%, rgba(10, 8, 6, 0) 72%);
   }
 
-  /* Borderless glass: barely tinted, the painting blurred behind it. */
+  /* No card: the mark and button sit on the painting, lifted by soft shadows. */
   .auth-card {
     position: relative;
     z-index: 2;
@@ -208,13 +208,11 @@
     flex-direction: column;
     align-items: center;
     gap: 22px;
-    min-width: 340px;
     padding: 34px 40px 30px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(22px) saturate(1.35);
-    -webkit-backdrop-filter: blur(22px) saturate(1.35);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.18);
+  }
+
+  .auth-brand :global(img) {
+    filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45));
   }
 
   .auth-brand {
@@ -231,7 +229,7 @@
     letter-spacing: 4.2px;
     text-transform: uppercase;
     color: #fff;
-    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
   }
 
   .login-container {
@@ -246,15 +244,12 @@
     background: #fff;
     color: #1a1a1a;
     border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   }
 
   @media (prefers-color-scheme: dark) {
     .auth-painting {
       filter: brightness(0.82);
-    }
-
-    .auth-card {
-      background: rgba(20, 20, 22, 0.18);
     }
   }
 
@@ -277,14 +272,13 @@
     }
 
     .auth-page::before {
-      background: linear-gradient(180deg, rgba(10, 8, 6, 0) 45%, rgba(10, 8, 6, 0.45) 100%);
+      background: linear-gradient(180deg, rgba(10, 8, 6, 0) 40%, rgba(10, 8, 6, 0.6) 100%);
     }
 
     .auth-card {
       width: 100%;
       max-width: 330px;
-      min-width: 0;
-      padding: 30px 24px 26px;
+      padding: 30px 0 26px;
     }
 
     .login-container,
