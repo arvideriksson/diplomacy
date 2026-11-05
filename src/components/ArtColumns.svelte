@@ -29,10 +29,6 @@
     pointer-events: none;
     z-index: 0;
   }
-  /* Below the home screen's top bar, which spans the full width. */
-  :global(.home-bar) ~ .art-columns .art {
-    top: calc(57px + env(safe-area-inset-top));
-  }
   .left {
     left: 0;
   }

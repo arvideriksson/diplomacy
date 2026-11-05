@@ -66,14 +66,19 @@
 {/if}
 
 <style>
+  /* As wide as the content column below (App's main: 960px), so on wide screens the
+     side art runs up past it to the top of the window. */
   .home-bar {
     position: relative;
     z-index: 40;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
     padding-top: env(safe-area-inset-top);
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
   }
-  /* Lined up with the list column below (App's main: 960px, 24px gutters). */
+  /* 24px gutters, lined up with the list below. */
   .inner {
     display: flex;
     align-items: center;
