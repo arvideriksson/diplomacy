@@ -699,9 +699,12 @@ function advanceAfterRetreats(map, season, year, units, owners) {
 function finalize(map, next, results) {
   return { newBoardState: next, results, victory: victoryFor(map, next.supplyCenters) };
 }
+function victoryThreshold(map) {
+  return map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1;
+}
 function victoryFor(map, owners) {
   const sc = scCountByNation(owners);
-  const threshold = map.victoryCenters ?? Math.floor(supplyCenterProvinces(map).length / 2) + 1;
+  const threshold = victoryThreshold(map);
   let victory;
   for (const [nation, centers] of Object.entries(sc)) {
     if (centers >= threshold && (!victory || centers > victory.centers)) {

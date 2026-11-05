@@ -525,7 +525,9 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- The board is a pointer surface (pan, zoom, click a province); keyboard order entry
+     goes through the order panel, so the wrapper itself takes no key events. -->
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
 <div
   bind:this={wrapEl}
   class="map-wrap"
