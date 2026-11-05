@@ -3785,10 +3785,2559 @@ var map1900 = {
   ]
 };
 
+// src/lib/maps/era.ts
+var mapEra = {
+  "id": "era",
+  "name": "Era of Empire",
+  "description": "Diplomacy: Era of Empire \u2014 Asia, 1870",
+  "playerCount": 7,
+  "startingYear": 1870,
+  "victoryCenters": 22,
+  "powers": [
+    {
+      "id": "britain",
+      "name": "Britain",
+      "color": "#4b85fe"
+    },
+    {
+      "id": "china",
+      "name": "China",
+      "color": "#f5af20"
+    },
+    {
+      "id": "france",
+      "name": "France",
+      "color": "#00bdd5"
+    },
+    {
+      "id": "japan",
+      "name": "Japan",
+      "color": "#4aa961"
+    },
+    {
+      "id": "netherlands",
+      "name": "Netherlands",
+      "color": "#e9802f"
+    },
+    {
+      "id": "russia",
+      "name": "Russia",
+      "color": "#9975fa"
+    },
+    {
+      "id": "turkey",
+      "name": "Turkey",
+      "color": "#f0574e"
+    }
+  ],
+  "territories": {
+    "ABY": {
+      "name": "Abyssinia",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "ERI",
+        "MAA",
+        "MOM",
+        "SOM",
+        "SUD"
+      ],
+      "render": {
+        "center": [
+          245.4,
+          981
+        ]
+      }
+    },
+    "ADE": {
+      "name": "Aden",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "britain",
+      "adjacent": [
+        "ARA",
+        "ARS",
+        "GOA",
+        "MEC",
+        "OMA",
+        "RS"
+      ],
+      "fleetAdjacent": [
+        "ARS",
+        "GOA",
+        "MEC",
+        "OMA",
+        "RS"
+      ],
+      "render": {
+        "center": [
+          411.6,
+          868
+        ]
+      }
+    },
+    "AFG": {
+      "name": "Afghanistan",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BOK",
+        "KAG",
+        "KAM",
+        "KAR",
+        "PER",
+        "PUN",
+        "TAS"
+      ],
+      "render": {
+        "center": [
+          790.2,
+          484
+        ]
+      }
+    },
+    "AKI": {
+      "name": "Akita",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "KYO",
+        "OTA",
+        "SOJ",
+        "SOO",
+        "TOK"
+      ],
+      "fleetAdjacent": [
+        "KYO",
+        "OTA",
+        "SOJ",
+        "SOO",
+        "TOK"
+      ],
+      "render": {
+        "center": [
+          2122.6,
+          371.4
+        ]
+      }
+    },
+    "ANG": {
+      "name": "Angora",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "turkey",
+      "adjacent": [
+        "ARM",
+        "BS",
+        "CON",
+        "MS",
+        "SYR"
+      ],
+      "fleetAdjacent": [
+        "ARM",
+        "BS",
+        "CON",
+        "MS",
+        "SYR"
+      ],
+      "render": {
+        "center": [
+          174.6,
+          405.2
+        ]
+      }
+    },
+    "ANN": {
+      "name": "Annam",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "france",
+      "adjacent": [
+        "CAM",
+        "COC",
+        "GOS",
+        "SCS",
+        "TON"
+      ],
+      "fleetAdjacent": [
+        "COC",
+        "GOS",
+        "SCS",
+        "TON"
+      ],
+      "render": {
+        "center": [
+          1724.4,
+          859
+        ]
+      }
+    },
+    "ANS": {
+      "name": "Andaman Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "BOB",
+        "EIO",
+        "JS",
+        "MAL",
+        "RAN",
+        "SUM"
+      ],
+      "render": {
+        "center": [
+          1450,
+          973.2
+        ]
+      }
+    },
+    "ARA": {
+      "name": "Arabia",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "BAG",
+        "MEC",
+        "OMA",
+        "PG",
+        "SYR"
+      ],
+      "fleetAdjacent": [
+        "BAG",
+        "OMA",
+        "PG"
+      ],
+      "render": {
+        "center": [
+          462,
+          743.4
+        ]
+      }
+    },
+    "ARM": {
+      "name": "Armenia",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANG",
+        "BAG",
+        "BAK",
+        "BS",
+        "SYR",
+        "TAB"
+      ],
+      "fleetAdjacent": [
+        "ANG",
+        "BAK",
+        "BS"
+      ],
+      "render": {
+        "center": [
+          310,
+          389.2
+        ]
+      }
+    },
+    "ARS": {
+      "name": "Arabian Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "BOM",
+        "GOA",
+        "KAR",
+        "MYS",
+        "OMA",
+        "PG",
+        "RAJ",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          793,
+          804.4
+        ]
+      }
+    },
+    "ASM": {
+      "name": "Assam",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BEN",
+        "CHU",
+        "RAN",
+        "SIN",
+        "TIB",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1392,
+          624
+        ]
+      }
+    },
+    "BAG": {
+      "name": "Baghdad",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "turkey",
+      "adjacent": [
+        "ARA",
+        "ARM",
+        "PG",
+        "SHI",
+        "SYR",
+        "TAB"
+      ],
+      "fleetAdjacent": [
+        "ARA",
+        "PG",
+        "SHI"
+      ],
+      "render": {
+        "center": [
+          412,
+          520
+        ]
+      }
+    },
+    "BAK": {
+      "name": "Baku",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ARM",
+        "BS",
+        "MOS",
+        "ODE",
+        "TAB"
+      ],
+      "fleetAdjacent": [
+        "ARM",
+        "BS",
+        "ODE"
+      ],
+      "render": {
+        "center": [
+          356.4,
+          286
+        ]
+      }
+    },
+    "BAN": {
+      "name": "Bangkok",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "CAM",
+        "GOS",
+        "MAL",
+        "MAY",
+        "RAN",
+        "TON"
+      ],
+      "fleetAdjacent": [
+        "CAM",
+        "GOS",
+        "MAL"
+      ],
+      "render": {
+        "center": [
+          1567,
+          875
+        ]
+      }
+    },
+    "BEN": {
+      "name": "Bengal",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "ASM",
+        "BOB",
+        "HYD",
+        "LUC",
+        "NEP",
+        "RAN",
+        "TIB"
+      ],
+      "fleetAdjacent": [
+        "BOB",
+        "HYD",
+        "RAN"
+      ],
+      "render": {
+        "center": [
+          1272,
+          703
+        ]
+      }
+    },
+    "BOB": {
+      "name": "Bay of Bengal",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANS",
+        "BEN",
+        "CEY",
+        "EIO",
+        "HYD",
+        "MAD",
+        "RAN",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          1292,
+          872
+        ]
+      }
+    },
+    "BOK": {
+      "name": "Bokhara",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "AFG",
+        "MOS",
+        "ORE",
+        "PER",
+        "TAS"
+      ],
+      "render": {
+        "center": [
+          594.4,
+          345
+        ]
+      }
+    },
+    "BOM": {
+      "name": "Bombay",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "britain",
+      "adjacent": [
+        "ARS",
+        "HYD",
+        "MYS",
+        "NAG",
+        "RAJ"
+      ],
+      "fleetAdjacent": [
+        "ARS",
+        "MYS",
+        "RAJ"
+      ],
+      "render": {
+        "center": [
+          994,
+          735
+        ]
+      }
+    },
+    "BOR": {
+      "name": "Borneo",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "netherlands",
+      "adjacent": [
+        "CS",
+        "JS",
+        "SAR"
+      ],
+      "fleetAdjacent": [
+        "CS",
+        "JS",
+        "SAR"
+      ],
+      "render": {
+        "center": [
+          1772.4,
+          1164.6
+        ]
+      }
+    },
+    "BS": {
+      "name": "Black Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANG",
+        "ARM",
+        "BAK",
+        "CON",
+        "MS",
+        "ODE",
+        "RUM"
+      ],
+      "render": {
+        "center": [
+          106,
+          271.4
+        ]
+      }
+    },
+    "CAM": {
+      "name": "Cambodia",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANN",
+        "BAN",
+        "COC",
+        "GOS",
+        "TON"
+      ],
+      "fleetAdjacent": [
+        "BAN",
+        "COC",
+        "GOS"
+      ],
+      "render": {
+        "center": [
+          1641,
+          865.6
+        ]
+      }
+    },
+    "CAN": {
+      "name": "Canton",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "CHU",
+        "ECS",
+        "HK",
+        "SCS",
+        "SHA",
+        "YUN"
+      ],
+      "fleetAdjacent": [
+        "ECS",
+        "HK",
+        "SCS",
+        "SHA",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1766,
+          657
+        ]
+      }
+    },
+    "CEB": {
+      "name": "Cebu",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "DAV",
+        "LPO",
+        "MNA",
+        "MPO",
+        "SCS"
+      ],
+      "fleetAdjacent": [
+        "DAV",
+        "LPO",
+        "MNA",
+        "MPO",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          1990,
+          865.6
+        ]
+      }
+    },
+    "CEL": {
+      "name": "Celebes",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "CS",
+        "JS",
+        "LPO",
+        "TS"
+      ],
+      "fleetAdjacent": [
+        "CS",
+        "JS",
+        "LPO",
+        "TS"
+      ],
+      "render": {
+        "center": [
+          1948,
+          1160
+        ]
+      }
+    },
+    "CEY": {
+      "name": "Ceylon",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "BOB",
+        "EIO",
+        "MAD",
+        "WIO"
+      ],
+      "fleetAdjacent": [
+        "BOB",
+        "EIO",
+        "MAD",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          1132.2,
+          1003.6
+        ]
+      }
+    },
+    "CHU": {
+      "name": "Chungking",
+      "type": "land",
+      "supplyCenter": true,
+      "adjacent": [
+        "ASM",
+        "CAN",
+        "LAN",
+        "SHA",
+        "SIN",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1540,
+          575
+        ]
+      }
+    },
+    "COC": {
+      "name": "Cochin",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "france",
+      "adjacent": [
+        "ANN",
+        "CAM",
+        "GOS"
+      ],
+      "fleetAdjacent": [
+        "ANN",
+        "CAM",
+        "GOS"
+      ],
+      "render": {
+        "center": [
+          1698,
+          881
+        ]
+      }
+    },
+    "CON": {
+      "name": "Constantinople",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "turkey",
+      "adjacent": [
+        "ANG",
+        "BS",
+        "MS",
+        "RUM"
+      ],
+      "fleetAdjacent": [
+        "ANG",
+        "BS",
+        "MS",
+        "RUM"
+      ],
+      "render": {
+        "center": [
+          18,
+          280
+        ]
+      }
+    },
+    "COR": {
+      "name": "Corea",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "PA",
+        "SOJ",
+        "VLA",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "PA",
+        "SOJ",
+        "VLA",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1916,
+          380
+        ]
+      }
+    },
+    "CS": {
+      "name": "Celebes Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "BOR",
+        "CEL",
+        "DAV",
+        "JS",
+        "LPO",
+        "SAR",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          1993,
+          1017
+        ]
+      }
+    },
+    "DAV": {
+      "name": "Davao",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "CEB",
+        "CS",
+        "LPO",
+        "SCS"
+      ],
+      "fleetAdjacent": [
+        "CEB",
+        "CS",
+        "LPO",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          2042.2,
+          974.4
+        ]
+      }
+    },
+    "DEL": {
+      "name": "Delhi",
+      "type": "land",
+      "supplyCenter": true,
+      "homePower": "britain",
+      "adjacent": [
+        "LUC",
+        "NAG",
+        "NEP",
+        "PUN",
+        "RAJ"
+      ],
+      "render": {
+        "center": [
+          1026.2,
+          613
+        ]
+      }
+    },
+    "ECS": {
+      "name": "East China Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "CAN",
+        "FOR",
+        "HK",
+        "MNA",
+        "MPO",
+        "SCS",
+        "SHA",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1870,
+          719
+        ]
+      }
+    },
+    "EGY": {
+      "name": "Egypt",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "MEC",
+        "MS",
+        "RS",
+        "SUD",
+        "SYR"
+      ],
+      "fleetAdjacent": [
+        "MEC",
+        "MS",
+        "RS",
+        "SUD",
+        "SYR"
+      ],
+      "render": {
+        "center": [
+          76,
+          590
+        ]
+      }
+    },
+    "EIO": {
+      "name": "East Indian Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANS",
+        "BOB",
+        "CEY",
+        "SIO",
+        "SUM",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          1262,
+          1085
+        ]
+      }
+    },
+    "ERI": {
+      "name": "Eritrea",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ABY",
+        "GOA",
+        "RS",
+        "SOM",
+        "SUD"
+      ],
+      "fleetAdjacent": [
+        "GOA",
+        "RS",
+        "SOM",
+        "SUD"
+      ],
+      "render": {
+        "center": [
+          244,
+          838
+        ]
+      }
+    },
+    "FOR": {
+      "name": "Formosa",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "ECS",
+        "MPO",
+        "UPO",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "ECS",
+        "MPO",
+        "UPO",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1977,
+          592
+        ]
+      }
+    },
+    "GOA": {
+      "name": "Gulf of Aden",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "ARS",
+        "ERI",
+        "MOM",
+        "RS",
+        "SIO",
+        "SOM",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          417.4,
+          1274
+        ]
+      }
+    },
+    "GOS": {
+      "name": "Gulf of Siam",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANN",
+        "BAN",
+        "CAM",
+        "COC",
+        "JS",
+        "MAL",
+        "SAR",
+        "SCS",
+        "SIG"
+      ],
+      "render": {
+        "center": [
+          1732,
+          988
+        ]
+      }
+    },
+    "HK": {
+      "name": "Hong Kong",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "CAN",
+        "ECS",
+        "SCS"
+      ],
+      "fleetAdjacent": [
+        "CAN",
+        "ECS",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          1733.4,
+          742
+        ]
+      }
+    },
+    "HYD": {
+      "name": "Hyderabad",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "BEN",
+        "BOB",
+        "BOM",
+        "LUC",
+        "MAD",
+        "MYS",
+        "NAG"
+      ],
+      "fleetAdjacent": [
+        "BEN",
+        "BOB",
+        "MAD"
+      ],
+      "render": {
+        "center": [
+          1088,
+          837
+        ]
+      }
+    },
+    "IRK": {
+      "name": "Irkutsk",
+      "type": "land",
+      "supplyCenter": true,
+      "homePower": "russia",
+      "adjacent": [
+        "KIR",
+        "MAN",
+        "MON",
+        "OMS",
+        "VLA"
+      ],
+      "render": {
+        "center": [
+          1398,
+          28
+        ]
+      }
+    },
+    "JAV": {
+      "name": "Java",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "netherlands",
+      "adjacent": [
+        "JS",
+        "SIO",
+        "TS"
+      ],
+      "fleetAdjacent": [
+        "JS",
+        "SIO",
+        "TS"
+      ],
+      "render": {
+        "center": [
+          1662,
+          1285
+        ]
+      }
+    },
+    "JS": {
+      "name": "Java Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANS",
+        "BOR",
+        "CEL",
+        "CS",
+        "GOS",
+        "JAV",
+        "MAL",
+        "SAR",
+        "SIG",
+        "SIO",
+        "SUM",
+        "TS"
+      ],
+      "render": {
+        "center": [
+          1782,
+          1249
+        ]
+      }
+    },
+    "KAG": {
+      "name": "Kashgar",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "AFG",
+        "KAM",
+        "KIR",
+        "SIN",
+        "TAS",
+        "TIB",
+        "URU"
+      ],
+      "render": {
+        "center": [
+          1045,
+          377
+        ]
+      }
+    },
+    "KAM": {
+      "name": "Kashmir",
+      "type": "land",
+      "supplyCenter": true,
+      "adjacent": [
+        "AFG",
+        "KAG",
+        "PUN",
+        "TIB"
+      ],
+      "render": {
+        "center": [
+          976,
+          439
+        ]
+      }
+    },
+    "KAR": {
+      "name": "Karachi",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "AFG",
+        "ARS",
+        "PER",
+        "PG",
+        "PUN",
+        "RAJ"
+      ],
+      "fleetAdjacent": [
+        "ARS",
+        "PER",
+        "PG",
+        "RAJ"
+      ],
+      "render": {
+        "center": [
+          832,
+          546
+        ]
+      }
+    },
+    "KIR": {
+      "name": "Kirghiz",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "IRK",
+        "KAG",
+        "MON",
+        "OMS",
+        "ORE",
+        "TAS",
+        "URU"
+      ],
+      "render": {
+        "center": [
+          1060,
+          149
+        ]
+      }
+    },
+    "KYO": {
+      "name": "Kyoto",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "japan",
+      "adjacent": [
+        "AKI",
+        "KYU",
+        "SOJ",
+        "TOK",
+        "UPO",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "AKI",
+        "KYU",
+        "SOJ",
+        "TOK",
+        "UPO",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          2099,
+          436
+        ]
+      }
+    },
+    "KYU": {
+      "name": "Kyushu",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "japan",
+      "adjacent": [
+        "KYO",
+        "UPO",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "KYO",
+        "UPO",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          2010,
+          478
+        ]
+      }
+    },
+    "LAN": {
+      "name": "Lanchow",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "CHU",
+        "MON",
+        "PEK",
+        "SHA",
+        "SIN"
+      ],
+      "render": {
+        "center": [
+          1475.2,
+          403
+        ]
+      }
+    },
+    "LPO": {
+      "name": "Lower Pacific Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "CEB",
+        "CEL",
+        "CS",
+        "DAV",
+        "MPO",
+        "NG",
+        "SCS",
+        "TS"
+      ],
+      "render": {
+        "center": [
+          2152,
+          973
+        ]
+      }
+    },
+    "LUC": {
+      "name": "Lucknow",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BEN",
+        "DEL",
+        "HYD",
+        "NAG",
+        "NEP"
+      ],
+      "render": {
+        "center": [
+          1157,
+          666
+        ]
+      }
+    },
+    "MAA": {
+      "name": "Maasai",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "ABY",
+        "MOM",
+        "SUD"
+      ],
+      "render": {
+        "center": [
+          78,
+          1261
+        ]
+      }
+    },
+    "MAD": {
+      "name": "Madras",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "britain",
+      "adjacent": [
+        "BOB",
+        "CEY",
+        "HYD",
+        "MYS",
+        "WIO"
+      ],
+      "fleetAdjacent": [
+        "BOB",
+        "CEY",
+        "HYD",
+        "MYS",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          1094,
+          956
+        ]
+      }
+    },
+    "MAL": {
+      "name": "Malaya",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANS",
+        "BAN",
+        "GOS",
+        "JS",
+        "RAN",
+        "SIG"
+      ],
+      "fleetAdjacent": [
+        "ANS",
+        "BAN",
+        "GOS",
+        "JS",
+        "RAN",
+        "SIG"
+      ],
+      "render": {
+        "center": [
+          1596,
+          1070
+        ]
+      }
+    },
+    "MAN": {
+      "name": "Manchuria",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "IRK",
+        "MON",
+        "PA",
+        "PEK",
+        "VLA"
+      ],
+      "render": {
+        "center": [
+          1764,
+          243
+        ]
+      }
+    },
+    "MAY": {
+      "name": "Mandalay",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BAN",
+        "RAN",
+        "TON",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1484,
+          728
+        ]
+      }
+    },
+    "MEC": {
+      "name": "Mecca",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "ARA",
+        "EGY",
+        "RS",
+        "SYR"
+      ],
+      "fleetAdjacent": [
+        "ADE",
+        "EGY",
+        "RS"
+      ],
+      "render": {
+        "center": [
+          261,
+          621
+        ]
+      }
+    },
+    "MNA": {
+      "name": "Manila",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "CEB",
+        "ECS",
+        "MPO",
+        "SCS"
+      ],
+      "fleetAdjacent": [
+        "CEB",
+        "ECS",
+        "MPO",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          1946.2,
+          787
+        ]
+      }
+    },
+    "MOM": {
+      "name": "Mombasa",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "ABY",
+        "GOA",
+        "MAA",
+        "SOM"
+      ],
+      "fleetAdjacent": [
+        "GOA",
+        "SOM"
+      ],
+      "render": {
+        "center": [
+          232,
+          1238
+        ]
+      }
+    },
+    "MON": {
+      "name": "Mongolia",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "IRK",
+        "KIR",
+        "LAN",
+        "MAN",
+        "PEK",
+        "SIN",
+        "URU"
+      ],
+      "render": {
+        "center": [
+          1345,
+          251
+        ]
+      }
+    },
+    "MOS": {
+      "name": "Moscow",
+      "type": "land",
+      "supplyCenter": true,
+      "homePower": "russia",
+      "adjacent": [
+        "BAK",
+        "BOK",
+        "ODE",
+        "ORE"
+      ],
+      "render": {
+        "center": [
+          224,
+          18
+        ]
+      }
+    },
+    "MPO": {
+      "name": "Middle Pacific Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "CEB",
+        "ECS",
+        "FOR",
+        "LPO",
+        "MNA",
+        "UPO"
+      ],
+      "render": {
+        "center": [
+          2080.4,
+          734
+        ]
+      }
+    },
+    "MS": {
+      "name": "Mediterranean Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANG",
+        "BS",
+        "CON",
+        "EGY",
+        "SYR"
+      ],
+      "render": {
+        "center": [
+          72,
+          508
+        ]
+      }
+    },
+    "MYS": {
+      "name": "Mysore",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ARS",
+        "BOM",
+        "HYD",
+        "MAD",
+        "WIO"
+      ],
+      "fleetAdjacent": [
+        "ARS",
+        "BOM",
+        "MAD",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          998,
+          864
+        ]
+      }
+    },
+    "NAG": {
+      "name": "Nagpur",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BOM",
+        "DEL",
+        "HYD",
+        "LUC",
+        "RAJ"
+      ],
+      "render": {
+        "center": [
+          1089,
+          744
+        ]
+      }
+    },
+    "NEP": {
+      "name": "Nepal",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BEN",
+        "DEL",
+        "LUC",
+        "PUN"
+      ],
+      "render": {
+        "center": [
+          1187,
+          619
+        ]
+      }
+    },
+    "NG": {
+      "name": "New Guinea",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "LPO",
+        "TS"
+      ],
+      "fleetAdjacent": [
+        "LPO",
+        "TS"
+      ],
+      "render": {
+        "center": [
+          2174,
+          1252
+        ]
+      }
+    },
+    "ODE": {
+      "name": "Odessa",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "russia",
+      "adjacent": [
+        "BAK",
+        "BS",
+        "MOS",
+        "RUM"
+      ],
+      "fleetAdjacent": [
+        "BAK",
+        "BS",
+        "RUM"
+      ],
+      "render": {
+        "center": [
+          120,
+          223
+        ]
+      }
+    },
+    "OMA": {
+      "name": "Oman",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "ARA",
+        "ARS",
+        "PG"
+      ],
+      "fleetAdjacent": [
+        "ADE",
+        "ARA",
+        "ARS",
+        "PG"
+      ],
+      "render": {
+        "center": [
+          653,
+          737
+        ]
+      }
+    },
+    "OMS": {
+      "name": "Omsk",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "IRK",
+        "KIR",
+        "ORE"
+      ],
+      "render": {
+        "center": [
+          849.4,
+          46
+        ]
+      }
+    },
+    "ORE": {
+      "name": "Orenburg",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "BOK",
+        "KIR",
+        "MOS",
+        "OMS",
+        "TAS"
+      ],
+      "render": {
+        "center": [
+          651.4,
+          110
+        ]
+      }
+    },
+    "OTA": {
+      "name": "Otaru",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "AKI",
+        "SAK",
+        "SOJ",
+        "SOO"
+      ],
+      "fleetAdjacent": [
+        "AKI",
+        "SAK",
+        "SOJ",
+        "SOO"
+      ],
+      "render": {
+        "center": [
+          2104,
+          268.4
+        ]
+      }
+    },
+    "PA": {
+      "name": "Port Arthur",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "COR",
+        "MAN",
+        "PEK",
+        "VLA",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "COR",
+        "PEK",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1850,
+          318
+        ]
+      }
+    },
+    "PEK": {
+      "name": "Peking",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "china",
+      "adjacent": [
+        "LAN",
+        "MAN",
+        "MON",
+        "PA",
+        "SHA",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "PA",
+        "SHA",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1681,
+          340
+        ]
+      }
+    },
+    "PER": {
+      "name": "Persia",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "AFG",
+        "BOK",
+        "KAR",
+        "PG",
+        "SHI",
+        "TAB"
+      ],
+      "fleetAdjacent": [
+        "KAR",
+        "PG",
+        "SHI"
+      ],
+      "render": {
+        "center": [
+          542,
+          455
+        ]
+      }
+    },
+    "PG": {
+      "name": "Persian Gulf",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ARA",
+        "ARS",
+        "BAG",
+        "KAR",
+        "OMA",
+        "PER",
+        "SHI"
+      ],
+      "render": {
+        "center": [
+          502,
+          595
+        ]
+      }
+    },
+    "PUN": {
+      "name": "Punjab",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "AFG",
+        "DEL",
+        "KAM",
+        "KAR",
+        "NEP",
+        "RAJ",
+        "TIB"
+      ],
+      "render": {
+        "center": [
+          960,
+          540.4
+        ]
+      }
+    },
+    "RAJ": {
+      "name": "Rajputana",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ARS",
+        "BOM",
+        "DEL",
+        "KAR",
+        "NAG",
+        "PUN"
+      ],
+      "fleetAdjacent": [
+        "ARS",
+        "BOM",
+        "KAR"
+      ],
+      "render": {
+        "center": [
+          949,
+          655
+        ]
+      }
+    },
+    "RAN": {
+      "name": "Rangoon",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "ANS",
+        "ASM",
+        "BAN",
+        "BEN",
+        "BOB",
+        "MAL",
+        "MAY",
+        "YUN"
+      ],
+      "fleetAdjacent": [
+        "ANS",
+        "BEN",
+        "BOB",
+        "MAL"
+      ],
+      "render": {
+        "center": [
+          1472,
+          823
+        ]
+      }
+    },
+    "RS": {
+      "name": "Red Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ADE",
+        "EGY",
+        "ERI",
+        "GOA",
+        "MEC",
+        "SUD"
+      ],
+      "render": {
+        "center": [
+          315,
+          827
+        ]
+      }
+    },
+    "RUM": {
+      "name": "Rumania",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "BS",
+        "CON",
+        "ODE"
+      ],
+      "fleetAdjacent": [
+        "BS",
+        "CON",
+        "ODE"
+      ],
+      "render": {
+        "center": [
+          44,
+          255
+        ]
+      }
+    },
+    "SAK": {
+      "name": "Sakhalin",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "OTA",
+        "SOJ",
+        "SOO",
+        "VLA"
+      ],
+      "fleetAdjacent": [
+        "OTA",
+        "SOJ",
+        "SOO",
+        "VLA"
+      ],
+      "render": {
+        "center": [
+          2009.8,
+          147
+        ]
+      }
+    },
+    "SAR": {
+      "name": "Sarawak",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "BOR",
+        "CS",
+        "GOS",
+        "JS",
+        "SCS"
+      ],
+      "fleetAdjacent": [
+        "BOR",
+        "CS",
+        "GOS",
+        "JS",
+        "SCS"
+      ],
+      "render": {
+        "center": [
+          1844.4,
+          1020.2
+        ]
+      }
+    },
+    "SCS": {
+      "name": "South China Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANN",
+        "CAN",
+        "CEB",
+        "CS",
+        "DAV",
+        "ECS",
+        "GOS",
+        "HK",
+        "LPO",
+        "MNA",
+        "SAR",
+        "TON",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1828,
+          825
+        ]
+      }
+    },
+    "SHA": {
+      "name": "Shanghai",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "china",
+      "adjacent": [
+        "CAN",
+        "CHU",
+        "ECS",
+        "LAN",
+        "PEK",
+        "YS"
+      ],
+      "fleetAdjacent": [
+        "CAN",
+        "ECS",
+        "PEK",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1738,
+          465
+        ]
+      }
+    },
+    "SHI": {
+      "name": "Shiraz",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "BAG",
+        "PER",
+        "PG",
+        "TAB"
+      ],
+      "fleetAdjacent": [
+        "BAG",
+        "PER",
+        "PG"
+      ],
+      "render": {
+        "center": [
+          523,
+          553
+        ]
+      }
+    },
+    "SIG": {
+      "name": "Singapore",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "GOS",
+        "JS",
+        "MAL"
+      ],
+      "fleetAdjacent": [
+        "GOS",
+        "JS",
+        "MAL"
+      ],
+      "render": {
+        "center": [
+          1651.2,
+          1154
+        ]
+      }
+    },
+    "SIN": {
+      "name": "Sinkiang",
+      "type": "land",
+      "supplyCenter": true,
+      "homePower": "china",
+      "adjacent": [
+        "ASM",
+        "CHU",
+        "KAG",
+        "LAN",
+        "MON",
+        "TIB",
+        "URU"
+      ],
+      "render": {
+        "center": [
+          1318,
+          499
+        ]
+      }
+    },
+    "SIO": {
+      "name": "South Indian Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "EIO",
+        "GOA",
+        "JAV",
+        "JS",
+        "SUM",
+        "TS",
+        "WIO"
+      ],
+      "render": {
+        "center": [
+          672,
+          1297
+        ]
+      }
+    },
+    "SOJ": {
+      "name": "Sea of Japan",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "AKI",
+        "COR",
+        "KYO",
+        "OTA",
+        "SAK",
+        "SOO",
+        "VLA",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          1994.2,
+          311
+        ]
+      }
+    },
+    "SOM": {
+      "name": "Somalia",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ABY",
+        "ERI",
+        "GOA",
+        "MOM"
+      ],
+      "fleetAdjacent": [
+        "ERI",
+        "GOA",
+        "MOM"
+      ],
+      "render": {
+        "center": [
+          366.2,
+          1087
+        ]
+      }
+    },
+    "SOO": {
+      "name": "Sea of Okhotsk",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "AKI",
+        "OTA",
+        "SAK",
+        "SOJ",
+        "TOK",
+        "UPO",
+        "VLA"
+      ],
+      "render": {
+        "center": [
+          2111,
+          86
+        ]
+      }
+    },
+    "SUD": {
+      "name": "Sudan",
+      "type": "coast",
+      "supplyCenter": true,
+      "adjacent": [
+        "ABY",
+        "EGY",
+        "ERI",
+        "MAA",
+        "RS"
+      ],
+      "fleetAdjacent": [
+        "EGY",
+        "ERI",
+        "RS"
+      ],
+      "render": {
+        "center": [
+          104,
+          813
+        ]
+      }
+    },
+    "SUM": {
+      "name": "Sumatra",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "netherlands",
+      "adjacent": [
+        "ANS",
+        "EIO",
+        "JS",
+        "SIO"
+      ],
+      "fleetAdjacent": [
+        "ANS",
+        "EIO",
+        "JS",
+        "SIO"
+      ],
+      "render": {
+        "center": [
+          1536,
+          1115.4
+        ]
+      }
+    },
+    "SYR": {
+      "name": "Syria",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ANG",
+        "ARA",
+        "ARM",
+        "BAG",
+        "EGY",
+        "MEC",
+        "MS"
+      ],
+      "fleetAdjacent": [
+        "ANG",
+        "EGY",
+        "MS"
+      ],
+      "render": {
+        "center": [
+          251,
+          485.4
+        ]
+      }
+    },
+    "TAB": {
+      "name": "Tabriz",
+      "type": "land",
+      "supplyCenter": true,
+      "adjacent": [
+        "ARM",
+        "BAG",
+        "BAK",
+        "PER",
+        "SHI"
+      ],
+      "render": {
+        "center": [
+          468.4,
+          459
+        ]
+      }
+    },
+    "TAS": {
+      "name": "Tashkent",
+      "type": "land",
+      "supplyCenter": true,
+      "adjacent": [
+        "AFG",
+        "BOK",
+        "KAG",
+        "KIR",
+        "ORE"
+      ],
+      "render": {
+        "center": [
+          894,
+          313.6
+        ]
+      }
+    },
+    "TIB": {
+      "name": "Tibet",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "ASM",
+        "BEN",
+        "KAG",
+        "KAM",
+        "PUN",
+        "SIN"
+      ],
+      "render": {
+        "center": [
+          1119,
+          506
+        ]
+      }
+    },
+    "TOK": {
+      "name": "Tokyo",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "japan",
+      "adjacent": [
+        "AKI",
+        "KYO",
+        "SOO",
+        "UPO"
+      ],
+      "fleetAdjacent": [
+        "AKI",
+        "KYO",
+        "SOO",
+        "UPO"
+      ],
+      "render": {
+        "center": [
+          2152,
+          417
+        ]
+      }
+    },
+    "TON": {
+      "name": "Tonkin",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "france",
+      "adjacent": [
+        "ANN",
+        "BAN",
+        "CAM",
+        "MAY",
+        "SCS",
+        "YUN"
+      ],
+      "fleetAdjacent": [
+        "ANN",
+        "SCS",
+        "YUN"
+      ],
+      "render": {
+        "center": [
+          1570.4,
+          754
+        ]
+      }
+    },
+    "TS": {
+      "name": "Timor Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "CEL",
+        "JAV",
+        "JS",
+        "LPO",
+        "NG",
+        "SIO"
+      ],
+      "render": {
+        "center": [
+          2006,
+          1329
+        ]
+      }
+    },
+    "UPO": {
+      "name": "Upper Pacific Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "FOR",
+        "KYO",
+        "KYU",
+        "MPO",
+        "SOO",
+        "TOK",
+        "YS"
+      ],
+      "render": {
+        "center": [
+          2123,
+          548
+        ]
+      }
+    },
+    "URU": {
+      "name": "Urumchi",
+      "type": "land",
+      "supplyCenter": false,
+      "adjacent": [
+        "KAG",
+        "KIR",
+        "MON",
+        "SIN"
+      ],
+      "render": {
+        "center": [
+          1125,
+          278
+        ]
+      }
+    },
+    "VLA": {
+      "name": "Vladivostok",
+      "type": "coast",
+      "supplyCenter": true,
+      "homePower": "russia",
+      "adjacent": [
+        "COR",
+        "IRK",
+        "MAN",
+        "PA",
+        "SAK",
+        "SOJ",
+        "SOO"
+      ],
+      "fleetAdjacent": [
+        "COR",
+        "SAK",
+        "SOJ",
+        "SOO"
+      ],
+      "render": {
+        "center": [
+          1812,
+          146
+        ]
+      }
+    },
+    "WIO": {
+      "name": "West Indian Ocean",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "ARS",
+        "BOB",
+        "CEY",
+        "EIO",
+        "GOA",
+        "MAD",
+        "MYS",
+        "SIO"
+      ],
+      "render": {
+        "center": [
+          796,
+          1032
+        ]
+      }
+    },
+    "YS": {
+      "name": "Yellow Sea",
+      "type": "sea",
+      "supplyCenter": false,
+      "adjacent": [
+        "COR",
+        "ECS",
+        "FOR",
+        "KYO",
+        "KYU",
+        "PA",
+        "PEK",
+        "SHA",
+        "SOJ",
+        "UPO"
+      ],
+      "render": {
+        "center": [
+          1938,
+          528.2
+        ]
+      }
+    },
+    "YUN": {
+      "name": "Yunnan",
+      "type": "coast",
+      "supplyCenter": false,
+      "adjacent": [
+        "ASM",
+        "CAN",
+        "CHU",
+        "MAY",
+        "RAN",
+        "SCS",
+        "TON"
+      ],
+      "fleetAdjacent": [
+        "CAN",
+        "SCS",
+        "TON"
+      ],
+      "render": {
+        "center": [
+          1511,
+          641
+        ]
+      }
+    }
+  },
+  "startingUnits": [
+    {
+      "type": "army",
+      "power": "britain",
+      "territory": "DEL"
+    },
+    {
+      "type": "fleet",
+      "power": "britain",
+      "territory": "MAD"
+    },
+    {
+      "type": "army",
+      "power": "britain",
+      "territory": "BOM"
+    },
+    {
+      "type": "fleet",
+      "power": "britain",
+      "territory": "ADE"
+    },
+    {
+      "type": "army",
+      "power": "china",
+      "territory": "PEK"
+    },
+    {
+      "type": "fleet",
+      "power": "china",
+      "territory": "SHA"
+    },
+    {
+      "type": "army",
+      "power": "china",
+      "territory": "SIN"
+    },
+    {
+      "type": "army",
+      "power": "france",
+      "territory": "TON"
+    },
+    {
+      "type": "fleet",
+      "power": "france",
+      "territory": "ANN"
+    },
+    {
+      "type": "army",
+      "power": "france",
+      "territory": "COC"
+    },
+    {
+      "type": "army",
+      "power": "japan",
+      "territory": "TOK"
+    },
+    {
+      "type": "fleet",
+      "power": "japan",
+      "territory": "KYU"
+    },
+    {
+      "type": "fleet",
+      "power": "japan",
+      "territory": "KYO"
+    },
+    {
+      "type": "army",
+      "power": "netherlands",
+      "territory": "BOR"
+    },
+    {
+      "type": "fleet",
+      "power": "netherlands",
+      "territory": "JAV"
+    },
+    {
+      "type": "fleet",
+      "power": "netherlands",
+      "territory": "SUM"
+    },
+    {
+      "type": "army",
+      "power": "russia",
+      "territory": "MOS"
+    },
+    {
+      "type": "army",
+      "power": "russia",
+      "territory": "IRK"
+    },
+    {
+      "type": "fleet",
+      "power": "russia",
+      "territory": "VLA"
+    },
+    {
+      "type": "fleet",
+      "power": "russia",
+      "territory": "ODE"
+    },
+    {
+      "type": "army",
+      "power": "turkey",
+      "territory": "ANG"
+    },
+    {
+      "type": "fleet",
+      "power": "turkey",
+      "territory": "BAG"
+    },
+    {
+      "type": "fleet",
+      "power": "turkey",
+      "territory": "CON"
+    }
+  ]
+};
+
 // src/lib/maps/index.ts
 var maps = {
   classical: classicalMap,
-  "1900": map1900
+  "1900": map1900,
+  era: mapEra
 };
 function getMap(id) {
   const map = maps[id];

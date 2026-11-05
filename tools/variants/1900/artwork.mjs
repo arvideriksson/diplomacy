@@ -37,7 +37,9 @@ const fontFace = () => {
 }
 
 // Drop short out-and-back zigzags (a vertex where the line reverses within a few units).
+let UNZIG = true
 const unzig = (pts) => {
+  if (!UNZIG) return pts
   let r = pts.slice()
   for (let pass = 0; pass < 3; pass++) {
     const out = [r[0]]
@@ -71,6 +73,8 @@ const crossing = ([a, b]) => {
 
 // waterParts: parts of land provinces that are drawn as water (the Strait of Gibraltar).
 export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
+  // Boards with narrow traced channels (Era of Empire) keep every vertex: unzig would close them.
+  UNZIG = style.unzig !== false
   const land = Object.entries(provinces).filter(([id]) => !isSea(id))
   const kind = (id) => (id === null || id === '#frame' ? 'frame' : id.startsWith('#') ? 'hole' : isSea(id) ? 'sea' : 'land')
   // Segments lying on the board edge are never drawn: the board simply ends there.

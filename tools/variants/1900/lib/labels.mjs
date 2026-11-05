@@ -64,7 +64,7 @@ export class LabelPlacer {
   blockLabel(at, w, h, angle) { this.block(rectPoints(at, w + 4, h + 3, angle)) }
 
   // Returns { at, angle, size } or null.
-  place(geom, { text, size, kind, at: hint, angle: hintAngle = 0, minSize = 10, angles }, center) {
+  place(geom, { text, size, kind, at: hint, angle: hintAngle = 0, minSize = 10, angles, margin = 1.2 }, center) {
     hint ??= center
     const box = bboxOf(geom), [x0, y0] = box
     const field = rasterize(geom, box)
@@ -82,8 +82,8 @@ export class LabelPlacer {
       for (const angle of tryAngles) for (let y = y0 + 2; y < box[3] - 2; y += step) for (let x = x0 + 2; x < box[2] - 2; x += step) {
         if (at([x, y]) < h / 2 + 1) continue
         let clear = Infinity
-        for (const p of rectPoints([x, y], w, h, angle)) { clear = Math.min(clear, at(p)); if (clear < 1.2) break }
-        if (clear < 1.2) continue
+        for (const p of rectPoints([x, y], w, h, angle)) { clear = Math.min(clear, at(p)); if (clear < margin) break }
+        if (clear < margin) continue
         const score = Math.min(clear, 5) * 3 + sz * 5 - Math.abs(angle - hintAngle) * 0.08 - Math.abs(angle) * 0.04 - (hint ? Math.hypot(x - hint[0], y - hint[1]) * 0.12 : 0)
         if (!best || score > best.score) best = { score, at: [x, y], angle, size: sz, w, h }
       }
