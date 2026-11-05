@@ -11,7 +11,7 @@
 import { writable } from 'svelte/store'
 import { adjudicate, initialBoard, roundRank } from './adjudicator'
 import type { AdjudicationResult, AnyOrder, BoardState, OrderResult } from './adjudicator'
-import { getMap } from './maps'
+import { getMap, maps } from './maps'
 
 export interface Frame {
   /** Board state going into this phase. */
@@ -67,9 +67,14 @@ function migrate(s: LegacySandbox): Sandbox {
   return { id: s.id, name: s.name, mapId: s.mapId, frames, cursor: frames.length - 1, createdAt: s.createdAt }
 }
 
+// A sandbox on a map the app no longer has (e.g. 'standard', renamed 'classical' in
+// migration 126) can't be opened, so it's dropped from storage as it loads.
 function loadAll(): Sandbox[] {
   try {
-    return (JSON.parse(localStorage.getItem(KEY) ?? '[]') as LegacySandbox[]).map(migrate)
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '[]') as LegacySandbox[]
+    const playable = stored.filter((s) => s.mapId in maps)
+    if (playable.length < stored.length) localStorage.setItem(KEY, JSON.stringify(playable))
+    return playable.map(migrate)
   } catch {
     return []
   }

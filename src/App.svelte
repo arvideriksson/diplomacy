@@ -7,6 +7,7 @@
   import { immersive } from './lib/layout'
   import LoginButton from './components/LoginButton.svelte'
   import FloatingChrome from './components/FloatingChrome.svelte'
+  import ArtColumns from './components/ArtColumns.svelte'
   import GameList from './components/GameList.svelte'
   import DiplomacyMap from './components/DiplomacyMap.svelte'
   import GameRoute from './components/GameRoute.svelte'
@@ -69,6 +70,7 @@
   <!-- No title bar: page chrome floats over the content. Immersive views (game, sandbox) bring their own. -->
   {#if !$immersive && $isAuthenticated}
     <FloatingChrome onBack={handleBackToList} />
+    <ArtColumns />
   {/if}
 
   <main class:immersive={$immersive}>
