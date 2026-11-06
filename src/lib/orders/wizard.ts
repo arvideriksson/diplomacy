@@ -210,19 +210,29 @@ export const toOrderStates = (orders: Order[]): OrderState[] =>
   orders.map((o) => {
     if (o.type === 'Support') {
       const aux = o.aux as string
+      const target = o.target ?? aux
+      // Anchor at the units' actual coasts (a fleet in Spa(wc) sits off Spain's centre). The
+      // supported unit's coasts come from its own order, so the support also lines up with
+      // that unit's move arrow (same ids) when it is moving to the supported target.
+      const auxOrder = orders.find((m) => m.source === aux)
+      const auxId = toDsvgId(aux, auxOrder?.sourceCoast)
+      const targetId =
+        target === aux
+          ? auxId
+          : toDsvgId(target, auxOrder?.type === 'Move' && auxOrder.target === target ? auxOrder.targetCoast : undefined)
       return {
         type: 'Support',
         nation: o.nation,
-        source: toDsvgId(o.source), // support/convoy originate from the base province
-        aux: toDsvgId(aux),
-        target: toDsvgId(o.target ?? aux),
+        source: toDsvgId(o.source, o.sourceCoast),
+        aux: auxId,
+        target: targetId,
       }
     }
     if (o.type === 'Convoy') {
       return {
         type: 'Convoy',
         nation: o.nation,
-        source: toDsvgId(o.source),
+        source: toDsvgId(o.source, o.sourceCoast),
         aux: toDsvgId(o.aux as string),
         target: o.target ? toDsvgId(o.target) : undefined,
       }

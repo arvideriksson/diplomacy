@@ -72,6 +72,22 @@ describe('toRenderOrders', () => {
       { type: 'Disband', nation: 'austria', source: 'vie' },
     ])
   })
+  it("anchors supports at the units' coasts", () => {
+    // The supporter on a coast.
+    expect(toRenderOrders([
+      { type: 'Support', nation: 'france', source: 'SPA', sourceCoast: 'wc', aux: 'POR', target: 'MAO' },
+      { type: 'Move', nation: 'france', source: 'POR', target: 'MAO' },
+    ])[0]).toMatchObject({ source: 'spa/wc', aux: 'por', target: 'mid' })
+    // The supported unit on a coast, moving and holding.
+    expect(toRenderOrders([
+      { type: 'Support', nation: 'france', source: 'MAO', aux: 'SPA', target: 'WES' },
+      { type: 'Move', nation: 'france', source: 'SPA', sourceCoast: 'sc', target: 'WES' },
+    ])[0]).toMatchObject({ source: 'mid', aux: 'spa/sc', target: 'wes' })
+    expect(toRenderOrders([
+      { type: 'Support', nation: 'france', source: 'MAO', aux: 'SPA' },
+      { type: 'Hold', nation: 'france', source: 'SPA', sourceCoast: 'sc' },
+    ])[0]).toMatchObject({ source: 'mid', aux: 'spa/sc', target: 'spa/sc' })
+  })
   it('crosses out the orders a history frame says failed', () => {
     // Spring 1901: Paris and Munich both move to Burgundy and bounce; Marseilles holds.
     const orders: AnyOrder[] = [
