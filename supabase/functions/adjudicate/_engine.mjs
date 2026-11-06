@@ -45,14 +45,24 @@ var emergencyActive = (map, nation, owners) => {
 };
 var unitAllowance = (map, nation, owners) => (scCountByNation(owners)[nation] ?? 0) + (emergencyActive(map, nation, owners) ? 1 : 0);
 var nationsOf = (owners, units) => sortIds([.../* @__PURE__ */ new Set([...Object.values(owners), ...units.map((u) => u.nation)])]);
+var ownedCenters = (map, nation, owners) => supplyCenterProvinces(map).filter((p) => owners[p] === nation);
 var buildSites = (map, nation, owners, units) => {
   const occupied = new Set(units.map((u) => u.territory));
-  const sites = homeCenters(map, nation).filter((h) => owners[h] === nation && !occupied.has(h));
+  const centers = map.rules?.buildAnyCenter ? ownedCenters(map, nation, owners) : homeCenters(map, nation);
+  const sites = centers.filter((h) => owners[h] === nation && !occupied.has(h));
   const e = map.rules?.emergency;
   if (e && emergencyActive(map, nation, owners) && !occupied.has(e.buildSite)) sites.push(e.buildSite);
   return sortIds(sites);
 };
-var disorderHomes = (map, nation) => sortIds([...homeCenters(map, nation), ...map.rules?.disorderHomes?.[nation] ?? []]);
+var disorderHomes = (map, nation, owners) => map.rules?.buildAnyCenter ? ownedCenters(map, nation, owners) : sortIds([...homeCenters(map, nation), ...map.rules?.disorderHomes?.[nation] ?? []]);
+var conversionTarget = (map, unit, owners) => {
+  if (!map.rules?.conversion) return null;
+  const t = map.territories[unit.territory];
+  if (!t?.supplyCenter || owners[unit.territory] !== unit.nation) return null;
+  if (unit.type === "fleet") return "army";
+  return t.type === "coast" ? "fleet" : null;
+};
+var convertibleUnits = (map, nation, owners, units) => units.filter((u) => u.nation === nation && conversionTarget(map, u, owners)).sort((a, b) => a.territory < b.territory ? -1 : 1);
 
 // src/lib/adjudicator/convoy.ts
 var convoyFleets = (map, units) => new Set(units.filter((u) => u.type === "fleet" && canConvoyFrom(map, u.territory)).map((u) => u.territory));
@@ -540,7 +550,8 @@ function resolveBuild(map, board, orders) {
   }
   for (const nation of nations) {
     const delta = unitAllowance(map, nation, owners) - (unitCount[nation] ?? 0);
-    const nationOrders = ordersByNation.get(nation) ?? [];
+    const all = ordersByNation.get(nation) ?? [];
+    const nationOrders = all.filter((o) => o.type !== "Convert");
     if (delta > 0) {
       const homes = buildSites(map, nation, owners, units);
       let built = 0;
@@ -597,7 +608,7 @@ function resolveBuild(map, board, orders) {
         results.push({ order: o, code: "succeeds", reason: "unit removed" });
       }
       if (removed.size < need) {
-        const candidates = units.filter((u) => u.nation === nation && !removed.has(u.territory)).sort(civilDisorderOrder(map, nation));
+        const candidates = units.filter((u) => u.nation === nation && !removed.has(u.territory)).sort(civilDisorderOrder(map, nation, owners));
         for (let i = 0; removed.size < need && i < candidates.length; i++) {
           removed.add(candidates[i].territory);
         }
@@ -611,11 +622,40 @@ function resolveBuild(map, board, orders) {
         results.push({ order: o, code: "void", reason: "no adjustment owed" });
       }
     }
+    const converted = /* @__PURE__ */ new Set();
+    for (const o of all.filter((x) => x.type === "Convert")) {
+      if (!map.rules?.conversion) {
+        results.push({ order: o, code: "void", reason: "conversion not allowed on this map" });
+        continue;
+      }
+      const idx = units.findIndex((u) => u.nation === nation && u.territory === o.source);
+      const before = board.units.find((u) => u.nation === nation && u.territory === o.source);
+      if (idx < 0 || !before) {
+        results.push({ order: o, code: "void", reason: before ? "unit removed" : "no such unit to convert" });
+        continue;
+      }
+      if (converted.has(o.source)) {
+        results.push({ order: o, code: "void", reason: "unit already converted" });
+        continue;
+      }
+      const target = conversionTarget(map, before, owners);
+      if (!target || o.unitType !== target) {
+        results.push({ order: o, code: "void", reason: "cannot convert here" });
+        continue;
+      }
+      if (target === "fleet" && map.territories[o.source].coasts && !o.sourceCoast) {
+        results.push({ order: o, code: "void", reason: "fleet needs a coast" });
+        continue;
+      }
+      units[idx] = { ...units[idx], type: target, coast: target === "fleet" ? o.sourceCoast : void 0 };
+      converted.add(o.source);
+      results.push({ order: o, code: "succeeds", reason: "unit converted" });
+    }
   }
   return { units: sortUnits(units), results };
 }
-function civilDisorderOrder(map, nation) {
-  const homes = disorderHomes(map, nation);
+function civilDisorderOrder(map, nation, owners) {
+  const homes = disorderHomes(map, nation, owners);
   const dist = (u) => distanceToNearest(map, u, homes);
   return (a, b) => {
     const da = dist(a);
@@ -690,7 +730,7 @@ function advanceAfterRetreats(map, season, year, units, owners) {
   }
   const newOwners = recomputeSupplyCenters(map, units, owners);
   const uc = unitCountByNation(units);
-  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0));
+  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0)) || units.some((u) => conversionTarget(map, u, newOwners));
   if (needsAdjustment) {
     return { phase: "build", season: "Fall", year, units, supplyCenters: newOwners, dislodged: [], contested: [] };
   }
@@ -711,6 +751,11 @@ function victoryFor(map, owners) {
       victory = { nation, centers };
     }
   }
+  if (victory && map.rules?.sharedVictory) {
+    const lead = victory;
+    const tied = Object.entries(sc).filter(([, c]) => c === lead.centers).map(([n]) => n).sort();
+    victory = tied.length > 1 ? { nation: tied[0], centers: lead.centers, shared: tied } : { nation: lead.nation, centers: lead.centers };
+  }
   if (victory && map.rules?.strictVictory) {
     const lead = victory;
     if (Object.entries(sc).some(([n, c]) => n !== lead.nation && c >= lead.centers)) victory = void 0;
@@ -724,6 +769,7 @@ function isIdle(map, board, nation) {
   if (board.phase === "build") {
     const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0);
     if (delta < 0) return false;
+    if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false;
     return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0;
   }
   return !board.units.some((u) => u.nation === nation);
@@ -3793,6 +3839,11 @@ var mapEra = {
   "playerCount": 7,
   "startingYear": 1870,
   "victoryCenters": 22,
+  "rules": {
+    "buildAnyCenter": true,
+    "conversion": true,
+    "sharedVictory": true
+  },
   "powers": [
     {
       "id": "britain",

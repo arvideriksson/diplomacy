@@ -63,13 +63,13 @@
     return `${g.season} ${g.year} · ${isOrderPhase(g.phase) ? PHASE_LABEL[g.phase] : 'Resolving'}${map}`
   }
 
-  /** How a finished game ended: a tie, a concession, or a solo from the final board. */
+  /** How a finished game ended: a tie, a concession, or a solo (or shared win) from the final board. */
   function outcome(g: GameListItem): { kind: 'won' | 'tie'; nations: string[] } | null {
     if (g.result?.kind === 'draw') return { kind: 'tie', nations: g.result.nations }
     if (g.result?.kind === 'concession') return { kind: 'won', nations: g.result.nations }
     if (g.final_centers) {
       const v = victoryFor(getMap(g.map_id), g.final_centers)
-      if (v) return { kind: 'won', nations: [v.nation] }
+      if (v) return { kind: 'won', nations: v.shared ?? [v.nation] }
     }
     return null
   }
@@ -169,9 +169,9 @@
         {#if end}
           <span class="main">
             <span class="flags">{#each end.nations as n (n)}{#if flagUrl[n]}<img src={flagUrl[n]} alt="" width="16" height="16" />{/if}{/each}</span>
-            {end.kind === 'won' ? 'Won' : `${end.nations.length}-way tie`}
+            {end.kind === 'won' ? (end.nations.length > 1 ? 'Shared win' : 'Won') : `${end.nations.length}-way tie`}
           </span>
-          <span class="sub">{end.kind === 'won' ? name(g, end.nations[0]) : 'Agreed'}</span>
+          <span class="sub">{end.kind === 'won' ? end.nations.map((n) => name(g, n)).join(' & ') : 'Agreed'}</span>
         {:else}
           <span class="main quiet">Ended</span>
         {/if}

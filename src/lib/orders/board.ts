@@ -7,7 +7,7 @@ import type { DislodgedUnit, OrderResult } from '../adjudicator/types'
 import type { OrderState } from '../map/mapRenderer'
 import { toDsvgId } from '../map/idMap'
 import { toOrderStates, type Draft, type Step } from './wizard'
-import { retreatTargets, type BuildSituation, type BuildSpot } from './adjustments'
+import { retreatTargets, type BuildSituation, type BuildSpot, type ConvertChoice } from './adjustments'
 import type { AnyOrder, BuildOrder, Order, RetreatOrder } from './types'
 
 /** The province an order is keyed by (every order kind has one). */
@@ -92,13 +92,32 @@ export function openRemovals(
     )
 }
 
-/** The build-phase panel prompt for the given situations. */
-export function buildPrompt(situations: NationSituation[]): string {
+/** Units still free to convert (no build-phase order yet), tagged with the nation. */
+export function openConversions(
+  situations: NationSituation[],
+  orders: AnyOrder[],
+): Array<ConvertChoice & { nation: string }> {
+  return situations.flatMap((s) =>
+    (s.convertible ?? [])
+      .filter((c) => !orders.some((o) => orderSource(o) === c.territory))
+      .map((c) => ({ ...c, nation: s.nation })),
+  )
+}
+
+/**
+ * The build-phase panel prompt for the given situations. `anyCenter`: builds may go in any
+ * owned center (conscription), not just home centers.
+ */
+export function buildPrompt(situations: NationSituation[], anyCenter = false): string {
   const builds = situations.filter((s) => s.delta > 0).reduce((a, s) => a + s.delta, 0)
   const removes = situations.filter((s) => s.delta < 0).reduce((a, s) => a - s.delta, 0)
-  if (builds && removes) return 'Select a highlighted home center to build, or a unit to remove.'
-  if (builds) return `Select a highlighted home center to build (${builds} available).`
-  if (removes) return `Select a highlighted unit to remove (${removes} required).`
+  const converts = situations.some((s) => s.convertible?.length)
+  const center = anyCenter ? 'supply center' : 'home center'
+  const convert = converts ? ' A unit on a supply center may also convert between army and fleet.' : ''
+  if (builds && removes) return `Select a highlighted ${center} to build, or a unit to remove.${convert}`
+  if (builds) return `Select a highlighted ${center} to build (${builds} available).${convert}`
+  if (removes) return `Select a highlighted unit to remove (${removes} required).${convert}`
+  if (converts) return 'Select a highlighted unit to convert it between army and fleet, or submit to keep them as they are.'
   return 'No adjustments needed this phase.'
 }
 
@@ -138,6 +157,10 @@ export function toRenderOrders(
     } else if (o.type === 'Remove') {
       const b = o as BuildOrder
       out.push(mark(o, { type: 'Disband', nation: b.nation, source: toDsvgId(b.source) }))
+    } else if (o.type === 'Convert') {
+      // The unit as it will be: a ghost of the new type on its own province.
+      const b = o as BuildOrder
+      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' }))
     }
   }
   return out
@@ -187,19 +210,28 @@ export function retreatMapInputs(
 
 /**
  * Build-phase map inputs (dSVG ids): open build spots and removable units (drawn as
- * dashed rings, not stripe highlights), plus placed builds/removes, which stay
- * clickable so they can be undone.
+ * dashed rings, not stripe highlights), plus placed builds/removes/conversions, which
+ * stay clickable so they can be changed or undone. Units free to convert are clickable
+ * too (see convertMapIds for their cue).
  */
 export function buildMapInputs(
   spots: Array<{ province: string }>,
   removals: Array<{ territory: string }>,
   orders: AnyOrder[],
+  conversions: Array<{ territory: string }> = [],
 ): { buildIds: string[]; removeIds: string[]; selectable: string[] } {
   const buildIds = spots.map((sp) => toDsvgId(sp.province))
   const removeIds = removals.map((r) => toDsvgId(r.territory))
-  const placed = orders.filter((o) => o.type === 'Build' || o.type === 'Remove').map((o) => toDsvgId(orderSource(o)))
-  return { buildIds, removeIds, selectable: [...buildIds, ...removeIds, ...placed] }
+  const placed = orders.filter((o) => o.type === 'Build' || o.type === 'Remove' || o.type === 'Convert').map((o) => toDsvgId(orderSource(o)))
+  return { buildIds, removeIds, selectable: [...new Set([...buildIds, ...removeIds, ...convertMapIds(conversions, removals), ...placed])] }
 }
+
+/**
+ * Units free to convert (dSVG ids) that are not already ringed as removals: they get the
+ * softer "no order yet" cue, as converting is optional.
+ */
+export const convertMapIds = (conversions: Array<{ territory: string }>, removals: Array<{ territory: string }>): string[] =>
+  conversions.map((c) => toDsvgId(c.territory)).filter((id) => !removals.some((r) => toDsvgId(r.territory) === id))
 
 /** Units with no order yet (dSVG ids), except `drafting` — mid-edit, not forgotten. */
 export const unorderedUnitIds = (units: Unit[], orders: AnyOrder[], drafting?: string): string[] =>

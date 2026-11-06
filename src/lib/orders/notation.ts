@@ -84,6 +84,10 @@ export function formatAnyOrder(
       const a = unitLetter(o.source, units)
       return `Remove ${a} ${fmtProvince(map, o.source, o.sourceCoast)}`
     }
+    case 'Convert': {
+      const a = unitLetter(o.source, units)
+      return `Convert ${a} ${fmtProvince(map, o.source)} to ${o.unitType === 'fleet' ? 'F' : 'A'}`
+    }
   }
 }
 
@@ -119,5 +123,7 @@ export function describeAnyOrder(map: MapDefinition, o: AnyOrder): string {
       return `Build ${o.unitType === 'fleet' ? 'a fleet' : 'an army'} in ${src}`
     case 'Remove':
       return `Remove the unit in ${src}`
+    case 'Convert':
+      return `Convert the unit in ${placeName(map, o.source)} to ${o.unitType === 'fleet' ? 'a fleet' : 'an army'}`
   }
 }

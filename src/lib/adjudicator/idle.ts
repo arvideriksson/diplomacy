@@ -5,7 +5,7 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { BoardState } from './types'
 import { unitCountByNation } from './state'
-import { buildSites, unitAllowance } from './rules'
+import { buildSites, convertibleUnits, unitAllowance } from './rules'
 
 type IdleBoard = Pick<BoardState, 'phase' | 'units' | 'supplyCenters' | 'dislodged'>
 
@@ -15,7 +15,7 @@ type IdleBoard = Pick<BoardState, 'phase' | 'units' | 'supplyCenters' | 'dislodg
  * - movement: only unit-less (eliminated) powers are idle; anyone with a unit can move/hold.
  * - retreat:  powers with no dislodged unit.
  * - build:    delta 0, or a surplus with no buildable home center (otherwise there's a
- *             build/disband choice to make).
+ *             build/disband choice to make), and no unit that may convert.
  *
  * The client uses this directly to show "Waiting…" instead of a Submit button.
  */
@@ -26,6 +26,8 @@ export function isIdle(map: MapDefinition, board: IdleBoard, nation: string): bo
     // Allowance includes variant extras (1900 Russian emergency measures).
     const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0)
     if (delta < 0) return false // must disband — a choice to make
+    // A unit that may switch type (conversion) is a choice whatever is owed.
+    if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false
     // A surplus is a choice only if there is somewhere to build.
     return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0
   }

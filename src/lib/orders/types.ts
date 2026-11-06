@@ -36,12 +36,14 @@ export interface RetreatOrder {
 
 /** A build-phase adjustment order. */
 export interface BuildOrder {
-  type: 'Build' | 'Remove'
+  /** Convert switches a unit's type in place (VariantRules.conversion). */
+  type: 'Build' | 'Remove' | 'Convert'
   nation: string
-  /** Home SC for Build; occupied province for Remove. */
+  /** Home SC for Build; the unit's province for Remove and Convert. */
   source: string
+  /** The coast of a fleet built or converted on a multi-coast province. */
   sourceCoast?: string
-  /** Required for Build. */
+  /** The unit type to build, or to convert into. Required for Build and Convert. */
   unitType?: 'army' | 'fleet'
 }
 

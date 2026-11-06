@@ -14,6 +14,7 @@ import type { AnyOrder, BoardState } from '../adjudicator'
 import { unitAllowance, isLongRoute } from '../adjudicator/rules'
 import type { MapDefinition } from '../mapDefinition'
 import { map1900 } from '../maps/1900'
+import { mapEra } from '../maps/era'
 import { classicalMap } from '../maps/classical'
 import { finalize, nextStep, type Draft } from '../orders/wizard'
 import { convoyReach, reachable } from '../orders/options'
@@ -38,7 +39,7 @@ function setOrder(orders: Order[], o: Order) {
   else orders.push(o)
 }
 
-interface Stats { convoyMoves: number; convoysLanded: number; phases: number; orders: number; voids: string[]; victories: number; longMoves: number; convoyCoastConvoys: number; emergencyBuilds: number; retreats: number; builds: number; removals: number; years: number }
+interface Stats { convoyMoves: number; convoysLanded: number; phases: number; orders: number; voids: string[]; victories: number; longMoves: number; convoyCoastConvoys: number; emergencyBuilds: number; retreats: number; builds: number; removals: number; conversions: number; years: number }
 
 function movementOrders(map: MapDefinition, board: BoardState, r: () => number, stats: Stats): Order[] {
   const orders: Order[] = []
@@ -160,6 +161,12 @@ function buildOrders(map: MapDefinition, board: BoardState, r: () => number, sta
         out.push({ type: 'Remove', nation, source: u.territory }); stats.removals++
       }
     }
+    // Conversion (Era of Empire): now and then switch a unit that isn't being removed.
+    for (const c of s.convertible ?? []) {
+      if (out.some((o) => o.source === c.territory) || r() > 0.3) continue
+      const coast = c.coasts?.length ? c.coasts[Math.floor(r() * c.coasts.length)] : undefined
+      out.push({ type: 'Convert', nation, source: c.territory, unitType: c.to, ...(coast ? { sourceCoast: coast } : {}) }); stats.conversions++
+    }
   }
   return out
 }
@@ -231,6 +238,11 @@ function playGame(map: MapDefinition, seed: number, stats: Stats, frames?: { boa
     if (board.phase === 'build') expect([next.year, next.season, next.phase]).toEqual([board.year + 1, 'Spring', 'movement'])
     if (next.phase === 'retreat') expect(next.dislodged.length).toBeGreaterThan(0)
     if (board.phase === 'build') {
+      // A conversion changes a unit's type in place, never its province or count.
+      for (const x of res.results) if (x.order.type === 'Convert' && x.code === 'succeeds') {
+        const before = board.units.find((u) => u.territory === x.order.source)!
+        expect(next.units.find((u) => u.territory === x.order.source)?.type, `${where}: conversion in ${x.order.source}`).not.toBe(before.type)
+      }
       for (const n of new Set(next.units.map((u) => u.nation))) {
         expect(next.units.filter((u) => u.nation === n).length, `${where}: ${n} over allowance`).toBeLessThanOrEqual(unitAllowance(map, n, next.supplyCenters))
       }
@@ -240,6 +252,7 @@ function playGame(map: MapDefinition, seed: number, stats: Stats, frames?: { boa
       const counts: Record<string, number> = {}
       for (const n of Object.values(next.supplyCenters)) counts[n] = (counts[n] ?? 0) + 1
       expect(res.victory.centers).toBe(counts[res.victory.nation])
+      for (const n of res.victory.shared ?? []) expect(counts[n]).toBe(res.victory.centers)
       if (map.rules?.strictVictory) for (const [n, c] of Object.entries(counts)) if (n !== res.victory.nation) expect(c).toBeLessThan(res.victory.centers)
       board = next
       break
@@ -250,10 +263,10 @@ function playGame(map: MapDefinition, seed: number, stats: Stats, frames?: { boa
   stats.years += board.year - initialBoard(map).year
 }
 
-for (const map of [map1900, classicalMap]) {
+for (const map of [map1900, classicalMap, mapEra]) {
   describe(`simulated ${map.name} games`, () => {
     it(`plays ${GAMES} random games without illegal UI orders or broken invariants`, () => {
-      const stats: Stats = { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, years: 0 }
+      const stats: Stats = { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, conversions: 0, years: 0 }
       for (let g = 0; g < GAMES; g++) playGame(map, 1000 + g, stats)
       const { voids, ...summary } = stats
       console.log(`${map.name}:`, JSON.stringify({ ...summary, voidCount: voids.length }), voids.slice(0, 8).join('\n'))
@@ -267,9 +280,9 @@ if (process.env.SIM_DUMP) {
   it('dumps sandboxes', async () => {
     const { writeFileSync } = await import('node:fs')
     const out = []
-    for (const [map, seed] of [[map1900, 1003], [map1900, 1007], [map1900, 1011], [classicalMap, 1002]] as const) {
+    for (const [map, seed] of [[map1900, 1003], [map1900, 1007], [map1900, 1011], [classicalMap, 1002], [mapEra, 1001]] as const) {
       const frames: { board: BoardState; orders: AnyOrder[] }[] = []
-      playGame(map, seed, { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, years: 0 }, frames)
+      playGame(map, seed, { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, conversions: 0, years: 0 }, frames)
       out.push({ id: `sim-${map.id}-${seed}`, name: `Sim ${map.name} #${seed}`, mapId: map.id, frames, cursor: 0, createdAt: new Date(0).toISOString() })
     }
     writeFileSync(process.env.SIM_DUMP!, JSON.stringify(out))
@@ -278,9 +291,9 @@ if (process.env.SIM_DUMP) {
 
 describe('history replay', () => {
   it('replaying the resolved order log reproduces every simulated board', () => {
-    for (const map of [map1900, classicalMap]) for (let seed = Number(process.env.REPLAY_SEED ?? 2000); seed < Number(process.env.REPLAY_SEED ?? 2000) + (process.env.REPLAY_SEED ? 1 : 10); seed++) {
+    for (const map of [map1900, classicalMap, mapEra]) for (let seed = Number(process.env.REPLAY_SEED ?? 2000); seed < Number(process.env.REPLAY_SEED ?? 2000) + (process.env.REPLAY_SEED ? 1 : 10); seed++) {
       const frames: { board: BoardState; orders: AnyOrder[] }[] = []
-      playGame(map, seed, { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, years: 0 }, frames)
+      playGame(map, seed, { convoyMoves: 0, convoysLanded: 0, phases: 0, orders: 0, voids: [], victories: 0, longMoves: 0, convoyCoastConvoys: 0, emergencyBuilds: 0, retreats: 0, builds: 0, removals: 0, conversions: 0, years: 0 }, frames)
       // The log stores one row per nation per round, as the orders table does.
       const rows: ResolvedOrderRow[] = frames.slice(0, -1).flatMap(({ board, orders }) => {
         const byNation = new Map<string, AnyOrder[]>()
@@ -304,5 +317,5 @@ describe('history replay', () => {
       expect(replayed.length, `${map.id} seed ${seed}`).toBe(frames.length)
       frames.forEach((f, i) => expect(JSON.stringify(replayed[i].board), `${map.id} seed ${seed} frame ${i}`).toBe(JSON.stringify(f.board)))
     }
-  })
+  }, 120_000) // 30 whole games: far past the 5 s default when the suite runs in parallel
 })

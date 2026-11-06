@@ -8,6 +8,11 @@ export const mapEra: MapDefinition = {
   "playerCount": 7,
   "startingYear": 1870,
   "victoryCenters": 22,
+  "rules": {
+    "buildAnyCenter": true,
+    "conversion": true,
+    "sharedVictory": true
+  },
   "powers": [
     {
       "id": "britain",

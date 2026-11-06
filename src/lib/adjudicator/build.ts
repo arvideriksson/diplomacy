@@ -1,12 +1,13 @@
 // Build/disband phase (DATC 6.I / 6.J). Runs only after Fall retreats. Each
 // nation adjusts toward `scCount - unitCount`; under-ordered removals trigger
-// deterministic civil-disorder disbands.
+// deterministic civil-disorder disbands. Where the map allows conversion (Era of
+// Empire), a unit on an owned center may also switch type, whatever is owed.
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import type { BoardState, BuildOrder, OrderResult } from './types'
 import { sortUnits, unitCountByNation } from './state'
-import { buildSites, disorderHomes, nationsOf, unitAllowance } from './rules'
+import { buildSites, conversionTarget, disorderHomes, nationsOf, unitAllowance } from './rules'
 
 export interface BuildOutcome {
   units: Unit[]
@@ -34,7 +35,8 @@ export function resolveBuild(
 
   for (const nation of nations) {
     const delta = unitAllowance(map, nation, owners) - (unitCount[nation] ?? 0)
-    const nationOrders = ordersByNation.get(nation) ?? []
+    const all = ordersByNation.get(nation) ?? []
+    const nationOrders = all.filter((o) => o.type !== 'Convert')
 
     if (delta > 0) {
       const homes = buildSites(map, nation, owners, units)
@@ -96,7 +98,7 @@ export function resolveBuild(
       if (removed.size < need) {
         const candidates = units
           .filter((u) => u.nation === nation && !removed.has(u.territory))
-          .sort(civilDisorderOrder(map, nation))
+          .sort(civilDisorderOrder(map, nation, owners))
         for (let i = 0; removed.size < need && i < candidates.length; i++) {
           removed.add(candidates[i].territory)
         }
@@ -110,18 +112,50 @@ export function resolveBuild(
         results.push({ order: o, code: 'void', reason: 'no adjustment owed' })
       }
     }
+    // Conversions, after builds and removals: only units that started the phase on the
+    // board, and were not removed, switch type.
+    const converted = new Set<string>()
+    for (const o of all.filter((x) => x.type === 'Convert')) {
+      if (!map.rules?.conversion) {
+        results.push({ order: o, code: 'void', reason: 'conversion not allowed on this map' })
+        continue
+      }
+      const idx = units.findIndex((u) => u.nation === nation && u.territory === o.source)
+      const before = board.units.find((u) => u.nation === nation && u.territory === o.source)
+      if (idx < 0 || !before) {
+        results.push({ order: o, code: 'void', reason: before ? 'unit removed' : 'no such unit to convert' })
+        continue
+      }
+      if (converted.has(o.source)) {
+        results.push({ order: o, code: 'void', reason: 'unit already converted' })
+        continue
+      }
+      const target = conversionTarget(map, before, owners)
+      if (!target || o.unitType !== target) {
+        results.push({ order: o, code: 'void', reason: 'cannot convert here' })
+        continue
+      }
+      if (target === 'fleet' && map.territories[o.source].coasts && !o.sourceCoast) {
+        results.push({ order: o, code: 'void', reason: 'fleet needs a coast' })
+        continue
+      }
+      units[idx] = { ...units[idx], type: target, coast: target === 'fleet' ? o.sourceCoast : undefined }
+      converted.add(o.source)
+      results.push({ order: o, code: 'succeeds', reason: 'unit converted' })
+    }
   }
 
   return { units: sortUnits(units), results }
 }
 
 /**
- * Civil-disorder ordering: remove units furthest from a home SC first, fleets
+ * Civil-disorder ordering: remove units furthest from a home SC (any owned SC under
+ * conscription) first, fleets
  * before armies on ties, then alphabetical province id (the deterministic
  * tiebreak where the rules leave the owner a choice).
  */
-function civilDisorderOrder(map: MapDefinition, nation: string) {
-  const homes = disorderHomes(map, nation)
+function civilDisorderOrder(map: MapDefinition, nation: string, owners: Record<string, string>) {
+  const homes = disorderHomes(map, nation, owners)
   const dist = (u: Unit): number => distanceToNearest(map, u, homes)
   return (a: Unit, b: Unit): number => {
     const da = dist(a)

@@ -1,7 +1,8 @@
 <script lang="ts">
-  // End-of-game notice in the board sidebar: the solo winner, the agreed tie or win by
+  // End-of-game notice in the board sidebar: the solo winner (or shared win), the agreed tie or win by
   // concession, or a plain "game over" when the game ended without one.
-  export let winner: { name: string; centers: number } | null | undefined = null
+  /** `names`: every power sharing the win when several tie for the most centers (Era of Empire). */
+  export let winner: { name: string; centers: number; names?: string[] } | null | undefined = null
   /** The game ended by the players' votes. */
   export let result: { kind: 'draw' | 'concession'; names: string[] } | null | undefined = null
 
@@ -12,6 +13,7 @@
 <div class="victory" role="status">
   {#if result?.kind === 'concession'}🏆 {result.names[0]} wins: every other power conceded.
   {:else if result}🤝 {result.names.length}-way tie between {list(result.names)}.
+  {:else if winner?.names && winner.names.length > 1}🏆 {list(winner.names)} share the victory with {winner.centers} supply centers each.
   {:else if winner}🏆 {winner.name} wins with {winner.centers} supply centers.{:else}This game is over.{/if}
 </div>
 

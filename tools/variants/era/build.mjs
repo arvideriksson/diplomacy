@@ -446,6 +446,9 @@ for (const u of START) {
 const map = {
   id: 'era', name: 'Era of Empire', description: 'Diplomacy: Era of Empire — Asia, 1870', playerCount: 7,
   startingYear: 1870, victoryCenters: 22,
+  // The rulebook's Winter rules: build in any owned center (conscription), switch a unit's
+  // type on a center (conversion); powers tied for the most centers at 22+ share the win.
+  rules: { buildAnyCenter: true, conversion: true, sharedVictory: true },
   powers: POWERS.map(([id, name, color]) => ({ id, name, color })),
   territories,
   startingUnits: START.map((u) => { const [t, id] = u.split(' '); return { type: t === 'A' ? 'army' : 'fleet', power: homeOf[id], territory: id } }),

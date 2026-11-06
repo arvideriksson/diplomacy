@@ -41,6 +41,23 @@ export interface VariantRules {
   emergency?: { nation: string; buildSite: string }
   /** A winner must also hold strictly more centers than every other power; ties play on. */
   strictVictory?: boolean
+  /**
+   * Conscription (Era of Empire): a power builds in any supply center it owns and that is
+   * unoccupied, not only its home centers; civil-disorder removals count the distance to
+   * the nearest owned center instead of the nearest home center.
+   */
+  buildAnyCenter?: boolean
+  /**
+   * Conversion (Era of Empire): in the build phase a unit standing on a supply center its
+   * power owns may switch between army and fleet (a fleet only on a coastal center). It
+   * uses no build, and is allowed with no builds or removals owed.
+   */
+  conversion?: boolean
+  /**
+   * Shared victory (Era of Empire): when several powers reach the target together, the one
+   * with the most centers wins, and powers tied for the most share the victory.
+   */
+  sharedVictory?: boolean
 }
 
 export interface PowerDefinition {

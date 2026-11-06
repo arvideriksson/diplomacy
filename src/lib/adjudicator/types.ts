@@ -62,6 +62,10 @@ export interface OrderResult {
 export interface AdjudicationResult {
   newBoardState: BoardState
   results: OrderResult[]
-  /** True once a power controls a winning majority of supply centers. */
-  victory?: { nation: string; centers: number }
+  /**
+   * Set once a power controls a winning majority of supply centers. Under a shared victory
+   * (VariantRules.sharedVictory) `shared` lists every power tied for the win, sorted, and
+   * `nation` is the first of them.
+   */
+  victory?: { nation: string; centers: number; shared?: string[] }
 }

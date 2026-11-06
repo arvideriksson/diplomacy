@@ -22,7 +22,7 @@ import {
   supplyCenterProvinces,
   unitCountByNation,
 } from './state'
-import { nationsOf, unitAllowance } from './rules'
+import { conversionTarget, nationsOf, unitAllowance } from './rules'
 
 export function adjudicate(
   map: MapDefinition,
@@ -82,7 +82,11 @@ function advanceAfterRetreats(
   // Fall complete — supply centers change hands now.
   const newOwners = recomputeSupplyCenters(map, units, owners)
   const uc = unitCountByNation(units)
-  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0))
+  // A build phase opens when a power owes builds or removals, or (conversion) a unit could
+  // switch type.
+  const needsAdjustment =
+    nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0)) ||
+    units.some((u) => conversionTarget(map, u, newOwners))
   if (needsAdjustment) {
     return { phase: 'build', season: 'Fall', year, units, supplyCenters: newOwners, dislodged: [], contested: [] }
   }
@@ -111,6 +115,12 @@ export function victoryFor(map: MapDefinition, owners: Record<string, string>): 
     if (centers >= threshold && (!victory || centers > victory.centers)) {
       victory = { nation, centers }
     }
+  }
+  // Shared victory (Era of Empire): every power tied for the most centers shares the win.
+  if (victory && map.rules?.sharedVictory) {
+    const lead = victory
+    const tied = Object.entries(sc).filter(([, c]) => c === lead.centers).map(([n]) => n).sort()
+    victory = tied.length > 1 ? { nation: tied[0], centers: lead.centers, shared: tied } : { nation: lead.nation, centers: lead.centers }
   }
   // Strict victory (1900): the leader must hold more centers than every other power.
   if (victory && map.rules?.strictVictory) {

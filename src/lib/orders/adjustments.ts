@@ -5,7 +5,7 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
 import { reachable, reachableCoasts, type MoveTarget } from './options'
-import { buildSites, unitAllowance } from '../adjudicator/rules'
+import { buildSites, conversionTarget, convertibleUnits, unitAllowance } from '../adjudicator/rules'
 import { isRetreatBlocked } from '../adjudicator/retreat'
 
 /**
@@ -51,6 +51,16 @@ export interface BuildSituation {
   spots: BuildSpot[]
   /** The nation's units, any of which may be removed (relevant when delta < 0). */
   removable: Unit[]
+  /** Units that may switch type where they stand (conversion), whatever is owed; absent without the rule. */
+  convertible?: ConvertChoice[]
+}
+
+export interface ConvertChoice {
+  territory: string
+  /** The type the unit would become. */
+  to: 'army' | 'fleet'
+  /** Named coasts to choose from when it becomes a fleet on a multi-coast province. */
+  coasts?: string[]
 }
 
 /** Compute a nation's build/disband situation for the current board. */
@@ -63,7 +73,8 @@ export function buildSituation(
   const myUnits = units.filter((u) => u.nation === nation)
 
   const spots: BuildSpot[] = []
-  // Owned, unoccupied home centers plus any variant build site (1900: Siberia).
+  // Owned, unoccupied home centers (any owned center under conscription) plus any variant
+  // build site (1900: Siberia).
   for (const sc of buildSites(map, nation, owners, units)) {
     const t = map.territories[sc]
     const types: Array<'army' | 'fleet'> = ['army']
@@ -71,5 +82,11 @@ export function buildSituation(
     spots.push({ province: sc, types, coasts: t.coasts ? Object.keys(t.coasts) : undefined })
   }
 
-  return { delta: unitAllowance(map, nation, owners) - myUnits.length, spots, removable: myUnits }
+  const convertible = convertibleUnits(map, nation, owners, units).map((u) => {
+    const to = conversionTarget(map, u, owners)!
+    const coasts = map.territories[u.territory].coasts
+    return { territory: u.territory, to, ...(to === 'fleet' && coasts ? { coasts: Object.keys(coasts) } : {}) }
+  })
+
+  return { delta: unitAllowance(map, nation, owners) - myUnits.length, spots, removable: myUnits, convertible }
 }

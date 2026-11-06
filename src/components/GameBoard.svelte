@@ -24,7 +24,7 @@
   import {
     orderSource, withImplicitHolds, toRenderOrders, orderFailed, supportCut, applyChoice, commitMove, unorderedUnitIds,
     retreatChoices as retreatChoicesFor, retreatMapInputs,
-    openBuildSpots, openRemovals, buildMapInputs, buildPrompt as buildPromptFor, coastName,
+    openBuildSpots, openRemovals, openConversions, buildMapInputs, convertMapIds, buildPrompt as buildPromptFor, coastName,
   } from '../lib/orders/board'
   import { isIdle } from '../lib/adjudicator/idle'
   import { formatAnyOrder, describeAnyOrder } from '../lib/orders/notation'
@@ -561,6 +561,11 @@
   // Open home centers still buildable, and units still removable.
   $: buildSpots = openBuildSpots(buildSituations, orders)
   $: removeChoices = openRemovals(buildSituations, orders)
+  // Units that may switch type where they stand (conversion), not yet ordered.
+  $: convertChoices = openConversions(buildSituations, orders)
+  $: convertibleAt = (p: string) =>
+    buildSituations.flatMap((s) => (s.convertible ?? []).map((c) => ({ ...c, nation: s.nation }))).find((c) => c.territory === p)
+  $: owesRemoval = (n: string) => (buildSituations.find((s) => s.nation === n)?.delta ?? 0) < 0
   const buildSpotAt = (p: string) => buildSpots.find((sp) => sp.province === p)
   $: buildSpotChoice = buildSel
     ? buildSituations.flatMap((s) => s.spots).find((sp) => sp.province === buildSel!.province)
@@ -580,7 +585,7 @@
     const gid = toGameId(dsvgId)
     // clicking an already-placed build/remove undoes it
     const existing = orders.find(
-      (o) => (o.type === 'Build' || o.type === 'Remove') && (o as BuildOrder).source === gid,
+      (o) => (o.type === 'Build' || o.type === 'Remove' || o.type === 'Convert') && (o as BuildOrder).source === gid,
     )
     const same = buildSel?.province === gid || removeSel?.territory === gid
     if (existing) {
@@ -601,9 +606,11 @@
       revealSoon(dsvgId)
       return
     }
+    // A unit owed as a removal, or one that may convert: its actions (Remove / Convert).
     const removable = removeChoices.find((r) => r.territory === gid)
-    if (removable) {
-      removeSel = removable
+    const convertible = convertChoices.find((c) => c.territory === gid)
+    if (removable || convertible) {
+      removeSel = { territory: gid, nation: (removable ?? convertible)!.nation }
       revealSoon(dsvgId)
     }
   }
@@ -621,6 +628,17 @@
     const at = buildSel?.province ?? removeSel?.territory
     orders = orders.filter((o) => orderSource(o) !== at)
     cancel()
+    notifyOrders()
+  }
+
+  function placeConvert(unitType: 'army' | 'fleet', coast?: string) {
+    if (!removeSel) return
+    const at = removeSel.territory
+    orders = [
+      ...orders.filter((o) => orderSource(o) !== at),
+      { type: 'Convert', nation: removeSel.nation, source: at, unitType, sourceCoast: coast } as BuildOrder,
+    ]
+    removeSel = null
     notifyOrders()
   }
 
@@ -687,14 +705,26 @@
       return { anchor: toDsvgId(buildSel.province), items }
     }
     if (phase === 'build' && removeSel) {
-      const u = units.find((x) => x.territory === removeSel!.territory)
-      const placed = currentOrderType(removeSel.territory) === 'Remove'
-      return {
-        anchor: toDsvgId(removeSel.territory, u?.coast),
-        items: placed
-          ? [{ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: true }, { id: 'undo', label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' }]
-          : [{ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger' }],
+      const at = removeSel.territory
+      const u = units.find((x) => x.territory === at)
+      const placedType = currentOrderType(at)
+      const placed = orders.find((o) => orderSource(o) === at) as BuildOrder | undefined
+      const conv = convertibleAt(at)
+      const color = powerColor(mapDef.powers, removeSel.nation, '#888')
+      const items: Action[] = []
+      if (owesRemoval(removeSel.nation) || placedType === 'Remove')
+        items.push({ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: placedType === 'Remove' })
+      if (conv) {
+        const kind = conv.to === 'fleet' ? 'Fleet' : 'Army'
+        const coasts = conv.coasts ?? []
+        const active = (c?: string) => placedType === 'Convert' && (c === undefined || placed?.sourceCoast === c)
+        if (coasts.length > 1)
+          for (const c of coasts)
+            items.push({ id: `convert:${conv.to}:${c}`, label: `To ${kind} ${coastName(mapDef, at, c)}`, token: { type: kind, color }, active: active(c) })
+        else items.push({ id: `convert:${conv.to}`, label: `To ${kind}`, token: { type: kind, color }, key: 'C', active: active() })
       }
+      if (placedType) items.push({ id: 'undo', label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' })
+      return { anchor: toDsvgId(at, u?.coast), items }
     }
     return null
   })()
@@ -708,6 +738,10 @@
     }
     if (id === 'remove') return confirmRemove()
     if (id === 'undo') return undoAdjustment()
+    if (id.startsWith('convert:')) {
+      const [, to, coast] = id.split(':') as [string, 'army' | 'fleet', string | undefined]
+      return placeConvert(to, coast)
+    }
     const [unitType, coast] = id.split(':') as ['army' | 'fleet', string | undefined]
     placeBuild(unitType, coast)
   }
@@ -722,7 +756,11 @@
         : buildSel
           ? { title: `Build in ${provinceName(buildSel.province)}`, text: '' }
           : removeSel
-            ? { title: `Remove from ${provinceName(removeSel.territory)}?`, text: '' }
+            ? owesRemoval(removeSel.nation)
+              ? convertibleAt(removeSel.territory)
+                ? { title: `Remove or convert ${unitLabelAt(removeSel.territory)}?`, text: '' }
+                : { title: `Remove from ${provinceName(removeSel.territory)}?`, text: '' }
+              : { title: `Convert ${unitLabelAt(removeSel.territory)}?`, text: '' }
             : null
 
   let dismissedNotice = ''
@@ -816,7 +854,7 @@
           : '',
         pendingBuilds && buildSpots.length ? `You'll give up ${plural(pendingBuilds, 'build')} — unused builds are lost.` : '',
         pendingRemovals
-          ? `${plural(pendingRemovals, 'unit')} will be removed for you, farthest from your home centers first.`
+          ? `${plural(pendingRemovals, 'unit')} will be removed for you, farthest from your ${mapDef.rules?.buildAnyCenter ? 'supply' : 'home'} centers first.`
           : '',
       ].filter(Boolean)
   let confirmingSubmit = false
@@ -868,7 +906,7 @@
   // Retreat: the dislodged units awaiting an order, or the picked one's destinations.
   $: retreatMap = retreatMapInputs(mapDef, myDislodged, orders, units, contested, retreatRouting ? retreatSel : null)
   // Build: open slots as dashed "+" rings; placed builds/removes stay clickable to undo.
-  $: buildMap = buildMapInputs(buildSpots, removeChoices, orders)
+  $: buildMap = buildMapInputs(buildSpots, removeChoices, orders, convertChoices)
 
   $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : movementHighlighted
   $: selectable = readOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : movementSelectable
@@ -876,7 +914,8 @@
   $: mapRemoveSlots = !readOnly && phase === 'build' ? buildMap.removeIds : []
 
   // Movement: amber-flag own units that still have no order so none get forgotten.
-  $: unorderedSlots = canAct && phase === 'movement' ? unorderedUnitIds(ownUnits, orders, draft?.source) : []
+  // Build: the same soft cue on units that may convert (optional, so no dashed ring).
+  $: unorderedSlots = !canAct ? [] : phase === 'movement' ? unorderedUnitIds(ownUnits, orders, draft?.source) : phase === 'build' ? convertMapIds(convertChoices, removeChoices) : []
   // Phones open zoomed in on the viewer's own units.
   $: focusUnits = controlAll ? units.filter((u) => focusNation && sameNation(u.nation, focusNation)) : ownUnits
   // A retreat opens on the dislodged units instead — that's where the decisions are.
@@ -913,9 +952,13 @@
   })()
 
   // The to-do lists cover what's left to place; the prompt only speaks when they're empty.
-  $: buildPrompt = phase !== 'build' || todos.length || orders.length ? '' : buildPromptFor(buildSituations)
+  $: buildPrompt = phase !== 'build' || todos.length || orders.length ? '' : buildPromptFor(buildSituations, Boolean(mapDef.rules?.buildAnyCenter))
 
   const unitLabel = (u: Unit) => `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(u.territory)}`
+  const unitLabelAt = (p: string) => {
+    const u = units.find((x) => x.territory === p)
+    return u ? unitLabel(u) : provinceName(p)
+  }
   const placedFor = (type: 'Build' | 'Remove', n: string) => orders.filter((o) => o.type === type && o.nation === n).length
   // Build-phase to-dos, one group per power (several in a sandbox), each tagged with
   // the power when one board commands them all.
@@ -997,7 +1040,7 @@
   // Led by the unit type ("Army Berlin → Kiel") — the plain line names what moves.
   $: describeOrder = (o: AnyOrder): string => {
     const text = describeAnyOrder(mapDef, o)
-    if (o.type === 'Build' || o.type === 'Remove') return text
+    if (o.type === 'Build' || o.type === 'Remove' || o.type === 'Convert') return text
     const u = units.find((x) => x.territory === o.source) ?? dislodged.find((d) => d.unit.territory === o.source)?.unit
     return u ? `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${text}` : text
   }

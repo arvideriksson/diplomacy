@@ -311,7 +311,7 @@
     <svelte:fragment slot="results">
       {#if isComplete}
         <VictoryBanner
-          winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers }}
+          winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers, names: winner.shared?.map((n) => powerName(map.powers, n)) }}
           result={game.result && { kind: game.result.kind, names: game.result.nations.map((n) => powerName(map.powers, n)) }}
         />
       {/if}
