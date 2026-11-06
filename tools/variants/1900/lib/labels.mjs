@@ -7,13 +7,13 @@
 const ADVANCE = { sc: 0.64, land: 0.52, sea: 0.74 }
 export const labelBox = ({ text, size, kind }) => ({ w: text.length * size * ADVANCE[kind] + (kind === 'sea' ? 2 * text.length : 0), h: size * 0.78 })
 
-const bboxOf = (g) => {
+export const bboxOf = (g) => {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   for (const p of g) for (const [x, y] of p[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y) }
   return [Math.floor(x0) - 2, Math.floor(y0) - 2, Math.ceil(x1) + 2, Math.ceil(y1) + 2]
 }
 
-function rasterize(g, [x0, y0, x1, y1]) {
+export function rasterize(g, [x0, y0, x1, y1]) {
   const w = x1 - x0, h = y1 - y0, grid = new Uint8Array(w * h)
   for (let y = 0; y < h; y++) {
     const cy = y0 + y + 0.5, xs = []
@@ -28,7 +28,7 @@ function rasterize(g, [x0, y0, x1, y1]) {
 }
 
 // Chamfer distance to the nearest blocked cell.
-function distanceField({ grid, w, h }) {
+export function distanceField({ grid, w, h }) {
   const d = new Float32Array(w * h), D2 = Math.SQRT2
   for (let i = 0; i < d.length; i++) d[i] = grid[i] ? 1e6 : 0
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -47,7 +47,7 @@ function distanceField({ grid, w, h }) {
 }
 
 // Rotated rectangle sample points (corners, edges and interior grid).
-const rectPoints = ([cx, cy], w, h, deg) => {
+export const rectPoints = ([cx, cy], w, h, deg) => {
   const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), pts = []
   const nx = Math.max(2, Math.ceil(w / 3)), ny = Math.max(2, Math.ceil(h / 3))
   for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {

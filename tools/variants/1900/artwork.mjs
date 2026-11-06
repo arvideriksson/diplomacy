@@ -3,7 +3,7 @@
 // dashed sea borders, striped unplayable islands, bullseye supply centers.
 import { ringsPath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
-import { simplify, boundaryDistance, subtract, intersect, area } from './lib/geom.mjs'
+import { simplify, boundaryDistance, subtract, intersect, union, area } from './lib/geom.mjs'
 
 const SEA = '#d4d0ad', LAND = '#f4d7b5'
 const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, serif"
@@ -23,8 +23,12 @@ const bullseye = ([x, y]) => {
 export function label({ text, at: [x, y], angle = 0, size = 16, kind = 'land', bold = false }) {
   const face = kind === 'sc' ? `font-weight:${bold ? 'bold' : 'normal'};${FONT}` : `font-style:italic;font-weight:normal;${NAME_FONT}`
   const spacing = kind === 'sea' ? 'letter-spacing:2px;' : ''
-  return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${kind === 'sea' ? text.toUpperCase() : text}</text>`
+  const lines = (kind === 'sea' ? text.toUpperCase() : text).split('\n')
+  // Several lines (text with '\n'): centred on (x, y), LINE_HEIGHT apart.
+  const body = lines.length === 1 ? lines[0] : lines.map((t, i) => `<tspan x="${r2(x)}" dy="${r2(i ? size * LINE_HEIGHT : -(lines.length - 1) / 2 * size * LINE_HEIGHT)}">${t}</tspan>`).join('')
+  return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${body}</text>`
 }
+export const LINE_HEIGHT = 1.1
 
 export const coastMark = ({ text, at: [x, y], angle = 0 }) =>
   `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="font-weight:bold;font-size:12px;${FONT};fill:#000000;stroke:none">${text}</text>`
@@ -146,6 +150,20 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ring.push(...(ring.length ? line.slice(1) : line))
   }
   const outlinePath = (id) => (outlines[id] ?? []).filter(Boolean).map((rings) => rings.map((r) => polyline(r) + 'Z').join('')).join('')
+  // Drawn water reaches the province's drawn outline, not just its traced shape, so no sliver
+  // of land fill (without water-lining) shows between the two.
+  // The land fill leaves that water out, so its edge stroke cannot show past the outline.
+  const outlineGeom = (id) => union(...outlines[id].filter(Boolean).map((rings) => [rings]))
+  const landFill = {}
+  const drawnWater = waterParts.map((g) => {
+    const owner = land.find(([, geom]) => area(intersect(geom, g)) > area(g) / 2)
+    if (!owner || !outlines[owner[0]]) return g
+    try {
+      const w = subtract(outlineGeom(owner[0]), subtract(owner[1], g))
+      landFill[owner[0]] = geomPath(subtract(outlineGeom(owner[0]), w))
+      return w
+    } catch { return g }
+  })
   // Where drawn water lies inside a land province, the land's edge along it is coast too.
   for (const g of waterParts) for (const [, geom] of land) {
     if (area(intersect(geom, g)) < 1) continue
@@ -163,18 +181,19 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
   // Water-lining: fine lines following the coast at increasing distance, fading outward.
   // The coastline is defined once (in defs) and reused by the shadow and water-lining.
   const coastUse = (style) => `<use href="#coast-line" style="${style}"/>`
+  // Round caps: the coast is many open lines, and a flat cap would cut a seam across the bands where one ends.
   const waterLines = [[3, 0.42], [7, 0.3], [11.5, 0.2], [16.5, 0.12]].reverse().map(([d, o]) =>
-    coastUse(`fill:none;stroke:#7d7a5c;stroke-opacity:${o};stroke-width:${2 * d + 1.1};stroke-linejoin:round`) + coastUse(`fill:none;stroke:${SEA};stroke-width:${2 * d - 0.1};stroke-linejoin:round`)).join('')
+    coastUse(`fill:none;stroke:#7d7a5c;stroke-opacity:${o};stroke-width:${2 * d + 1.1};stroke-linejoin:round;stroke-linecap:round`) + coastUse(`fill:none;stroke:${SEA};stroke-width:${2 * d - 0.1};stroke-linejoin:round;stroke-linecap:round`)).join('')
   const background = [
     `<rect width="${width}" height="${height}" style="fill:${SEA}"/>`,
     waterLines,
-    coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;filter:url(#filter848)'),
+    coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;stroke-linecap:round;filter:url(#filter848)'),
     // All land as one shape (the province outlines live in the provinces layer).
-    `<path d="${land.map(([id]) => outlinePath(id)).join('')}" style="fill:${LAND};stroke:${LAND};stroke-width:0.6"/>`,
+    `<path d="${land.map(([id]) => landFill[id] ?? outlinePath(id)).join('')}" style="fill:${LAND};stroke:${LAND};stroke-width:0.6"/>`,
     `<path d="${islandOutline}" style="fill:${LAND};fill-rule:evenodd"/>`,
-    ...waterParts.map((g) => `<path d="${geomPath(g)}" style="fill:${SEA};fill-rule:evenodd"/>`),
+    ...drawnWater.map((g) => `<path d="${geomPath(g)}" style="fill:${SEA};fill-rule:evenodd"/>`),
     // The water-lining continues into the drawn water.
-    waterParts.length ? `<g clip-path="url(#water-parts)">${waterLines}${coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;filter:url(#filter848)')}</g>` : '',
+    waterParts.length ? `<g clip-path="url(#water-parts)">${waterLines}${coastUse('fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:round;stroke-linecap:round;filter:url(#filter848)')}</g>` : '',
     ...canals.map((c) => `<path d="${polyline(c)}" style="fill:none;stroke:#000000;stroke-width:3.4;stroke-linejoin:round;stroke-linecap:round"/><path d="${polyline(c)}" style="fill:none;stroke:${SEA};stroke-width:2;stroke-linejoin:round;stroke-linecap:round"/>`),
   ].join('\n')
   const foreground = [
@@ -187,7 +206,7 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ...centers.map(bullseye),
   ].join('\n')
   defs = defs.replace('</defs>', `<path id="coast-line" d="${coastD}"/></defs>`)
-  defs = defs.replace('</defs>', `<clipPath id="water-parts"><path d="${waterParts.map(geomPath).join('')}"/></clipPath></defs>`)
+  defs = defs.replace('</defs>', `<clipPath id="water-parts"><path d="${drawnWater.map(geomPath).join('')}" clip-rule="evenodd"/></clipPath></defs>`)
   defs = defs.replace('</defs>', '<marker id="crossing-head" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#000000"/></marker></defs>')
   return { defs: style.font ? defs.replace('</defs>', `${fontFace()}</defs>`) : defs, background, foreground, names: labels.join('\n'), outlinePath }
 }

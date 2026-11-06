@@ -60,7 +60,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           245.4,
-          981
+          1017
         ]
       }
     },
@@ -107,7 +107,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           790.2,
-          484
+          480
         ]
       }
     },
@@ -131,8 +131,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2122.6,
-          371.4
+          2124.6,
+          367.4
         ]
       }
     },
@@ -201,8 +201,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1450,
-          973.2
+          1454,
+          951.2
         ]
       }
     },
@@ -249,8 +249,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          310,
-          389.2
+          316,
+          381.2
         ]
       }
     },
@@ -272,7 +272,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           793,
-          804.4
+          788.4
         ]
       }
     },
@@ -291,7 +291,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1392,
-          624
+          600
         ]
       }
     },
@@ -315,8 +315,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          412,
-          520
+          388,
+          538
         ]
       }
     },
@@ -339,7 +339,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           356.4,
-          286
+          306
         ]
       }
     },
@@ -363,7 +363,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1567,
-          875
+          873
         ]
       }
     },
@@ -409,7 +409,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1292,
-          872
+          888
         ]
       }
     },
@@ -451,7 +451,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           994,
-          735
+          733
         ]
       }
     },
@@ -492,8 +492,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          106,
-          271.4
+          228,
+          301.4
         ]
       }
     },
@@ -515,8 +515,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1641,
-          865.6
+          1655,
+          847.6
         ]
       }
     },
@@ -566,8 +566,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1990,
-          865.6
+          1976,
+          867.6
         ]
       }
     },
@@ -590,7 +590,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1948,
-          1160
+          1156
         ]
       }
     },
@@ -653,8 +653,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1698,
-          881
+          1644,
+          943
         ]
       }
     },
@@ -677,8 +677,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          18,
-          280
+          40,
+          290
         ]
       }
     },
@@ -701,7 +701,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1916,
-          380
+          382
         ]
       }
     },
@@ -721,7 +721,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1993,
-          1017
+          1019
         ]
       }
     },
@@ -784,7 +784,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1870,
-          719
+          677
         ]
       }
     },
@@ -828,7 +828,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1262,
-          1085
+          1075
         ]
       }
     },
@@ -852,7 +852,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           244,
-          838
+          844
         ]
       }
     },
@@ -874,8 +874,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1977,
-          592
+          1971,
+          640
         ]
       }
     },
@@ -917,8 +917,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1732,
-          988
+          1728,
+          976
         ]
       }
     },
@@ -1029,8 +1029,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1782,
-          1249
+          1718,
+          1203
         ]
       }
     },
@@ -1050,7 +1050,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1045,
-          377
+          367
         ]
       }
     },
@@ -1066,8 +1066,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          976,
-          439
+          1042,
+          501
         ]
       }
     },
@@ -1091,8 +1091,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          832,
-          546
+          828,
+          554
         ]
       }
     },
@@ -1112,7 +1112,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1060,
-          149
+          143
         ]
       }
     },
@@ -1139,8 +1139,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2099,
-          436
+          2101,
+          442
         ]
       }
     },
@@ -1161,8 +1161,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2010,
-          478
+          2014,
+          490
         ]
       }
     },
@@ -1180,7 +1180,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1475.2,
-          403
+          381
         ]
       }
     },
@@ -1195,13 +1195,12 @@ export const mapEra: MapDefinition = {
         "DAV",
         "MPO",
         "NG",
-        "SCS",
         "TS"
       ],
       "render": {
         "center": [
-          2152,
-          973
+          2128,
+          971.1
         ]
       }
     },
@@ -1219,7 +1218,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1157,
-          666
+          690
         ]
       }
     },
@@ -1260,8 +1259,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1094,
-          956
+          1098,
+          964
         ]
       }
     },
@@ -1287,8 +1286,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1596,
-          1070
+          1608,
+          1084
         ]
       }
     },
@@ -1322,8 +1321,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1484,
-          728
+          1494,
+          772
         ]
       }
     },
@@ -1345,8 +1344,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          261,
-          621
+          265,
+          643
         ]
       }
     },
@@ -1368,8 +1367,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1946.2,
-          787
+          1942.2,
+          789
         ]
       }
     },
@@ -1410,7 +1409,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1345,
-          251
+          229
         ]
       }
     },
@@ -1446,8 +1445,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2080.4,
-          734
+          2088.4,
+          702
         ]
       }
     },
@@ -1464,8 +1463,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          72,
-          508
+          64,
+          502
         ]
       }
     },
@@ -1489,7 +1488,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           998,
-          864
+          842
         ]
       }
     },
@@ -1507,7 +1506,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1089,
-          744
+          766
         ]
       }
     },
@@ -1523,8 +1522,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1187,
-          619
+          1201,
+          621
         ]
       }
     },
@@ -1589,7 +1588,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           653,
-          737
+          723
         ]
       }
     },
@@ -1623,7 +1622,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           651.4,
-          110
+          130
         ]
       }
     },
@@ -1645,8 +1644,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2104,
-          268.4
+          2110,
+          266.4
         ]
       }
     },
@@ -1668,8 +1667,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1850,
-          318
+          1794,
+          342
         ]
       }
     },
@@ -1737,8 +1736,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          502,
-          595
+          494,
+          625
         ]
       }
     },
@@ -1758,7 +1757,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           960,
-          540.4
+          502.4
         ]
       }
     },
@@ -1782,7 +1781,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           949,
-          655
+          663
         ]
       }
     },
@@ -1808,8 +1807,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1472,
-          823
+          1418,
+          771
         ]
       }
     },
@@ -1827,8 +1826,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          315,
-          827
+          321,
+          819
         ]
       }
     },
@@ -1914,7 +1913,6 @@ export const mapEra: MapDefinition = {
         "ECS",
         "GOS",
         "HK",
-        "LPO",
         "MNA",
         "SAR",
         "TON",
@@ -1922,8 +1920,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1828,
-          825
+          1830,
+          815
         ]
       }
     },
@@ -1970,8 +1968,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          523,
-          553
+          567,
+          575
         ]
       }
     },
@@ -2054,7 +2052,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1994.2,
-          311
+          309
         ]
       }
     },
@@ -2096,7 +2094,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           2111,
-          86
+          108
         ]
       }
     },
@@ -2142,8 +2140,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1536,
-          1115.4
+          1566,
+          1147.4
         ]
       }
     },
@@ -2168,7 +2166,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           251,
-          485.4
+          509.4
         ]
       }
     },
@@ -2186,7 +2184,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           468.4,
-          459
+          471
         ]
       }
     },
@@ -2203,7 +2201,7 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          894,
+          944,
           313.6
         ]
       }
@@ -2246,8 +2244,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          2152,
-          417
+          2146,
+          397
         ]
       }
     },
@@ -2271,8 +2269,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1570.4,
-          754
+          1618.4,
+          740
         ]
       }
     },
@@ -2291,7 +2289,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           2006,
-          1329
+          1311
         ]
       }
     },
@@ -2311,7 +2309,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           2123,
-          548
+          534
         ]
       }
     },
@@ -2328,7 +2326,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1125,
-          278
+          310
         ]
       }
     },
@@ -2376,7 +2374,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           796,
-          1032
+          1034
         ]
       }
     },
@@ -2398,8 +2396,8 @@ export const mapEra: MapDefinition = {
       ],
       "render": {
         "center": [
-          1938,
-          528.2
+          1934,
+          536.2
         ]
       }
     },
@@ -2424,7 +2422,7 @@ export const mapEra: MapDefinition = {
       "render": {
         "center": [
           1511,
-          641
+          653
         ]
       }
     }

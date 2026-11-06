@@ -13,8 +13,8 @@ import { readClassical } from '../1900/lib/classical.mjs'
 import { sharedEdges } from '../1900/lib/edges.mjs'
 import { drawBoard, geomPath, label } from '../1900/artwork.mjs'
 import { union, intersect, subtract, poly, contains, pole, area, boundaryDistance } from '../1900/lib/geom.mjs'
-import { LabelPlacer, labelBox } from '../1900/lib/labels.mjs'
-import { LABELS, BOLD_NAMES, UNITS, IMPASSABLE_ISLETS, CENTER_AT } from './layout.mjs'
+import { Placer, textBox } from './labels.mjs'
+import { LABELS, BOLD_NAMES, UNITS, IMPASSABLE_ISLETS, CENTER_AT, CEBU_WATER, LAND_PATCHES, WATER_PATCHES } from './layout.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../../..')
@@ -25,8 +25,11 @@ const ids = Object.keys(G.provinces)
 
 // Province geometry. Cebu is islands inside a ring of water that belongs to the province (drawn
 // as sea, its edge a dashed sea border, like 1900's Strait of Gibraltar).
+// Specks among Cebu's islands (a few square units, traced from the board's print) are water.
+const cebuSpecks = G.provinces.CEB.filter((pl) => area([pl]) < 50)
+G.provinces.CEB = G.provinces.CEB.filter((pl) => area([pl]) >= 50)
 const P = { ...G.provinces }
-P.CEB = union(P.CEB, G.cebuWater)
+P.CEB = union(P.CEB, G.cebuWater, cebuSpecks)
 // The Suez Canal is cut through Egypt as narrow water, as on the 1900 board; Egypt stays one
 // province on both banks.
 const channel = (pts, w) => {
@@ -47,6 +50,154 @@ const HIM = '~him'
 P[HIM] = G.himalaya
 const isSea = (id) => SEA.has(id)
 
+// Cebu's ring is traced from pixels, so its edge against the open sea is jagged: smooth it
+// there (the stretches along Manila's and Davao's coasts stay as they are). Water the smooth
+// edge takes in comes from the sea beside it; water it leaves goes back to that sea.
+{
+  for (const pts of CEBU_WATER) for (const id of ['MPO', 'LPO']) {
+    const handWater = intersect(P[id], poly(pts))
+    P[id] = subtract(P[id], handWater); P.CEB = union(P.CEB, handWater)
+  }
+  const ring = P.CEB.reduce((a, b) => (area([b]) > area([a]) ? b : a))[0]
+  const pts = []
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2))
+    for (let k = 0; k < n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n])
+  }
+  const [x0, y0, x1, y1] = [Math.min(...pts.map((p) => p[0])) - 5, Math.min(...pts.map((p) => p[1])) - 5, Math.max(...pts.map((p) => p[0])) + 5, Math.max(...pts.map((p) => p[1])) + 5]
+  const near = ids.filter((id) => id !== 'CEB' && P[id].some((pl) => pl[0].some(([x, y]) => x > x0 && x < x1 && y > y0 && y < y1)))
+  // What lies beside each point of the ring: a sea's id, or null (land).
+  const side = pts.map((p) => { let best = null, bd = 1.5; for (const id of near) { const d = boundaryDistance(P[id], p); if (d < bd) { bd = d; best = id } } return best && isSea(best) ? best : null })
+  const n = pts.length, sigma = 9, taper = 12
+  // Distance (in points) to the nearest land point, so the smoothing fades out towards the coasts.
+  const toLand = pts.map((_, i) => { for (let k = 0; k < n / 2; k++) if (!side[(i + k) % n] || !side[(i - k + n) % n]) return k; return n })
+  const smooth = pts.map((p, i) => {
+    if (!side[i]) return p
+    let sx = 0, sy = 0, sw = 0
+    for (let k = -3 * sigma; k <= 3 * sigma; k++) { const q = pts[(i + k + n) % n], w = Math.exp(-k * k / (2 * sigma * sigma)); sx += q[0] * w; sy += q[1] * w; sw += w }
+    const t = Math.min(1, toLand[i] / taper)
+    return [p[0] + (sx / sw - p[0]) * t, p[1] + (sy / sw - p[1]) * t]
+  })
+  const R = poly(smooth)
+  for (const id of near.filter(isSea)) { const taken = intersect(P[id], R); if (taken.length) { P[id] = subtract(P[id], R); P.CEB = union(P.CEB, taken) } }
+  // Where two seas meet on the ring, the border between them carries straight on to the
+  // smooth edge: a half-plane on the first sea's side of that border's last stretch.
+  const cuts = []
+  for (let i = 0; i < n; i++) {
+    const a = side[i], b = side[(i + 1) % n]
+    if (!a || !b || a === b) continue
+    const J = pts[i], border = P[a].flatMap((pl) => pl.flat()).filter((v) => boundaryDistance(P[b], v) < 0.3 && Math.hypot(v[0] - J[0], v[1] - J[1]) < 40)
+    const F = border.reduce((f, v) => (Math.hypot(v[0] - J[0], v[1] - J[1]) > Math.hypot(f[0] - J[0], f[1] - J[1]) ? v : f), J)
+    const d = [J[0] - F[0], J[1] - F[1]], len = Math.hypot(...d)
+    if (len < 3) continue
+    const u = [d[0] / len, d[1] / len], nrm = [-u[1], u[0]], q = pts[(i - 3 + n) % n]
+    const s = Math.sign((q[0] - J[0]) * nrm[0] + (q[1] - J[1]) * nrm[1]) || 1, far = 500
+    const at = (t, k) => [F[0] + u[0] * t + nrm[0] * s * k, F[1] + u[1] * t + nrm[1] * s * k]
+    cuts.push({ J, a, b, H: poly([at(-far, 0), at(far, 0), at(far, far), at(-far, far)]) })
+  }
+  // Water now outside the ring goes to the sea beside it.
+  for (const piece of subtract(P.CEB, R)) {
+    const cut = cuts.find(({ J }) => piece[0].some((v) => Math.hypot(v[0] - J[0], v[1] - J[1]) < 30))
+    const parts = cut ? [[cut.a, intersect([piece], cut.H)], [cut.b, subtract([piece], cut.H)]] : [[null, [piece]]]
+    for (const [to, g] of parts) for (const pc of g) {
+      let sea = to
+      if (!sea) {
+        const p = [pc[0].reduce((s, q) => s + q[0], 0) / pc[0].length, pc[0].reduce((s, q) => s + q[1], 0) / pc[0].length]
+        let bd = Infinity
+        pts.forEach((q, i) => { const dd = Math.hypot(q[0] - p[0], q[1] - p[1]); if (side[i] && dd < bd) { bd = dd; sea = side[i] } })
+      }
+      if (sea) { P[sea] = union(P[sea], [pc]); P.CEB = subtract(P.CEB, [pc]) }
+    }
+  }
+  // Bits of sea walled in between the ring and Manila's or Davao's coast are Cebu's water.
+  for (const id of near.filter(isSea)) {
+    const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+    for (const pc of P[id]) if (pc !== main && area([pc]) < 400) { P.CEB = union(P.CEB, [pc]); P[id] = P[id].filter((x) => x !== pc) }
+  }
+}
+// A small detached piece of a sea (a tracing sliver along another sea's coast) belongs to
+// the sea it touches most.
+for (const id of ids.filter(isSea)) {
+  if (P[id].length < 2) continue
+  const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+  for (const pc of P[id]) {
+    if (pc === main || area([pc]) >= 200) continue
+    let to = null, most = 0
+    for (const o of ids.filter((o) => o !== id && isSea(o))) { const n = pc[0].filter((v) => boundaryDistance(P[o], v) < 0.3).length; if (n > most) { most = n; to = o } }
+    if (to) { P[to] = union(P[to], [pc]); P[id] = P[id].filter((x) => x !== pc) }
+  }
+}
+// Specks of land cut off from their province (a few square units) go to what surrounds them.
+for (const id of ids.filter((x) => !isSea(x))) {
+  if (P[id].length < 2) continue
+  const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+  for (const pc of P[id]) {
+    if (pc === main || area([pc]) >= 6) continue
+    let to = null, most = 0
+    for (const o of ids.filter((o) => o !== id)) { const n = pc[0].filter((v) => boundaryDistance(P[o], v) < 0.3).length; if (n > most) { most = n; to = o } }
+    if (to) { P[to] = union(P[to], [pc]); P[id] = P[id].filter((x) => x !== pc) }
+  }
+}
+// Polygon operations can leave zero-width spikes (a ring running out to a point and straight
+// back) and zero-area holes, which draw as doubled lines and stubs: drop any vertex where the
+// ring reverses on itself, and any hole without area.
+const despike = (g) => g.map((pl) => pl.map((ring) => {
+  let r = ring.slice(), changed = true
+  while (changed && r.length > 3) {
+    changed = false
+    for (let i = 0; i < r.length && r.length > 3; i++) {
+      const a = r[(i - 1 + r.length) % r.length], v = r[i], b = r[(i + 1) % r.length]
+      const ux = v[0] - a[0], uy = v[1] - a[1], wx = b[0] - v[0], wy = b[1] - v[1], lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy)
+      if (lu < 1e-6 || lw < 1e-6 || ((ux * wx + uy * wy) / (lu * lw) < -0.995 && Math.abs(ux * wy - uy * wx) < 0.05 * Math.max(lu, lw))) { r.splice(i, 1); i--; changed = true }
+    }
+  }
+  return r
+}).filter((r, j) => j === 0 || (r.length > 3 && area([[r]]) >= 0.5))).filter((pl) => pl[0].length > 3)
+for (const id of ids) P[id] = despike(P[id])
+// Borders between two seas are traced from pixels and jagged: smooth each one, keeping its two
+// ends where they are, and split the two seas again along the smooth line.
+{
+  const key = ([x, y]) => `${Math.round(x * 100)},${Math.round(y * 100)}`
+  const sigma = 5, step = 1.5
+  const smoothRun = (run) => {
+    const pts = [run[0]]
+    for (let i = 1; i < run.length; i++) {
+      const a = run[i - 1], b = run[i], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step))
+      for (let k = 1; k <= n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n])
+    }
+    const n = pts.length, s = sigma / step, E0 = pts[0], E1 = pts[n - 1]
+    // Beyond each end the line is mirrored through that end, so the smooth line keeps its ends.
+    const at = (i) => (i < 0 ? [2 * E0[0] - pts[-i][0], 2 * E0[1] - pts[-i][1]] : i >= n ? [2 * E1[0] - pts[2 * n - 2 - i][0], 2 * E1[1] - pts[2 * n - 2 - i][1]] : pts[i])
+    return pts.map((p, i) => {
+      if (i === 0 || i === n - 1) return p
+      let sx = 0, sy = 0, sw = 0
+      for (let k = -Math.ceil(3 * s); k <= Math.ceil(3 * s); k++) { const j = Math.max(-(n - 1), Math.min(2 * n - 2, i + k)), q = at(j), w = Math.exp(-k * k / (2 * s * s)); sx += q[0] * w; sy += q[1] * w; sw += w }
+      return [sx / sw, sy / sw]
+    })
+  }
+  const seas = ids.filter(isSea)
+  for (const a of seas) for (const b of seas) {
+    if (a >= b) continue
+    const bKeys = new Set(P[b].flatMap((pl) => pl.flat()).map(key))
+    const mainA = P[a].reduce((x, y) => (area([y]) > area([x]) ? y : x)), ring = mainA[0]
+    const on = ring.map((v) => bKeys.has(key(v)))
+    if (on.filter(Boolean).length < 3 || on.every(Boolean)) continue
+    // Runs of the ring along b, starting the walk just after a point not on b.
+    const start = on.findIndex((x) => !x), n = ring.length, out = []
+    let run = []
+    const flush = () => { if (run.length >= 3) out.push(...smoothRun(run)); else out.push(...run); run = [] }
+    for (let k = 1; k <= n; k++) {
+      const v = ring[(start + k) % n]
+      if (on[(start + k) % n]) run.push(v)
+      else { flush(); out.push(v) }
+    }
+    flush()
+    const U = union(P[a], P[b]), A = intersect(U, [[out, ...mainA.slice(1)]])
+    const newA = union(A, ...P[a].filter((pl) => pl !== mainA).map((pl) => [pl]))
+    P[b] = subtract(U, newA); P[a] = newA
+  }
+}
+
 const classical = readClassical(readFileSync(resolve(root, 'public/maps/classical.dsvg'), 'utf8'))
 // Islets: each belongs to a province (it is shaded and clickable with it) but stays out of the
 // movement graph, which is read from the provinces' main shapes only.
@@ -54,6 +205,21 @@ const centroid = (r) => [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s
 const impassable = (i) => { const [x, y] = centroid(i.poly[0]); return IMPASSABLE_ISLETS.some(([x0, y0, x1, y1]) => x > x0 && x < x1 && y > y0 && y < y1) }
 // Islets are solid: drop interior rings (outline artefacts traced as holes).
 for (const i of G.islands) i.poly = [i.poly[0]]
+// An islet touching its own province is part of it (else both coasts are drawn, doubled).
+G.islands = G.islands.filter((i) => {
+  if (!P[i.owner] || !i.poly[0].some((p) => boundaryDistance(P[i.owner], p) < 0.3)) return true
+  P[i.owner] = union(P[i.owner], [i.poly]); return false
+})
+for (const { owner, poly: pts } of LAND_PATCHES) {
+  const patch = poly(pts)
+  for (const id of ids) if (isSea(id) || id === 'CEB') { const t = intersect(id === 'CEB' ? subtract(P.CEB, G.provinces.CEB) : P[id], patch); if (t.length) { P[id] = subtract(P[id], patch); P[owner] = union(P[owner], t) } }
+  G.islands = G.islands.filter((i) => { if (!intersect([i.poly], patch).length) return true; P[i.owner] = union(P[i.owner], [i.poly]); return false })
+  P[owner] = union(P[owner], intersect(patch, subtract(patch, ...ids.map((id) => P[id]))))
+}
+for (const { from, to, poly: pts } of WATER_PATCHES) { const t = intersect(P[from], poly(pts)); P[from] = subtract(P[from], poly(pts)); P[to] = union(P[to], t) }
+for (const id of ids) P[id] = despike(P[id])
+// The ring's water (Cebu's islands inside it), once the geometry is final.
+const cebuWater = subtract(P.CEB, G.provinces.CEB)
 const ISLANDS = G.islands.map((i) => [i.poly])
 const isletsOf = (id) => G.islands.filter((i) => i.owner === id && !impassable(i)).map((i) => [i.poly])
 const holes = [...G.lakes, ...ISLANDS, suezCanal]
@@ -79,22 +245,81 @@ for (const [id, c] of Object.entries(G.centers)) {
   }
   centers[id] = best
 }
-const placer = new LabelPlacer()
-for (const c of Object.values(centers)) placer.blockCircle(c, 12)
+const placer = new Placer()
+for (const c of Object.values(centers)) placer.blockCircle(c, 13)
 // Strait arrows: labels keep clear of them.
-for (const [a, b] of Object.values(G.arrows)) for (let t = 0; t <= 1; t += 0.05) placer.blockCircle([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], 4)
-const labels = [], labelRects = [], problems = []
-const order = ids.slice().sort((a, b) => area(P[a]) - area(P[b]))
-for (const id of order) {
-  const hint = LABELS[id] ?? {}
-  const kind = isSea(id) ? 'sea' : centers[id] ? 'sc' : 'land'
-  const text = hint.text ?? G.names[id]
-  const l = { text, kind, size: isSea(id) ? 16 : 17, minSize: 10, margin: 3, at: G.seeds[id][0], angle: 0, ...hint }
-  const geom = P[id]
-  const spot = l.fixed ? (placer.blockLabel(l.at, labelBox(l).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : placer.place(geom, l, pole(geom).point)
-  if (!spot) { problems.push(`no room for the ${text} label`); continue }
-  labels.push(label({ ...l, ...spot, bold: BOLD_NAMES.has(text) }))
-  labelRects.push({ at: spot.at, w: labelBox({ ...l, size: spot.size }).w, h: spot.size * 0.8, angle: spot.angle })
+for (const [a, b] of Object.values(G.arrows)) placer.blockLine(a, b, 5)
+const neighbours = (id) => [...lengths].filter(([k, len]) => len >= 2.5 && k.split('|').includes(id)).map(([k]) => k.split('|').find((x) => x !== id))
+const mainPiece = (g) => [g.reduce((a, b) => (area([b]) > area([a]) ? b : a))]
+const notOwnIslets = (id) => G.islands.filter((i) => i.owner !== id).map((i) => [i.poly])
+const problems = [], placed = {}
+const landOrder = ids.filter((id) => !isSea(id)).sort((a, b) => area(P[a]) - area(P[b]))
+const seaOrder = ids.filter(isSea).sort((a, b) => area(P[a]) - area(P[b]))
+// Ratio of the long to the short axis of a ring's vertices.
+const elongation = (ring) => {
+  const n = ring.length, mx = ring.reduce((s, q) => s + q[0], 0) / n, my = ring.reduce((s, q) => s + q[1], 0) / n
+  let sxx = 0, syy = 0, sxy = 0
+  for (const [x, y] of ring) { sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my) }
+  const h = Math.hypot((sxx - syy) / 2, sxy), m = (sxx + syy) / 2
+  return Math.sqrt((m + h) / Math.max(m - h, 1e-6))
+}
+const optsCache = {}
+const optsOf = (id) => optsCache[id] ??= (() => {
+  const hint = LABELS[id] ?? {}, kind = isSea(id) ? 'sea' : centers[id] ? 'sc' : 'land', name = hint.text ?? G.names[id]
+  const main = mainPiece(id === 'CEB' ? G.provinces.CEB : P[id]), scale = Math.sqrt(area(main))
+  // The visual centre: deep inside the shape, pulled towards its centroid (a plain pole of
+  // inaccessibility drifts into whichever lobe happens to be widest).
+  const ring = main[0][0], c = [ring.reduce((s, q) => s + q[0], 0) / ring.length, ring.reduce((s, q) => s + q[1], 0) / ring.length]
+  // Only large or elongated provinces need the pull; a small compact one's pole is its centre.
+  const pull = scale >= 165 || elongation(ring) > 1.8
+  const target = pole(main, pull ? (p) => 1 / (1 + Math.hypot(p[0] - c[0], p[1] - c[1]) / (0.35 * scale)) : undefined).point
+  return { name, kind, bold: BOLD_NAMES.has(G.names[id]), size: isSea(id) ? 16 : 17, minSize: isSea(id) ? 11 : 9, margin: isSea(id) ? 6 : 3, target, scale, ...hint }
+})()
+const placeFixed = (id, o) => { const b = textBox({ text: o.name, size: o.size, kind: o.kind, bold: o.bold }); placer.blockRect(o.at, b.w, b.h, o.angle ?? 0); placed[id] = { text: o.name, at: o.at, angle: o.angle ?? 0, size: o.size, ...b } }
+// 1. Land names inside their provinces, smallest provinces first.
+for (const id of landOrder) {
+  const o = optsOf(id)
+  if (o.fixed) { placeFixed(id, o); continue }
+  // Cebu's name goes in the water of its ring, clear of the islands.
+  const region = id === 'CEB' ? subtract(cebuWater, G.provinces.CEB, ...ISLANDS) : P[id]
+  if (o.spill !== 'first') placed[id] = placer.place(region, o)
+}
+// A land name in the water beside its province, on one line (step 2).
+const spill = (id) => {
+  const o = optsOf(id), cur = placed[id]
+  if (cur) placer.unblock(cur.blocked)
+  let alt = null
+  for (const sea of neighbours(id).filter(isSea)) {
+    const trial = new Placer(); trial.blocked = placer.blocked.slice()
+    // 'across': the name may lie across the coast, partly in the province and partly at sea.
+    const r = trial.place(subtract(o.across ? union(P[id], P[sea]) : P[sea], ...ISLANDS), { ...o, size: Math.min(o.size, 13), minSize: 10, margin: 4, scale: o.scale / 2.5, within: o.within ?? o.scale * 0.6 + 50, texts: [o.name], angles: o.angles ?? [0, -5, 5, -10, 10, -15, 15] })
+    if (r && (!alt || r.score > alt.score)) alt = r
+  }
+  if (alt && (!cur || alt.size >= cur.size + 2)) placed[id] = alt
+  if (placed[id]) placed[id].blocked = placer.blockRect(placed[id].at, placed[id].w, placed[id].h, placed[id].angle)
+}
+// Names that must go in the water (spill: 'first') do so even when they would fit inside.
+for (const id of landOrder) if (optsOf(id).spill === 'first') { placed[id] = null; spill(id) }
+// 2. A land name that only fits small (or not at all) goes in the water beside its province,
+// before the sea names (a sea has room to give way).
+for (const id of landOrder) {
+  const o = optsOf(id), cur = placed[id]
+  if (o.fixed || o.spill === false || o.spill === 'first' || (cur && cur.size >= 11)) continue
+  spill(id)
+}
+// 3. Sea names.
+for (const id of seaOrder) {
+  const o = optsOf(id)
+  if (o.fixed) { placeFixed(id, o); continue }
+  placed[id] = placer.place(subtract(P[id], ...notOwnIslets(id)), o)
+}
+const labels = [], labelRects = []
+for (const id of ids) {
+  const s = placed[id]
+  if (!s) { problems.push(`no room for the ${G.names[id]} label`); continue }
+  const o = optsOf(id)
+  labels.push(label({ text: s.text, at: s.at, angle: s.angle, size: s.size, kind: o.kind, bold: o.bold }))
+  labelRects.push({ at: s.at, w: s.w, h: s.h, angle: s.angle })
 }
 
 // --- Unit anchors: the most open spot of each province's largest piece, clear of its label
@@ -133,7 +358,7 @@ const islandLine = (g) => `<path d="${geomPath(g)}" style="fill:#f4d7b5;stroke:#
 const board = drawBoard({
   width, height, style: { font: true, unzig: false }, defs: classical.defs, provinces: P, isSea, chains,
   islands: ISLANDS, islandMarkup: [...G.islands.filter((i) => !impassable(i)).map((i) => islandLine([i.poly])), ...G.islands.filter(impassable).map((i) => fineStripes([i.poly])), stripes(G.himalaya)],
-  centers: Object.values(centers), labels, waterParts: [G.cebuWater],
+  centers: Object.values(centers), labels, waterParts: [cebuWater],
   crossings: Object.values(G.arrows),
 })
 const r1 = (n) => Math.round(n * 10) / 10
