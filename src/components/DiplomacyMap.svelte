@@ -743,6 +743,6 @@
     justify-content: center;
     height: 100%;
     color: #555;
-    font: 500 14px system-ui, sans-serif;
+    font: 500 14px var(--font);
   }
 </style>
