@@ -55,6 +55,30 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- ═══ public.announce_round(games)  — from 20250101000160_games_triggers.sql
+-- ── 3. round side effects, called by the functions that change the round ────────
+-- The push for a game that just entered round `g`: whom it's waiting on for an order
+-- phase, everyone when it's over.
+create or replace function public.announce_round(g public.games)
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
+begin
+  if public.is_order_phase(g.phase) then
+    perform public.push_notify(
+      public.nation_users(g.players, public.unready_nations(g)),
+      jsonb_build_object('title', g.name, 'body', public.round_label(g),
+                         'url', '/game/' || g.id, 'tag', 'round:' || g.id));
+  elsif g.phase = 'complete' then
+    perform public.push_notify(
+      public.nation_users(g.players, public.game_nations(g.players)),
+      jsonb_build_object('title', g.name, 'body', 'Game over',
+                         'url', '/game/' || g.id, 'tag', 'round:' || g.id));
+  end if;
+end;
+$$;
+
 -- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb, timestamptz, text[], jsonb)  — from 20250101000159_store_victory.sql
 create function public.apply_resolution(
   p_game_id    uuid,
@@ -148,15 +172,15 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.broadcast_game_change()  — from 20250101000154_hide_readiness.sql
--- ── 4. broadcasts carry no readiness ─────────────────────────────────────────────
+-- ═══ public.broadcast_game_change()  — from 20250101000160_games_triggers.sql
+-- ── 2. the broadcast, on the shared helper ───────────────────────────────────────
 create or replace function public.broadcast_game_change()
-returns trigger as $$
-declare
-  -- Columns whose change alone doesn't warrant re-sending the row.
-  quiet constant text[] := array['ready', 'resolving_at', 'updated_at'];
+returns trigger
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 begin
-  if (to_jsonb(new) - quiet) is distinct from (to_jsonb(old) - quiet) then
+  if public.game_row_changed(old, new) then
     perform realtime.send(to_jsonb(new) - 'ready', 'game', 'game:' || new.id::text, true);
   elsif new.ready is distinct from old.ready and public.in_grace(new) then
     perform realtime.send(jsonb_build_object('waiting', to_jsonb(public.unready_nations(new))),
@@ -164,7 +188,7 @@ begin
   end if;
   return null;
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.canonical_channel_members(uuid, text[])  — from 20250101000134_sql_helpers.sql
 -- canonical_channel_members (re-issues 123).
@@ -284,15 +308,19 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.commit_board(uuid, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
--- ── commit_board (re-issues 136): a committed board clears any agreed result ──
+-- ═══ public.commit_board(uuid, jsonb, jsonb, jsonb)  — from 20250101000160_games_triggers.sql
+-- commit_board (re-issues 141): announces the round it moves the game into.
 create or replace function public.commit_board(
   p_game_id    uuid,
   p_snapshot   jsonb,
   p_round      jsonb,
   p_ready_init jsonb
 )
-returns void as $$
+returns void
+language plpgsql
+set search_path = public, extensions, pg_temp
+as $$
+declare g public.games;
 begin
   update public.games
      set snapshot     = p_snapshot,
@@ -303,11 +331,13 @@ begin
                              else public.phase_deadline(settings, p_round ->> 'phase', now()) end,
          ready        = coalesce(p_ready_init, '{}'::jsonb),
          result       = null,
-         resolving_at = null,
-         updated_at   = now()
-   where id = p_game_id;
+         resolving_at = null
+   where id = p_game_id
+  returning * into g;
+  -- Every commit (resolution or revert) moves the game to a different round.
+  perform public.announce_round(g);
 end;
-$$ language plpgsql;
+$$;
 
 -- ═══ public.create_named_channel(uuid, text[], text)  — from 20250101000131_reuse_helpers.sql
 create or replace function public.create_named_channel(
@@ -333,27 +363,6 @@ begin
   returning * into ch;
 
   return ch;
-end;
-$$ language plpgsql security definer;
-
--- ═══ public.create_public_channel()  — from 20250101000134_sql_helpers.sql
--- create_public_channel (re-issues 127).
-create or replace function public.create_public_channel()
-returns trigger as $$
-declare nations text[];
-begin
-  if public.setting_bool(new.settings, 'gunboat', false) then
-    return new;  -- gunboat: no press, no public channel
-  end if;
-
-  nations := public.game_nations(new.players);
-
-  if coalesce(array_length(nations, 1), 0) >= 1 then
-    insert into public.chat_channels (game_id, members, is_public)
-    values (new.id, nations, true)
-    on conflict (game_id, members) where name is null do nothing;
-  end if;
-  return new;
 end;
 $$ language plpgsql security definer;
 
@@ -508,6 +517,53 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
+-- ═══ public.game_row_changed(games, games)  — from 20250101000160_games_triggers.sql
+-- ── shared helper ────────────────────────────────────────────────────────────────
+-- Whether a games update changed anything players see: every column except the quiet
+-- ones (readiness is secret; the claim is bookkeeping; updated_at follows from this).
+create or replace function public.game_row_changed(o public.games, n public.games)
+returns boolean as $$
+  select (to_jsonb(n) - array['ready', 'resolving_at', 'updated_at'])
+         is distinct from (to_jsonb(o) - array['ready', 'resolving_at', 'updated_at']);
+$$ language sql immutable;
+
+-- ═══ public.games_before_write()  — from 20250101000160_games_triggers.sql
+create or replace function public.games_before_write()
+returns trigger
+language plpgsql
+set search_path = public, extensions, pg_temp
+as $$
+declare
+  hc boolean := public.setting_bool(new.settings, 'host_controls', false);
+begin
+  -- 1. Direct client writes can't change privacy, map or settings after the start
+  --    (update_game_settings runs as its owner, so mid-game host edits pass).
+  if tg_op = 'UPDATE'
+     and current_user in ('anon', 'authenticated')
+     and old.phase <> 'lobby'
+     and (new.is_private, new.map_id, new.settings)
+         is distinct from (old.is_private, old.map_id, old.settings) then
+    raise exception 'Privacy, map and settings are locked once the game has started';
+  end if;
+
+  -- 2. Host controls are chosen in the lobby and need (and keep) a private game.
+  if tg_op = 'UPDATE' and old.phase <> 'lobby'
+     and hc is distinct from public.setting_bool(old.settings, 'host_controls', false) then
+    raise exception 'Host controls are fixed once the game has started';
+  end if;
+  if hc and not new.is_private then
+    raise exception 'Games with host controls must stay private';
+  end if;
+
+  -- 3. Derived columns.
+  new.grace_ends_at := new.deadline + make_interval(mins => public.grace_minutes(new.settings));
+  if tg_op = 'UPDATE' then
+    new.updated_at := case when public.game_row_changed(old, new) then now() else old.updated_at end;
+  end if;
+  return new;
+end;
+$$;
+
 -- ═══ public.get_or_create_channel(uuid, text[])  — from 20250101000131_reuse_helpers.sql
 create or replace function public.get_or_create_channel(
   p_game_id uuid,
@@ -544,43 +600,6 @@ returns integer as $$
     (p_settings ->> 'grace_period')::int,
     public.phase_timer_minutes(p_settings, 'movement')));
 $$ language sql immutable;
-
--- ═══ public.guard_client_game_update()  — from 20250101000128_lock_down_rpcs.sql
--- Privacy, map and settings are fixed once a game starts for direct (client) writes.
--- Mid-game setting changes go through update_game_settings, which runs as the
--- function owner and so isn't caught here.
-create or replace function public.guard_client_game_update()
-returns trigger as $$
-begin
-  if current_user in ('anon', 'authenticated')
-     and old.phase <> 'lobby'
-     and (new.is_private, new.map_id, new.settings)
-         is distinct from (old.is_private, old.map_id, old.settings) then
-    raise exception 'Privacy, map and settings are locked once the game has started';
-  end if;
-  return new;
-end;
-$$ language plpgsql;
-
--- ═══ public.guard_host_controls()  — from 20250101000134_sql_helpers.sql
--- guard_host_controls (re-issues 129): setting_bool; security definer (see above).
-create or replace function public.guard_host_controls()
-returns trigger as $$
-declare
-  hc boolean := public.setting_bool(new.settings, 'host_controls', false);
-begin
-  if tg_op = 'UPDATE' then
-    if old.phase <> 'lobby'
-       and hc is distinct from public.setting_bool(old.settings, 'host_controls', false) then
-      raise exception 'Host controls are fixed once the game has started';
-    end if;
-  end if;
-  if hc and not new.is_private then
-    raise exception 'Games with host controls must stay private';
-  end if;
-  return new;
-end;
-$$ language plpgsql security definer;
 
 -- ═══ public.host_force_resolve(uuid)  — from 20250101000134_sql_helpers.sql
 -- host_force_resolve (re-issues 129).
@@ -894,33 +913,23 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.notify_new_round()  — from 20250101000147_push_notifications.sql
--- ── new round ───────────────────────────────────────────────────────────────────
--- Fires on any change of the round pointer (start, resolution, revert). Nations the
--- adjudicator auto-readied have nothing to order, so they aren't told.
-create or replace function public.notify_new_round()
-returns trigger as $$
+-- ═══ public.open_public_channel(games)  — from 20250101000160_games_triggers.sql
+-- The game's public press channel (all its powers), unless it's gunboat.
+create or replace function public.open_public_channel(g public.games)
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare nations text[] := public.game_nations(g.players);
 begin
-  if public.is_order_phase(new.phase) then
-    perform public.push_notify(
-      public.nation_users(new.players, public.unready_nations(new)),
-      jsonb_build_object(
-        'title', new.name,
-        'body',  public.round_label(new),
-        'url',   '/game/' || new.id,
-        'tag',   'round:' || new.id));
-  elsif new.phase = 'complete' then
-    perform public.push_notify(
-      public.nation_users(new.players, public.game_nations(new.players)),
-      jsonb_build_object(
-        'title', new.name,
-        'body',  'Game over',
-        'url',   '/game/' || new.id,
-        'tag',   'round:' || new.id));
+  if public.setting_bool(g.settings, 'gunboat', false) then return; end if;
+  if coalesce(array_length(nations, 1), 0) >= 1 then
+    insert into public.chat_channels (game_id, members, is_public)
+    values (g.id, nations, true)
+    on conflict (game_id, members) where name is null do nothing;
   end if;
-  return null;
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.order_write_guard(uuid, integer, text, text, boolean)  — from 20250101000135_order_write_helpers.sql
 -- Validate an own-orders write and return the game row; returns null when the write is
@@ -1318,16 +1327,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.set_grace_ends_at()  — from 20250101000134_sql_helpers.sql
--- set_grace_ends_at (re-issues 133): body unchanged, now security definer (see above).
-create or replace function public.set_grace_ends_at()
-returns trigger as $$
-begin
-  new.grace_ends_at := new.deadline + make_interval(mins => public.grace_minutes(new.settings));
-  return new;
-end;
-$$ language plpgsql security definer;
-
 -- ═══ public.setting_bool(jsonb, text, boolean)  — from 20250101000134_sql_helpers.sql
 -- A boolean game setting, with the default for a missing key. Mirrors DEFAULT_SETTINGS.
 create or replace function public.setting_bool(p_settings jsonb, p_key text, p_default boolean)
@@ -1335,11 +1334,13 @@ returns boolean as $$
   select coalesce((p_settings ->> p_key)::boolean, p_default);
 $$ language sql immutable;
 
--- ═══ public.settle_draw(uuid)  — from 20250101000141_draw_votes.sql
--- End the game if the survivors have agreed. Service-only (no grant): called from
--- set_draw_vote and apply_resolution. Returns whether the game ended.
+-- ═══ public.settle_draw(uuid)  — from 20250101000160_games_triggers.sql
+-- settle_draw (re-issues 141): announces the end.
 create or replace function public.settle_draw(p_game_id uuid)
-returns boolean as $$
+returns boolean
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 declare
   g       public.games;
   outcome text[];
@@ -1360,17 +1361,21 @@ begin
                         'nations', to_jsonb(outcome),
                         'year',    g.year,
                         'season',  g.season,
-                        'phase',   g.phase),
-         updated_at = now()
-   where id = p_game_id;
+                        'phase',   g.phase)
+   where id = p_game_id
+  returning * into g;
+  perform public.announce_round(g);
   return true;
 end;
-$$ language plpgsql security definer;
+$$;
 
--- ═══ public.start_game(uuid)  — from 20250101000143_first_turn.sql
--- ── start_game (re-issues 138; only the deadline line changes) ─────────────────
+-- ═══ public.start_game(uuid)  — from 20250101000160_games_triggers.sql
+-- start_game (re-issues 143): opens the press channel and announces the first round.
 create or replace function public.start_game(p_game_id uuid)
-returns void as $$
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 declare
   g           public.games;
   powers      text[];
@@ -1416,11 +1421,14 @@ begin
          snapshot     = null,
          ready        = '{}'::jsonb,
          resolving_at = null,
-         deadline     = public.first_turn_deadline(g.settings, now()),
-         updated_at   = now()
-   where id = p_game_id;
+         deadline     = public.first_turn_deadline(g.settings, now())
+   where id = p_game_id
+  returning * into g;
+
+  perform public.open_public_channel(g);
+  perform public.announce_round(g);
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.submit_orders(uuid, jsonb, boolean, integer, text, text)  — from 20250101000158_single_sources.sql
 -- ── 1. submit_orders ─────────────────────────────────────────────────────────────
@@ -1500,22 +1508,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.touch_game_updated_at()  — from 20250101000154_hide_readiness.sql
--- ── 3. updated_at ignores readiness ──────────────────────────────────────────────
-create or replace function public.touch_game_updated_at()
-returns trigger as $$
-declare
-  quiet constant text[] := array['ready', 'resolving_at', 'updated_at'];
-begin
-  if (to_jsonb(new) - quiet) is distinct from (to_jsonb(old) - quiet) then
-    new.updated_at = now();
-  else
-    new.updated_at = old.updated_at;
-  end if;
-  return new;
-end;
-$$ language plpgsql;
-
 -- ═══ public.unready_nations(games)  — from 20250101000147_push_notifications.sql
 -- Nations in a game that haven't readied for the current round.
 create or replace function public.unready_nations(g public.games)
@@ -1525,10 +1517,13 @@ returns text[] as $$
    where not public.is_ready(g.ready, n);
 $$ language sql stable;
 
--- ═══ public.update_game_settings(uuid, jsonb)  — from 20250101000144_drop_dead_settings.sql
--- update_game_settings (re-issues 134): allow_spectators leaves the mid-game allowlist.
+-- ═══ public.update_game_settings(uuid, jsonb)  — from 20250101000160_games_triggers.sql
+-- update_game_settings (re-issues 144): updated_at is the trigger's.
 create or replace function public.update_game_settings(p_game_id uuid, p_settings jsonb)
-returns void as $$
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 declare
   g     public.games;
   patch jsonb;
@@ -1549,11 +1544,10 @@ begin
   end if;
 
   update public.games
-     set settings = settings || patch,
-         updated_at = now()
+     set settings = settings || patch
    where id = p_game_id;
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.update_updated_at()  — from 20250101000101_schema.sql
 -- Auto-update updated_at on row changes
