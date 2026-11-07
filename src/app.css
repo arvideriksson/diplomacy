@@ -1,5 +1,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&display=swap');
 
+/* The map label face (Libre Baskerville, OFL), loaded by the app so every board's names and
+   supply-center labels look the same on every device; a board file need not embed it. */
+@font-face {
+  font-family: 'Libre Baskerville';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/LibreBaskerville-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Libre Baskerville';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/LibreBaskerville-Italic-latin.woff2') format('woff2');
+}
+
 :root {
   /* The device's own interface font (San Francisco, Segoe UI, Roboto…), as most messaging
      apps do: nothing to download, and press reads like the player's other chats. */
