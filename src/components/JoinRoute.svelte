@@ -3,10 +3,13 @@
   import { navigate } from 'svelte-routing'
   import { joinGame, fetchGames } from '../lib/game'
   import { errorMessage } from '../lib/errors'
+  import { expandUuid } from '../lib/shortId'
   import StatusPage from './StatusPage.svelte'
 
-  // The :id param is the game id — the unguessable UUID is the invite token.
+  // The :id param is the game id (short base62 form, or a full UUID from older
+  // links) — the unguessable UUID is the invite token.
   export let id: string
+  $: gameId = expandUuid(id)
 
   let error = ''
 
@@ -14,9 +17,9 @@
   // user is signed in — join the game, then drop them into it.
   onMount(async () => {
     try {
-      await joinGame(id)
+      await joinGame(gameId)
       await fetchGames().catch(() => {})
-      navigate(`/game/${id}`, { replace: true })
+      navigate(`/game/${gameId}`, { replace: true })
     } catch (e) {
       error = errorMessage(e)
     }

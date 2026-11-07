@@ -15,6 +15,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import StatusPage from './StatusPage.svelte'
   import { errorMessage } from '../lib/errors'
+  import { shortenUuid } from '../lib/shortId'
   import { dismissable } from '../lib/actions/dismissable'
 
   export let gameId: string
@@ -192,7 +193,7 @@
   }
 
   // ── Invite, the ⋯ menu, delete and leave ─────────────────────────────────────
-  $: inviteLink = `${window.location.origin}/join/${gameId}`
+  $: inviteLink = `${window.location.origin}/join/${shortenUuid(gameId)}`
   // Phones get the share sheet; everything else copies the link.
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator && matchMedia('(pointer: coarse)').matches
   let copied = false
