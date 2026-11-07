@@ -4,14 +4,15 @@
  * The province partition comes from source/geometry.json, traced from the published board
  * (see trace/README.md). The drawing reuses the 1900 board's artwork, so all three boards
  * share one look: parchment land and sea, blurred coast shadow with water-lining, 1px land
- * borders, dashed sea borders, bullseye supply centers and Libre Baskerville labels.
+ * borders, dashed sea borders, supply-center points and Libre Baskerville labels; hand placements
+ * from the layout editor (/editor) come from placements.json.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { readClassical } from '../1900/lib/classical.mjs'
 import { sharedEdges } from '../1900/lib/edges.mjs'
-import { drawBoard, geomPath, label } from '../1900/artwork.mjs'
+import { drawBoard, geomPath, label, supplyCenterLayer } from '../1900/artwork.mjs'
 import { union, intersect, subtract, poly, contains, pole, area, boundaryDistance } from '../1900/lib/geom.mjs'
 import { Placer, textBox } from './labels.mjs'
 import { LABELS, BOLD_NAMES, UNITS, IMPASSABLE_ISLETS, CENTER_AT, CEBU_WATER, LAND_PATCHES, WATER_PATCHES } from './layout.mjs'
@@ -232,6 +233,10 @@ if (gapLength > 1) console.warn(`warning: unmatched boundary ${gapLength.toFixed
 // names italic, seas italic capitals, as on the classical board.
 // Supply centers sit on the published board's stars; a bullseye (radius 10) is larger than a
 // star, so one near a coast moves inland until it clears the coast.
+// Hand placements from the layout editor (/editor), keyed by dSVG id (lower case): unit
+// anchors, supply centers and labels. They win over everything computed here.
+const PLACEMENTS = { units: {}, centers: {}, labels: {}, ...JSON.parse(readFileSync(resolve(here, 'placements.json'), 'utf8')) }
+const fromDsvg = (d) => d.toUpperCase()
 const centers = {}
 for (const [id, c] of Object.entries(G.centers)) {
   if (CENTER_AT[id]) { centers[id] = CENTER_AT[id]; continue }
@@ -244,6 +249,10 @@ for (const [id, c] of Object.entries(G.centers)) {
     if (d > bd) { bd = d; best = p }
   }
   centers[id] = best
+}
+for (const [d, pt] of Object.entries(PLACEMENTS.centers)) {
+  if (!centers[fromDsvg(d)]) throw new Error(`placements.json: no supply center ${d}`)
+  centers[fromDsvg(d)] = pt
 }
 const placer = new Placer()
 for (const c of Object.values(centers)) placer.blockCircle(c, 13)
@@ -317,9 +326,10 @@ const labels = [], labelRects = []
 for (const id of ids) {
   const s = placed[id]
   if (!s) { problems.push(`no room for the ${G.names[id]} label`); continue }
-  const o = optsOf(id)
-  labels.push(label({ text: s.text, at: s.at, angle: s.angle, size: s.size, kind: o.kind, bold: o.bold }))
-  labelRects.push({ at: s.at, w: s.w, h: s.h, angle: s.angle })
+  const o = optsOf(id), lid = `name:${id.toLowerCase()}`, pin = PLACEMENTS.labels[lid]
+  const at = pin?.at ?? s.at, angle = pin ? pin.angle ?? s.angle : s.angle
+  labels.push(label({ id: lid, text: s.text, at, angle, size: s.size, kind: o.kind, bold: o.bold }))
+  labelRects.push({ at, w: s.w, h: s.h, angle })
 }
 
 // --- Unit anchors: the most open spot of each province's largest piece, clear of its label
@@ -331,7 +341,8 @@ const rectDistance = (p, { at, w, h, angle }) => {
 }
 const units = {}
 for (const id of ids) {
-  if (UNITS[id]) { units[id] = UNITS[id]; continue }
+  const pin = PLACEMENTS.units[id.toLowerCase()]
+  if (pin || UNITS[id]) { units[id] = pin ?? UNITS[id]; continue }
   const g = id === 'CEB' ? G.provinces.CEB : P[id]
   const main = [g.reduce((a, b) => (area([b]) > area([a]) ? b : a))]
   const xs = main[0][0].map((q) => q[0]), ys = main[0][0].map((q) => q[1])
@@ -358,7 +369,7 @@ const islandLine = (g) => `<path d="${geomPath(g)}" style="fill:#f4d7b5;stroke:#
 const board = drawBoard({
   width, height, style: { font: true, unzig: false }, defs: classical.defs, provinces: P, isSea, chains,
   islands: ISLANDS, islandMarkup: [...G.islands.filter((i) => !impassable(i)).map((i) => islandLine([i.poly])), ...G.islands.filter(impassable).map((i) => fineStripes([i.poly])), stripes(G.himalaya)],
-  centers: Object.values(centers), labels, waterParts: [cebuWater],
+  labels, waterParts: [cebuWater],
   crossings: Object.values(G.arrows),
 })
 const r1 = (n) => Math.round(n * 10) / 10
@@ -371,6 +382,7 @@ ${defs}
 ${layer('background', clipped(board.background.replace('style="fill:#f4d7b5;stroke:#f4d7b5;stroke-width:0.6"', 'style="fill:#f4d7b5;fill-rule:evenodd;stroke:#f4d7b5;stroke-width:0.6"')))}
 ${layer('provinces', ids.map((id) => `<path id="${dsvgId(id)}" d="${(board.outlinePath(id) || geomPath(P[id])) + isletsOf(id).map(geomPath).join('')}"/>`).join('\n'), ' style="display:none"')}
 ${layer('named-coasts', '', ' style="display:none"')}
+${supplyCenterLayer(centers, dsvgId)}
 ${layer('unit-positions', Object.entries(units).map(([id, [x, y]]) => `<circle id="${dsvgId(id)}" cx="${r1(x)}" cy="${r1(y)}"/>`).join(''), ' style="display:none"')}
 ${layer('province-names', board.names)}
 <g id="borders"/>

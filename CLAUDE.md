@@ -42,7 +42,7 @@ Develop and test against the **local** stack first; promote to **live** only onc
 - `src/lib/` — application logic
   - `supabase.ts` — Supabase client (configured via `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`)
   - `auth.ts`, `game.ts` — auth and game state
-  - `map/` — map rendering (SVG parsing, geometry, render state)
+  - `map/` — map rendering (SVG parsing, geometry, render state). Every board (`public/maps/*.dsvg`) stores its layout the same way: hidden `unit-positions` and `supply-centers` point layers (the app draws the bullseyes), and each name / coast mark / note as one group `<g id="name:<province>|coast:<province>/<coast>|note:…" transform="translate(x y) rotate(a)">` in `province-names`. The layout editor (`/editor`, local dev server only) moves all three; generated boards keep those edits in `tools/variants/<map>/placements.json`
   - `maps/` — board definitions (standard map), parameterizing both the order wizard and the adjudicator
   - `orders/` — order types, legal-move *options*, and the order-entry wizard (legality candidates for entry — **not** an adjudicator)
   - `adjudicator/` — pure, dependency-free TS adjudication engine, parameterized by a `MapDefinition`. Imported by the Edge Function; avoids browser/Node-specific APIs so Deno can run it.

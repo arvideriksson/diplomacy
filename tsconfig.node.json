@@ -22,5 +22,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "scripts/backend.ts", "scripts/unitAnchorsPlugin.ts"]
+  "include": ["vite.config.ts", "scripts/backend.ts", "scripts/mapLayoutPlugin.ts", "src/lib/map/layoutPatch.ts"]
 }

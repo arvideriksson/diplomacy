@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { VitePWA } from 'vite-plugin-pwa'
 import { backendName, resolveBackend } from './scripts/backend.ts'
-import { unitAnchorsPlugin } from './scripts/unitAnchorsPlugin.ts'
+import { mapLayoutPlugin } from './scripts/mapLayoutPlugin.ts'
 
 // https://vite.dev/config/
 export default defineConfig(({ command, isPreview }) => {
@@ -22,8 +22,8 @@ export default defineConfig(({ command, isPreview }) => {
   return {
     plugins: [
       svelte(),
-      // Saves from the unit anchor editor (/editor): local dev server only, never live.
-      process.env.VITE_BACKEND === 'local' && unitAnchorsPlugin(),
+      // Saves from the layout editor (/editor): local dev server only, never live.
+      process.env.VITE_BACKEND === 'local' && mapLayoutPlugin(),
       // Installable app + offline shell. Supabase traffic is cross-origin and never cached;
       // the service worker only serves the built assets and the board maps.
       VitePWA({

@@ -1,5 +1,5 @@
 // Read the classical board's vector layers: province polygons, unplayable islands,
-// supply-center positions, unit anchors, named coasts and individually placed labels.
+// supply-center points, unit anchors, named coasts and labels (one group per name or coast mark).
 import pc from 'polygon-clipping'
 import { pathRings } from './svgpath.mjs'
 import { attrs } from './xml.mjs'
@@ -49,27 +49,24 @@ export function readClassical(svg) {
   // Classical's hand-drawn dashed sea borders, by id.
   const seaBorders = Object.fromEntries([...foreground.matchAll(/<path\b([^>]*stroke-dasharray:4[^>]*)>/g)].map((m) => [attrs(m[1]).id, m[0]]))
   const defs = svg.match(/<defs\b[\s\S]*?<\/defs>/)[0]
-  // Supply-center bullseyes: groups of concentric circles, sometimes translated.
-  const centers = []
-  for (const m of foreground.matchAll(/<g\b([^>]*)>\s*(<circle[\s\S]*?)<\/g>/g)) {
-    const t = attrs(m[1]).transform?.match(/translate\(([-\d.e]+),([-\d.e]+)\)/)
-    const c = attrs(m[2].match(/<circle\b([^>]+)>/)[1])
-    centers.push([+c.cx + (t ? +t[1] : 0), +c.cy + (t ? +t[2] : 0)])
+  // Supply centers: points in the hidden supply-centers layer, keyed by province.
+  const centerOf = {}
+  for (const m of layer(svg, 'supply-centers').matchAll(/<circle\b([^>]+)>/g)) {
+    const a = attrs(m[1]); centerOf[a.id] = [+a.cx, +a.cy]
   }
-  // Labels: each <text> carries a rotation and its tspans' anchor points.
+  const centers = Object.values(centerOf)
+  // Labels: groups <g id="name:…|coast:…" transform="translate(x y) rotate(a)"> drawn around
+  // their origin; `inner` is the group's content.
   const labels = []
-  for (const m of layer(svg, 'province-names').matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) {
-    const a = attrs(m[1]), angle = +(a.transform?.match(/rotate\(([-\d.e]+)/)?.[1] ?? 0) * Math.PI / 180
-    const size = +(a.style?.match(/font-size:([\d.]+)px/)?.[1] ?? a['font-size'] ?? 16)
-    const spans = [...m[2].matchAll(/<tspan\b([^>]*)>([^<]*)<\/tspan>/g)].map((s) => ({ ...attrs(s[1]), text: s[2] }))
-    // Center of the first line, rotated into board coordinates.
-    const s0 = spans[0], w = s0.text.length * size * 0.55
-    const lx = +s0.x + w / 2, ly = +s0.y - size * 0.35
-    const at = [lx * Math.cos(angle) - ly * Math.sin(angle), lx * Math.sin(angle) + ly * Math.cos(angle)]
-    labels.push({ markup: m[0], text: spans.map((s) => s.text).join(' '), at, size, angle: angle * 180 / Math.PI, style: a.style })
+  for (const m of layer(svg, 'province-names').matchAll(/<g id="([^"]+)" transform="translate\(([-\d.e]+) ([-\d.e]+)\)(?: rotate\(([-\d.e]+)\))?">([\s\S]*?)<\/g>/g)) {
+    const [, id, x, y, angle = 0, inner] = m
+    const text = attrs(inner.match(/<text\b([^>]*)>/)[1])
+    const size = +(text.style?.match(/font-size:([\d.]+)px/)?.[1] ?? text['font-size'] ?? 16)
+    const words = [...inner.matchAll(/<tspan\b[^>]*>([^<]*)<\/tspan>/g)].map((t) => t[1])
+    labels.push({ id, inner, text: words.join(' '), at: [+x, +y], size, angle: +angle, style: text.style })
   }
   // The drawn board (background rect) is a unit narrower than the viewBox.
   const rect = attrs(svg.match(/<rect\b([^>]*id="background-rect"[^>]*)>/)[1])
   const width = +rect.width, height = +rect.height
-  return { width, height, defs, seaBorders, provinces, namedCoasts, units, islands, islandMarkup, centers, labels }
+  return { width, height, defs, seaBorders, provinces, namedCoasts, units, islands, islandMarkup, centers, centerOf, labels }
 }

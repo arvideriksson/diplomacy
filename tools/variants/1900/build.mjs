@@ -8,7 +8,7 @@ import { readClassical } from './lib/classical.mjs'
 import { attrs, refProvince } from './lib/xml.mjs'
 import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
-import { drawBoard, geomPath, label, coastMark, offBoardNote } from './artwork.mjs'
+import { drawBoard, geomPath, label, coastMark, offBoardNote, placed, supplyCenterLayer } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
 import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, MOVE_LABELS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
@@ -43,8 +43,22 @@ for (const p of provinces) for (const ref of Object.values(p.edges).flat()) {
 }
 for (const s of starts) if (!sourceIds.has(s.province)) throw new Error(`Unknown starting province ${s.province}`)
 
+// --- Id mapping. The app's ids (src/lib/map/idOverrides.ts) are the source ids uppercased,
+// except a few whose dSVG id differs; their source ids are the classical dSVG ids after
+// RENAMES (classical nrg is 1900's nws). ---
+const OVERRIDE_BY_SOURCE = Object.fromEntries(Object.entries(GAME_TO_DSVG_OVERRIDES).map(([game, dsvg]) => [RENAMES[dsvg] ?? dsvg, { game, dsvg }]))
+/** Source id -> app province id. */
+const toGame = (id) => OVERRIDE_BY_SOURCE[id]?.game ?? id.toUpperCase()
+
+/** Source id -> dSVG id, and back. */
+const outId = (id) => OVERRIDE_BY_SOURCE[id]?.dsvg ?? id
+const sourceOfOut = (dsvg) => Object.entries(OVERRIDE_BY_SOURCE).find(([, o]) => o.dsvg === dsvg)?.[0] ?? dsvg
+
 // --- Geometry: the classical partition, edited into the 1900 provinces. ---
 const classical = readClassical(readFileSync(resolve(root, 'public/maps/classical.dsvg'), 'utf8'))
+// Hand placements from the layout editor (/editor), keyed by dSVG id: unit anchors, supply
+// centers and labels. They win over everything computed here.
+const PLACEMENTS = { units: {}, centers: {}, labels: {}, ...JSON.parse(readFileSync(resolve(root, 'tools/variants/1900/placements.json'), 'utf8')) }
 const { width } = classical
 const { provinces: edited, gibraltarStrait } = europe(classical)
 const { provinces: P, project } = extendSouth(edited, classical, HEIGHT)
@@ -130,6 +144,11 @@ for (const pt of classical.centers) {
 }
 Object.assign(centers, Object.fromEntries(Object.entries(CENTERS).map(([id, c]) => [id, c === 'pole' ? pole(P[id]).point : c])))
 for (const id of Object.keys(supply)) if (id !== 'dum' && !centers[id]) throw new Error(`No supply center position for ${id}`)
+for (const [dsvgId, pt] of Object.entries(PLACEMENTS.centers)) {
+  const id = sourceOfOut(dsvgId)
+  if (!centers[id]) throw new Error(`placements.json: no supply center ${dsvgId}`)
+  centers[id] = pt
+}
 
 
 const units = {}, layoutProblems = []
@@ -157,35 +176,40 @@ for (const [id, g] of Object.entries(coastAreas)) {
   units[id] ??= UNITS[id] ?? classical.units[id] ?? pole(g).point
   if (!inside(id.split('/')[0], units[id])) layoutProblems.push(`coast anchor ${id} lies outside its province`)
 }
-// Anchors placed in the unit anchor editor (/editor), keyed by dSVG id: they win over all of the
-// above and are never moved off labels.
+// Unit anchors placed in the layout editor (/editor): they win over all of the above and are
+// never moved off labels.
 const pinned = new Set()
-for (const [id, pt] of Object.entries(JSON.parse(readFileSync(resolve(root, 'tools/variants/1900/anchors.json'), 'utf8')))) {
+for (const [id, pt] of Object.entries(PLACEMENTS.units)) {
   const [base, coast] = id.split('/')
-  const source = (RENAMES[base] ?? base) + (coast ? `/${coast}` : '')
-  if (!units[source]) throw new Error(`anchors.json: no unit anchor ${id}`)
+  const source = sourceOfOut(base) + (coast ? `/${coast}` : '')
+  if (!units[source]) throw new Error(`placements.json: no unit anchor ${id}`)
   units[source] = pt
   pinned.add(source)
-  if (!inside(source.split('/')[0], pt)) layoutProblems.push(`anchors.json: ${id} lies outside its province`)
+  if (!inside(source.split('/')[0], pt)) layoutProblems.push(`placements.json: ${id} lies outside its province`)
 }
 
 const near = (a, b, d = 25) => Math.hypot(a[0] - b[0], a[1] - b[1]) < d
+// A classical label's id after 1900's renames, in the app's dSVG naming (name:bot~2 -> name:gbo~2).
+const labelId = (id) => {
+  const [, kind, base, rest] = id.match(/^(\w+):([a-z]+)(.*)$/)
+  return `${kind}:${outId(RENAMES[base] ?? base)}${rest}`
+}
+// Where a label ends up: its hand placement if it has one, else `at`/`angle`.
+const pinnedAt = (id, at, angle) => PLACEMENTS.labels[id] ? { at: PLACEMENTS.labels[id].at, angle: PLACEMENTS.labels[id].angle ?? angle, pinned: true } : { at, angle }
 const moved = (l) => {
   const m = MOVE_LABELS[l.text]
-  if (!m) return l
-  const [dx, dy] = [m.at[0] - l.at[0], m.at[1] - l.at[1]], angle = m.angle ?? l.angle
-  const turn = angle === l.angle ? '' : ` rotate(${(angle - l.angle).toFixed(2)} ${l.at[0].toFixed(2)} ${l.at[1].toFixed(2)})`
-  return { ...l, at: m.at, angle, markup: `<g transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)})${turn}">${l.markup}</g>` }
+  return { ...l, id: labelId(l.id), ...(m ? { at: m.at, angle: m.angle ?? l.angle } : {}) }
 }
-const kept = classical.labels.filter((l) => !DROP_LABELS.has(l.text) && !DROP_COAST_MARKS.some(([t, at]) => t === l.text && near(l.at, at))).map(moved)
+const kept = classical.labels.filter((l) => !DROP_LABELS.has(l.text) && !DROP_COAST_MARKS.some(([t, at]) => t === l.text && near(l.at, at))).map(moved).map((l) => ({ ...l, ...pinnedAt(l.id, l.at, l.angle) }))
 // Classical upright names follow the same bold rule as the new ones (coast marks stay bold).
 const COAST_TEXT = new Set(['NC', 'SC', 'EC', 'WC'])
 const reweight = (l) => {
-  if (/font-style:italic/.test(l.markup) || COAST_TEXT.has(l.text)) return l.markup
+  if (/font-style:italic/.test(l.inner) || COAST_TEXT.has(l.text)) return l.inner
   const w = BOLD_NAMES.has(l.text) ? 'bold' : 'normal'
-  return l.markup.replace(/font-weight:\w+/g, `font-weight:${w}`).replace(/font-weight="\w+"/g, `font-weight="${w}"`)
+  return l.inner.replace(/font-weight:\w+/g, `font-weight:${w}`).replace(/font-weight="\w+"/g, `font-weight="${w}"`)
 }
-const labels = kept.map(reweight)
+const labels = kept.map((l) => placed(l, reweight(l)))
+const coastMarks = COAST_MARKS.map((m) => { const id = `coast:${outId(m.coast.split('/')[0])}/${m.coast.split('/')[1]}`; return { ...m, id, ...pinnedAt(id, m.at, m.angle) } })
 // New labels are placed automatically inside their province, clear of borders,
 // supply centers, coast marks and the classical labels that are kept.
 const placer = new LabelPlacer()
@@ -197,10 +221,11 @@ for (const l of kept) {
   const w = labelBox({ text: l.text, size: l.size, kind: 'sc' }).w
   placer.blockLabel(l.at, w, l.size * 0.8, l.angle); rect(l.at, w, l.size * 0.8, l.angle)
 }
-for (const m of COAST_MARKS) placer.blockLabel(m.at, 22, 10, m.angle)
+for (const m of coastMarks) placer.blockLabel(m.at, 22, 10, m.angle)
 const labelArea = (id) => P[id]
 for (const [id, hint] of Object.entries(LABELS).sort(([a], [b]) => area(labelArea(a)) - area(labelArea(b)))) {
-  const l = { size: 16, ...hint }
+  const pin = pinnedAt(`name:${outId(id)}`)
+  const l = { size: 16, ...hint, id: `name:${outId(id)}`, ...(pin.pinned ? { at: pin.at, angle: pin.angle ?? hint.angle ?? 0, fixed: true } : {}) }
   // `fixed` labels keep their hand position (they may overlap their supply center).
   const spot = l.fixed ? (placer.blockLabel(l.at, labelBox(l).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : (l.free ? new LabelPlacer() : placer).place(labelArea(id), l, pole(labelArea(id)).point)
   if (!spot) layoutProblems.push(`no room for the ${l.text} label`)
@@ -208,7 +233,7 @@ for (const [id, hint] of Object.entries(LABELS).sort(([a], [b]) => area(labelAre
   labels.push(label({ ...(spot ? { ...l, ...spot } : { ...l, at: l.at ?? pole(P[id]).point }), bold: BOLD_NAMES.has(l.text) }))
   if (spot) rect(spot.at, labelBox({ ...l, size: spot.size }).w, spot.size * 0.8, spot.angle)
 }
-for (const m of COAST_MARKS) rect(m.at, 22, 10, m.angle)
+for (const m of coastMarks) rect(m.at, 22, 10, m.angle)
 
 // Unit anchors in new or relabelled provinces stay clear of labels and supply
 // centers: a unit token has radius 11, so look for the most open spot inside the
@@ -240,7 +265,7 @@ for (const id of visible.map((p) => p.id)) {
   if (LABELS[id] && (!best || clearance(units[id], id) < 10)) layoutProblems.push(`no clear unit spot in ${id}`)
   if (process.env.LABEL_DEBUG) console.log('moved unit', id, units[id].map(Math.round), clearance(units[id], id).toFixed(1))
 }
-for (const m of COAST_MARKS) labels.push(coastMark(m))
+for (const m of coastMarks) labels.push(coastMark(m))
 let longRoutes
 // Notes for routes that leave the board, laid along a line fitted to the shore: the Red Sea's
 // centre line (midpoints between its shores) and the line of Morocco's Atlantic coast.
@@ -256,14 +281,17 @@ let longRoutes
     const t = Math.atan2(2 * sxy, sxx - syy) / 2
     return { c, dir: [Math.cos(t), Math.sin(t)] }
   }
-  const place = ({ text, textAt, arrow, offset = 0, tilt = 0 }, { c, dir }, heading) => {
+  const place = ({ id, text, textAt, arrow, offset = 0, tilt = 0 }, { c, dir }, heading) => {
     // `heading` picks which way the arrow points; the text always reads left to right.
     // `tilt` turns the note clockwise from the fitted line, in degrees.
     const f = dir[0] * heading[0] + dir[1] * heading[1] < 0 ? [-dir[0], -dir[1]] : dir, k = tilt * Math.PI / 180
     const d = [f[0] * Math.cos(k) - f[1] * Math.sin(k), f[0] * Math.sin(k) + f[1] * Math.cos(k)]
     const normal = [-d[1], d[0]], at = (t) => [c[0] + d[0] * t + normal[0] * offset, c[1] + d[1] * t + normal[1] * offset]
     const read = d[0] < 0 ? [-d[0], -d[1]] : d
-    labels.push(offBoardNote({ text, at: at(textAt), angle: Math.atan2(read[1], read[0]) * 180 / Math.PI, arrow: [at(arrow[0]), at(arrow[1])] }))
+    // A hand placement moves the whole note (text and arrow) by the same offset.
+    const textPos = at(textAt), pin = PLACEMENTS.labels[id]?.at, off = pin ? [pin[0] - textPos[0], pin[1] - textPos[1]] : [0, 0]
+    const shift = (p) => [p[0] + off[0], p[1] + off[1]]
+    labels.push(offBoardNote({ id, text, at: shift(textPos), angle: Math.atan2(read[1], read[0]) * 180 / Math.PI, arrow: [shift(at(arrow[0])), shift(at(arrow[1]))] }))
   }
   const red = []
   for (let y = RED_SEA_NOTE.span[0]; y <= RED_SEA_NOTE.span[1]; y += 2) { const xs = crossings(P.mid, 1, y).filter((x) => x > RED_SEA_NOTE.from); if (xs.length >= 2) red.push([(xs[0] + xs[1]) / 2, y]) }
@@ -289,18 +317,10 @@ let longRoutes
 for (const [id, pt] of Object.entries(centers)) if (!inside(id, pt)) layoutProblems.push(`supply center of ${id} lies outside it`)
 if (layoutProblems.length) (process.env.LAYOUT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Layout problems:\n  ${layoutProblems.join('\n  ')}`)
 
-// --- Id mapping. The app's ids (src/lib/map/idOverrides.ts) are the source ids uppercased,
-// except a few whose dSVG id differs; their source ids are the classical dSVG ids after
-// RENAMES (classical nrg is 1900's nws). ---
-const OVERRIDE_BY_SOURCE = Object.fromEntries(Object.entries(GAME_TO_DSVG_OVERRIDES).map(([game, dsvg]) => [RENAMES[dsvg] ?? dsvg, { game, dsvg }]))
-/** Source id -> app province id. */
-const toGame = (id) => OVERRIDE_BY_SOURCE[id]?.game ?? id.toUpperCase()
-
 // --- dSVG output. Province ids follow the app's dSVG naming. ---
-const outId = (id) => OVERRIDE_BY_SOURCE[id]?.dsvg ?? id
 // Finishing: embedded label font; no frame or compass rose on the board.
 const style = { font: true }
-const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, centers: Object.values(centers), labels, waterParts: [gibraltarStrait], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
+const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, labels, waterParts: [gibraltarStrait], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
 const r1 = (n) => Math.round(n * 10) / 10
 const layer = (id, body, extra = '') => `<g id="${id}"${extra}>\n${body}\n</g>`
 // The coast shading and water-lining reach past the board edge; clip the artwork to the board.
@@ -311,6 +331,7 @@ ${defs}
 ${layer('background', clipped(board.background))}
 ${layer('provinces', visible.map((p) => `<path id="${outId(p.id)}" d="${board.outlinePath(p.id) || geomPath(P[p.id])}"/>`).join('\n'), ' style="display:none"')}
 ${layer('named-coasts', Object.entries(coastAreas).map(([id, g]) => `<path id="${outId(id.split('/')[0])}/${id.split('/')[1]}" d="${geomPath(g)}"/>`).join('\n'), ' style="display:none"')}
+${supplyCenterLayer(centers, outId)}
 ${layer('unit-positions', Object.entries(units).map(([id, [x, y]]) => `<circle id="${id.includes('/') ? outId(id.split('/')[0]) + '/' + id.split('/')[1] : outId(id)}" cx="${r1(x)}" cy="${r1(y)}"/>`).join(''), ' style="display:none"')}
 ${layer('province-names', board.names)}
 ${layer('routes', [

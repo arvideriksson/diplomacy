@@ -1,6 +1,7 @@
 // Draw the 1900 board in the classical board's style from the final partition:
 // sea ground, blurred coast shadow, land fill, 1px land borders and coasts,
-// dashed sea borders, striped unplayable islands, bullseye supply centers.
+// dashed sea borders and striped unplayable islands. Labels are separate groups (see `placed`)
+// and supply centers a data layer the app draws.
 import { ringsPath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
 import { simplify, boundaryDistance, subtract, intersect, union, area } from './lib/geom.mjs'
@@ -15,23 +16,42 @@ const r2 = (n) => Math.round(n * 10) / 10
 const polyline = (pts) => 'M' + pts.map((p) => `${r2(p[0])} ${r2(p[1])}`).join('L')
 export const geomPath = (g) => ringsPath(g.flatMap((p) => p), 1)
 
-const bullseye = ([x, y]) => {
-  const c = 'mix-blend-mode:normal;fill:none;fill-opacity:0.7;stroke-linecap:round;stroke-opacity:0.7'
-  return `<g transform="translate(${r2(x)},${r2(y)})"><circle r="10" style="${c};stroke:#000005;stroke-width:3.5"/><circle r="7.9344115" style="${c};stroke:#ffffff;stroke-width:1"/><circle r="5.8176403" style="${c};stroke:#000005;stroke-width:3.5"/><circle r="4.1615906" style="mix-blend-mode:normal;fill:#ffffff;fill-opacity:0.7;stroke:none"/></g>`
-}
+// Every name, coast mark and note on a board is one group, `<g id="…" transform="translate(x y)
+// rotate(a)">`, drawn around its own origin: moving or turning it rewrites only that transform
+// (the layout editor at /editor does exactly that). Ids: name:<province>, coast:<province>/<coast>,
+// note:<name>; a province's second name is name:<province>~2.
+export const placed = ({ id, at: [x, y], angle = 0 }, inner) =>
+  `<g id="${id}" transform="translate(${r2(x)} ${r2(y)})${angle ? ` rotate(${r2(angle)})` : ''}">${inner}</g>`
 
-export function label({ text, at: [x, y], angle = 0, size = 16, kind = 'land', bold = false }) {
+export function label({ id, text, at, angle = 0, size = 16, kind = 'land', bold = false }) {
   const face = kind === 'sc' ? `font-weight:${bold ? 'bold' : 'normal'};${FONT}` : `font-style:italic;font-weight:normal;${NAME_FONT}`
   const spacing = kind === 'sea' ? 'letter-spacing:2px;' : ''
   const lines = (kind === 'sea' ? text.toUpperCase() : text).split('\n')
-  // Several lines (text with '\n'): centred on (x, y), LINE_HEIGHT apart.
-  const body = lines.length === 1 ? lines[0] : lines.map((t, i) => `<tspan x="${r2(x)}" dy="${r2(i ? size * LINE_HEIGHT : -(lines.length - 1) / 2 * size * LINE_HEIGHT)}">${t}</tspan>`).join('')
-  return `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${body}</text>`
+  // Several lines (text with '\n'): centred on the origin, LINE_HEIGHT apart.
+  const body = lines.length === 1 ? lines[0] : lines.map((t, i) => `<tspan x="0" dy="${r2(i ? size * LINE_HEIGHT : -(lines.length - 1) / 2 * size * LINE_HEIGHT)}">${t}</tspan>`).join('')
+  return placed({ id, at, angle }, `<text text-anchor="middle" dominant-baseline="central" style="${spacing}font-size:${size}px;${face};fill:#000000;stroke:none">${body}</text>`)
 }
 export const LINE_HEIGHT = 1.1
 
-export const coastMark = ({ text, at: [x, y], angle = 0 }) =>
-  `<text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${angle} ${r2(x)} ${r2(y)})" style="font-weight:bold;font-size:12px;${FONT};fill:#000000;stroke:none">${text}</text>`
+export const coastMark = ({ id, text, at, angle = 0 }) =>
+  placed({ id, at, angle }, `<text text-anchor="middle" dominant-baseline="central" style="font-weight:bold;font-size:12px;${FONT};fill:#000000;stroke:none">${text}</text>`)
+
+// A note for a route that leaves the board: text at `at` (turned by `angle`) and an arrow, both
+// drawn relative to the note's origin so the whole note moves as one.
+export const offBoardNote = ({ id, text, at: [x, y], angle = 0, arrow: [[x1, y1], [x2, y2]] }) => {
+  const a = Math.atan2(y2 - y1, x2 - x1), h = 4.5, w = 2.6
+  const rel = ([px, py]) => `${r2(px - x)} ${r2(py - y)}`
+  const tip = [x2, y2], l = [x2 - h * Math.cos(a) + w * Math.sin(a), y2 - h * Math.sin(a) - w * Math.cos(a)], r = [x2 - h * Math.cos(a) - w * Math.sin(a), y2 - h * Math.sin(a) + w * Math.cos(a)]
+  return placed({ id, at: [x, y] },
+    `<text text-anchor="middle" dominant-baseline="central" transform="rotate(${r2(angle)})" style="font-style:italic;font-weight:normal;font-size:9px;letter-spacing:0.5px;${NAME_FONT};fill:#000000;stroke:none">${text}</text>` +
+    `<path d="M${rel([x1, y1])}L${rel([x2 - h * Math.cos(a), y2 - h * Math.sin(a)])}" style="fill:none;stroke:#000000;stroke-width:1.2"/>` +
+    `<path d="M${rel(tip)}L${rel(l)}L${rel(r)}Z" style="fill:#000000;stroke:none"/>`)
+}
+
+// Supply centers are data, not artwork: a hidden layer of points, one per province, which the
+// app draws as bullseyes (src/lib/map/render/atmosphere.ts).
+export const supplyCenterLayer = (centers, idOf = (id) => id) =>
+  `<g id="supply-centers" style="display:none">\n${Object.entries(centers).map(([id, [x, y]]) => `<circle id="${idOf(id)}" cx="${r2(x)}" cy="${r2(y)}"/>`).join('')}\n</g>`
 
 // chains: shared-edge polylines; isSea(id) classifies provinces; ids starting '#' are drawn holes.
 // Libre Baskerville (OFL), embedded so labels render the same everywhere.
@@ -59,13 +79,6 @@ const unzig = (pts) => {
 }
 
 // A small note with an arrow, for routes that leave the board.
-export const offBoardNote = ({ text, at: [x, y], angle = 0, arrow: [[x1, y1], [x2, y2]] }) => {
-  const a = Math.atan2(y2 - y1, x2 - x1), h = 4.5, w = 2.6
-  const tip = [x2, y2], l = [x2 - h * Math.cos(a) + w * Math.sin(a), y2 - h * Math.sin(a) - w * Math.cos(a)], r = [x2 - h * Math.cos(a) - w * Math.sin(a), y2 - h * Math.sin(a) + w * Math.cos(a)]
-  return `<g><text x="${r2(x)}" y="${r2(y)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${r2(angle)} ${r2(x)} ${r2(y)})" style="font-style:italic;font-weight:normal;font-size:9px;letter-spacing:0.5px;${NAME_FONT};fill:#000000;stroke:none">${text}</text>` +
-    `<path d="M${r2(x1)} ${r2(y1)}L${r2(x2 - h * Math.cos(a))} ${r2(y2 - h * Math.sin(a))}" style="fill:none;stroke:#000000;stroke-width:1.2"/>` +
-    `<path d="M${r2(tip[0])} ${r2(tip[1])}L${r2(l[0])} ${r2(l[1])}L${r2(r[0])} ${r2(r[1])}Z" style="fill:#000000;stroke:none"/></g>`
-}
 
 // Dashed double-headed arrow for an army crossing over water.
 // The heads (4 × the 1.6 stroke) sit at the ends; the dashed shaft stops where they start.
@@ -76,7 +89,7 @@ const crossing = ([a, b]) => {
 }
 
 // waterParts: parts of land provinces that are drawn as water (the Strait of Gibraltar).
-export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, centers, labels, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
+export function drawBoard({ width, height, defs, provinces, isSea, chains, islands, islandMarkup, labels, waterParts = [], canals = [], crossings = [], extraSeaBorders = [], style = {} }) {
   // Boards with narrow traced channels (Era of Empire) keep every vertex: unzig would close them.
   UNZIG = style.unzig !== false
   const land = Object.entries(provinces).filter(([id]) => !isSea(id))
@@ -203,7 +216,6 @@ export function drawBoard({ width, height, defs, provinces, isSea, chains, islan
     ...extraSeaBorders,
     ...islandMarkup,
     ...crossings.map(crossing),
-    ...centers.map(bullseye),
   ].join('\n')
   defs = defs.replace('</defs>', `<path id="coast-line" d="${coastD}"/></defs>`)
   defs = defs.replace('</defs>', `<clipPath id="water-parts"><path d="${drawnWater.map(geomPath).join('')}" clip-rule="evenodd"/></clipPath></defs>`)

@@ -5,7 +5,7 @@ Run `npm run map:1900` from the repository root. It deterministically writes
 be edited by hand.
 
 The board is the classical board, extended. `lib/classical.mjs` reads
-`public/maps/classical.dsvg` (province polygons, islands, supply-center bullseyes,
+`public/maps/classical.dsvg` (province polygons, islands, supply-center points,
 unit anchors, named coasts and labels). `edits.mjs` applies only the 1900 changes
 (Milan, Alsace, Bosnia, Macedonia, Siberia, Gibraltar, playable Iceland/Ireland/
 Switzerland, Rome absorbing Tuscany, ...) and keeps every other classical outline
@@ -19,6 +19,9 @@ Egypt–Hejaz are declared there). `artwork.mjs` draws the board in the classica
 new borders are smoothed, classical ones are kept as drawn. `lib/labels.mjs` places
 new labels inside their province, clear of borders and symbols; `layout.mjs` holds
 hand-placed hints, supply centers, unit anchors, coast marks and crossing arrows.
+`placements.json` holds what was placed by hand in the layout editor (`/editor` on the local
+dev server): unit anchors, supply centers and labels by dSVG id. The build applies it last,
+so a rebuild keeps those edits.
 
 `source/variants.xml` provides powers, centers, ownership, opening units, the starting
 year and the 18-center victory target. Labels use Libre Baskerville (OFL), embedded

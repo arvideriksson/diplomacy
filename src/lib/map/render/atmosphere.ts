@@ -91,6 +91,21 @@ export const themedLabels = (markup: string, theme: MapTheme): string => {
   )
 }
 
+/** The classical board's supply-center bullseye at (x, y), as drawn on every artisanal board. */
+export const bullseye = (x: number, y: number): string => {
+  const c = 'mix-blend-mode:normal;fill:none;fill-opacity:0.7;stroke-linecap:round;stroke-opacity:0.7'
+  return (
+    `<g transform="translate(${formatCoord(x)},${formatCoord(y)})">` +
+    `<circle r="10" style="${c};stroke:#000005;stroke-width:3.5"/>` +
+    `<circle r="7.9344115" style="${c};stroke:#ffffff;stroke-width:1"/>` +
+    `<circle r="5.8176403" style="${c};stroke:#000005;stroke-width:3.5"/>` +
+    `<circle r="4.1615906" style="mix-blend-mode:normal;fill:#ffffff;fill-opacity:0.7;stroke:none"/></g>`
+  )
+}
+
+export const bullseyeLayer = (supplyCenters: Map<string, Point>): string =>
+  [...supplyCenters.values()].map((p) => bullseye(p.x, p.y)).join('\n')
+
 export const supplyCenterMarkersLayer = (supplyCenters: Map<string, Point>, radius = SUPPLY_CENTER_OUTER_RADIUS): string => {
   const parts: string[] = []
   for (const [, position] of supplyCenters) {

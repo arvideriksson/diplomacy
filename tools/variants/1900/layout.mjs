@@ -47,10 +47,10 @@ export const LABELS = {
 
 // Coast markers in the classical style (small bold caps).
 export const COAST_MARKS = [
-  { text: 'WC', at: [134, 1160], angle: 62 },
-  { text: 'EC', at: [345, 1095], angle: -40 },
-  { text: 'WC', at: [879, 1133], angle: 0 },
-  { text: 'EC', at: [972, 1121], angle: 0 },
+  { coast: 'spa/wc', text: 'WC', at: [134, 1160], angle: 62 },
+  { coast: 'spa/ec', text: 'EC', at: [345, 1095], angle: -40 },
+  { coast: 'mac/wc', text: 'WC', at: [879, 1133], angle: 0 },
+  { coast: 'mac/ec', text: 'EC', at: [972, 1121], angle: 0 },
 ]
 
 // Supply-center names set in bold: the great powers' capitals (Budapest as Austria-Hungary's
@@ -82,13 +82,13 @@ export const UNITS = {
 // name it carries a note and an arrow along the sea, pointing off the board.
 // Its centre line is fitted from the shores between rows `span` (east of x = `from`); the text
 // and arrow are placed at distances along that line from its middle.
-export const RED_SEA_NOTE = { text: 'To MID', from: 1310, span: [1560, 1618], textAt: -12, arrow: [10, 30] }
+export const RED_SEA_NOTE = { id: 'note:red-sea', text: 'To MID', from: 1310, span: [1560, 1618], textAt: -12, arrow: [10, 30] }
 // Moves from the Mid-Atlantic to Egypt and Hejaz go round Africa: a note off Morocco's
 // Atlantic coast (fitted between x = `span`), `offset` units out to sea, points south-west.
 // The long route's arrows come back on board at the west edge and run this far in before
 // curving to the Mid-Atlantic unit.
 export const LONG_ROUTE = { offBoard: 80, fromBottom: 0.3 }
-export const MOROCCO_NOTE = { text: 'To Egypt, Hejaz', span: [8, 136], textAt: -12, arrow: [28, 52], offset: 16, tilt: 6 }
+export const MOROCCO_NOTE = { id: 'note:morocco', text: 'To Egypt, Hejaz', span: [8, 136], textAt: -12, arrow: [28, 52], offset: 16, tilt: 6 }
 
 // Army crossings over water, drawn as dashed double-headed arrows.
 export const CROSSING_ARROWS = [

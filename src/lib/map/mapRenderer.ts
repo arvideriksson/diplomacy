@@ -7,6 +7,7 @@ import {
   proceduralBackground,
   proceduralCoastline,
   proceduralDefs,
+  bullseyeLayer,
   supplyCenterMarkersLayer,
   themedLabels,
 } from './render/atmosphere'
@@ -48,6 +49,10 @@ export class DiplicityMap {
     return this.parsed.unitPositions
   }
 
+  get supplyCenters() {
+    return this.parsed.supplyCenters
+  }
+
   /** Where a unit in `dsvgId` (a province or named coast) is drawn, in board units. */
   unitPosition(dsvgId: string): { x: number; y: number } | undefined {
     return this.parsed.unitPositions.get(dsvgId)
@@ -56,14 +61,14 @@ export class DiplicityMap {
   /**
    * The board's static art, which never changes during a game, as inner markup sharing
    * `defs`: `below` (sea/land/coast atmosphere) sits under the province fills; over them
-   * come `labels` (supply-center markers, province names) then `above` (borders,
-   * foreground). The component rasterizes `below`/`above` to bitmaps once, so their filters
+   * come `labels` (province names; a procedural board's supply-center markers) then `above`
+   * (borders, foreground, an artisanal board's supply-center bullseyes). The component rasterizes `below`/`above` to bitmaps once, so their filters
    * and wave strokes are never re-run while panning, zooming or re-rendering orders.
    * `labels` stays live vector: it is cheap to paint, and a dsvg's embedded @font-face
    * loads asynchronously inside an SVG <img>, so rasterized text could come out blank.
    * Depends only on the map + theme.
    */
-  renderStatic(state: RenderState = {}): StaticLayers {
+  renderStatic(state: RenderState = {}, { supplyCenters = true }: { supplyCenters?: boolean } = {}): StaticLayers {
     const { viewBox, defs, background, provinceNames, borders, foreground } = this.parsed
     // An artisanal dsvg with a hand-authored background owns its whole look; otherwise
     // synthesize the atmosphere (sea/land/coast-shadow/borders) from geometry + theme.
@@ -79,7 +84,11 @@ export class DiplicityMap {
     const foregroundLayer = procedural
       ? proceduralCoastline(this.parsed.provincePaths, landIds, theme)
       : foreground
-    const markers = supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius)
+    // Supply centers come from the board's `supply-centers` points. An artisanal board draws
+    // them as classical bullseyes over everything (where its artwork used to bake them in); a
+    // procedural one as plain markers under the names. The layout editor draws its own.
+    const markers = supplyCenters && procedural ? supplyCenterMarkersLayer(this.parsed.supplyCenters, this.parsed.supplyCenterRadius) : ''
+    const bullseyes = supplyCenters && !procedural ? bullseyeLayer(this.parsed.supplyCenters) : ''
 
     return {
       defs: defs + (procedural ? proceduralDefs(theme) : ''),
@@ -89,7 +98,7 @@ export class DiplicityMap {
         markers ? layer('supply-center-markers', markers) : '',
         layer('province-names', themedLabels(provinceNames, theme)),
       ].join('\n'),
-      above: [layer('borders', borderLayer), layer('foreground', foregroundLayer)].join('\n'),
+      above: [layer('borders', borderLayer), layer('foreground', foregroundLayer), bullseyes ? layer('supply-centers', bullseyes) : ''].join('\n'),
     }
   }
 

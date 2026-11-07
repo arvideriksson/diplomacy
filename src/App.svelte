@@ -23,8 +23,8 @@
   const devSeats = import.meta.env.DEV && supabaseConfigured
     ? import('./components/DevSeatSwitcher.svelte')
     : null
-  // Unit anchor editor: local dev server only (it saves through it), never against live.
-  const anchorEditor = import.meta.env.DEV && import.meta.env.VITE_BACKEND === 'local' ? import('./components/UnitAnchorEditor.svelte') : null
+  // Layout editor (units, supply centers, labels): local dev server only (it saves through it), never against live.
+  const anchorEditor = import.meta.env.DEV && import.meta.env.VITE_BACKEND === 'local' ? import('./components/MapLayoutEditor.svelte') : null
 
   let ready = false
 
@@ -76,8 +76,8 @@
     </Route>
     {#if anchorEditor}
       <Route path="/editor">
-        {#await anchorEditor then { default: UnitAnchorEditor }}
-          <UnitAnchorEditor />
+        {#await anchorEditor then { default: MapLayoutEditor }}
+          <MapLayoutEditor />
         {/await}
       </Route>
     {/if}
