@@ -13,7 +13,14 @@
     {checked}
     {disabled}
     aria-label={label || undefined}
-    on:change={(e) => onChange(e.currentTarget.checked)}
+    on:change={(e) => {
+      // Controlled: put the box back to `checked` and let the parent decide. If the
+      // parent's state doesn't change (a failed save, push refused), the switch stays
+      // where it was instead of showing a flip that didn't happen.
+      const wanted = e.currentTarget.checked
+      e.currentTarget.checked = checked
+      onChange(wanted)
+    }}
   />
   <span class="toggle-track"><span class="toggle-thumb"></span></span>
 </label>

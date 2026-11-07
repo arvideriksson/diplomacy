@@ -37,7 +37,7 @@ select kind, at, detail from (
   union all
   select 'config', null,
          jsonb_build_object('function_url', e.function_url,
-                            'secret_sha256', encode(sha256(convert_to(e.service_key, 'utf8')), 'hex'))
+                            'secret_sha256', encode(sha256(convert_to(e.adjudicator_secret, 'utf8')), 'hex'))
     from private.engine_config e
   union all
   select 'message', max(m.created_at),

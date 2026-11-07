@@ -5,7 +5,8 @@ export interface MapDefinition {
   playerCount: number
   /** Opening movement year; defaults to 1901 for classical maps. */
   startingYear?: number
-  /** Supply centers owned at setup, including occupied foreign centers. */
+  /** Supply centers owned at setup by a power that isn't their home power (home centers
+   *  are seeded from `homePower`). */
   initialOwnership?: Record<string, string>
   /** Supply centers needed to win; defaults to a majority of the map's centers. */
   victoryCenters?: number

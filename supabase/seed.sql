@@ -3,7 +3,7 @@
 -- Points the scheduler at the locally served adjudicator. pg_net calls out from the
 -- db container, so it reaches the API gateway by its Docker network alias (`kong`),
 -- not localhost:54321. The secret matches [edge_runtime.secrets] in config.toml.
-insert into private.engine_config (function_url, service_key)
+insert into private.engine_config (function_url, adjudicator_secret)
 values ('http://kong:8000/functions/v1/adjudicate', 'local-dev-adjudicator-secret')
 on conflict (id) do update
-  set function_url = excluded.function_url, service_key = excluded.service_key;
+  set function_url = excluded.function_url, adjudicator_secret = excluded.adjudicator_secret;

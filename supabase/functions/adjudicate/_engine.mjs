@@ -856,6 +856,9 @@ var classicalMap = {
   name: "Classical",
   description: "Classic Diplomacy \u2014 Europe 1901, 7 great powers, 34 supply centers",
   playerCount: 7,
+  startingYear: 1901,
+  victoryCenters: 18,
+  // a majority of the 34
   powers: [
     // OKLCH-balanced palette (hues preserved). Most powers sit at L=0.66; chroma is pushed
     // per-hue toward each one's gamut so reds/blues/purples stay vivid. Turkey is lifted to
@@ -1459,30 +1462,7 @@ var map1900 = {
   "victoryCenters": 18,
   "initialOwnership": {
     "ALG": "france",
-    "ANK": "turkey",
-    "BER": "germany",
-    "BRE": "france",
-    "BUD": "austria",
-    "COL": "germany",
-    "CON": "turkey",
-    "DAM": "turkey",
-    "EDI": "britain",
-    "EGY": "britain",
-    "KIE": "germany",
-    "LVP": "britain",
-    "LON": "britain",
-    "MAR": "france",
-    "MIL": "italy",
-    "MOS": "russia",
-    "MUN": "germany",
-    "NAP": "italy",
-    "PAR": "france",
-    "ROM": "italy",
-    "SEV": "russia",
-    "STP": "russia",
-    "TRI": "austria",
-    "VIE": "austria",
-    "WAR": "russia"
+    "EGY": "britain"
   },
   "description": "Diplomacy 1900 \u2014 Europe, North Africa and the Near East",
   "playerCount": 7,

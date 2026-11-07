@@ -190,6 +190,29 @@ begin
 end;
 $$;
 
+-- ═══ public.call_edge_function(text, jsonb)  — from 20250101000161_tidy_backend.sql
+-- POST `body` to the Edge Function `name` (adjudicate, notify), reached through the
+-- engine_config row: its URL with the last segment swapped for `name`, and the shared
+-- ADJUDICATOR_SECRET as the bearer token. Returns false when the engine isn't configured.
+create or replace function public.call_edge_function(p_name text, p_body jsonb)
+returns boolean
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare cfg private.engine_config;
+begin
+  select * into cfg from private.engine_config where id;
+  if cfg is null then return false; end if;
+  perform net.http_post(
+    url     := regexp_replace(cfg.function_url, '[^/]+$', p_name),
+    headers := jsonb_build_object(
+                 'Content-Type', 'application/json',
+                 'Authorization', 'Bearer ' || cfg.adjudicator_secret),
+    body    := p_body);
+  return true;
+end;
+$$;
+
 -- ═══ public.canonical_channel_members(uuid, text[])  — from 20250101000134_sql_helpers.sql
 -- canonical_channel_members (re-issues 123).
 create or replace function public.canonical_channel_members(
@@ -451,32 +474,26 @@ begin
 end;
 $$ language plpgsql stable;
 
--- ═══ public.fire_adjudicator(uuid, jsonb, boolean)  — from 20250101000131_reuse_helpers.sql
-create function public.fire_adjudicator(
+-- ═══ public.fire_adjudicator(uuid, jsonb, boolean)  — from 20250101000161_tidy_backend.sql
+create or replace function public.fire_adjudicator(
   p_game_id uuid,
   p_body    jsonb   default '{}',
   p_strict  boolean default true
 )
-returns boolean as $$
-declare cfg private.engine_config;
+returns boolean
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 begin
-  select * into cfg from private.engine_config where id;
-  if cfg is null then
+  if not exists (select 1 from private.engine_config where id) then
     if p_strict then raise exception 'The adjudicator is not configured'; end if;
     return false;
   end if;
-
   update public.games set resolving_at = now() where id = p_game_id;
-  perform net.http_post(
-    url     := cfg.function_url,
-    headers := jsonb_build_object(
-                 'Content-Type', 'application/json',
-                 'Authorization', 'Bearer ' || cfg.service_key),
-    body    := jsonb_build_object('game_id', p_game_id) || coalesce(p_body, '{}'::jsonb)
-  );
-  return true;
+  return public.call_edge_function('adjudicate',
+    jsonb_build_object('game_id', p_game_id) || coalesce(p_body, '{}'::jsonb));
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.first_turn_deadline(jsonb, timestamptz)  — from 20250101000143_first_turn.sql
 create or replace function public.first_turn_deadline(p_settings jsonb, p_from timestamptz)
@@ -651,17 +668,16 @@ returns boolean as $$
      and g.deadline <= now();
 $$ language sql stable;
 
--- ═══ public.is_admin()  — from 20250101000106_admin.sql
+-- ═══ public.is_admin()  — from 20250101000161_tidy_backend.sql
 create or replace function public.is_admin()
-returns boolean as $$
-begin
-  return (
-    select email = any(array['arvid.f.eriksson@gmail.com'])
-    from auth.users
-    where id = auth.uid()
-  );
-end;
-$$ language plpgsql security definer stable;
+returns boolean
+language sql security definer stable
+set search_path = public, extensions, pg_temp
+as $$
+  select exists (
+    select 1 from auth.users u join private.admins a on a.email = u.email
+     where u.id = auth.uid());
+$$;
 
 -- ═══ public.is_gunboat(uuid)  — from 20250101000134_sql_helpers.sql
 -- is_gunboat (re-issues 127).
@@ -1017,28 +1033,19 @@ returns boolean as $$
        and g.deadline <= now());
 $$ language sql stable security definer;
 
--- ═══ public.push_notify(uuid[], jsonb)  — from 20250101000147_push_notifications.sql
--- ── sending ─────────────────────────────────────────────────────────────────────
--- The notify function sits next to the adjudicator and shares its secret, so it is
--- reached through the same private.engine_config row (…/functions/v1/notify).
--- Unconfigured engine or nobody to tell: a silent no-op.
+-- ═══ public.push_notify(uuid[], jsonb)  — from 20250101000161_tidy_backend.sql
+-- Push to these users' subscriptions. Unconfigured engine or nobody to tell: a no-op.
 create or replace function public.push_notify(p_user_ids uuid[], p_payload jsonb)
-returns void as $$
-declare cfg private.engine_config;
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 begin
   if coalesce(array_length(p_user_ids, 1), 0) = 0 then return; end if;
-  select * into cfg from private.engine_config where id;
-  if cfg is null then return; end if;
-
-  perform net.http_post(
-    url     := regexp_replace(cfg.function_url, '[^/]+$', 'notify'),
-    headers := jsonb_build_object(
-                 'Content-Type', 'application/json',
-                 'Authorization', 'Bearer ' || cfg.service_key),
-    body    := jsonb_build_object('user_ids', to_jsonb(p_user_ids), 'payload', p_payload)
-  );
+  perform public.call_edge_function('notify',
+    jsonb_build_object('user_ids', to_jsonb(p_user_ids), 'payload', p_payload));
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.rename_channel(bigint, text)  — from 20250101000137_chat_helpers.sql
 -- Rename a channel. Any member may rename it; the public channel cannot be renamed.

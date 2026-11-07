@@ -11,11 +11,12 @@ stay put), as is Cebu's water ring against the open seas (not along Manila's and
 coasts), and specks among Cebu's islands become water; zero-width spikes are removed; detached slivers
 of a sea go to the sea they touch most, specks of land to what surrounds them, and an islet
 touching its own province joins it. Spots that still draw badly are patched by hand in
-`layout.mjs` (`CEBU_WATER`, `LAND_PATCHES`). Labels come from `labels.mjs`: each name goes as
+`layout.mjs` (`CEBU_WATER`, `LAND_PATCHES`). Labels come from `../lib/labels.mjs` (shared with the 1900 board): each name goes as
 near its province's visual centre as it fits, at the largest size that fits, upright or tilted
 along a long province, on one to three lines. Small provinces whose name only fits small put it
-in the water beside them. Label widths come from `advances.json`, the glyph advances of the
-embedded Libre Baskerville measured in a browser. `layout.mjs` holds hand placement: per-label
+in the water beside them. Label widths come from `../lib/advances.json`, the glyph advances of the
+embedded Libre Baskerville (regular, bold, italic) measured in a browser by
+`../lib/measure-advances.mjs` (`--check` re-measures and compares). `layout.mjs` holds hand placement: per-label
 hints (centre targets, allowed angles, Constantinople's name reaching into the Black Sea), a
 supply center, and the impassable islets (north of New Guinea, off Mombasa).
 The movement graph is read off the drawn borders, plus the strait arrows and the Nepal–Punjab

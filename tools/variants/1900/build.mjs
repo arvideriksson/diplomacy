@@ -11,7 +11,7 @@ import { audit } from './lib/audit.mjs'
 import { drawBoard, geomPath, label, coastMark, offBoardNote, placed } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance, channel, extendEnds, rectDistance, largestPiece, bestGridPoint, despikeReturns } from '../lib/geom.mjs'
 import { root, writeBoard, writeMapDefinition, readPlacements, checkPlacements, failUnlessDraft } from '../lib/board.mjs'
-import { LabelPlacer, labelBox } from './lib/labels.mjs'
+import { Placer, textBox, markupBox } from '../lib/labels.mjs'
 import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, MOVE_LABELS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
 // The app's own data, loaded as TypeScript (type-only imports, stripped by Node).
 import { GAME_TO_DSVG_OVERRIDES } from '../../../src/lib/map/idOverrides.ts'
@@ -174,6 +174,8 @@ const reweight = (l) => {
   return l.inner.replace(/font-weight:\w+/g, `font-weight:${w}`).replace(/font-weight="\w+"/g, `font-weight="${w}"`)
 }
 const labels = kept.map((l) => placed(l, reweight(l)))
+// Each kept label's ink box as drawn (measured glyph widths, its own letter-spacing and offsets).
+const keptBoxes = kept.map((l) => markupBox(reweight(l), l.at, l.angle))
 const coastMarks = COAST_MARKS.map((m) => { const id = `coast:${outId(m.coast.split('/')[0])}/${m.coast.split('/')[1]}`; return { ...m, id, ...pinnedAt(id, m.at, m.angle) } })
 // Hand placements (/editor) win over all of the above; pinned units are never moved off labels.
 // Labels are checked against every label the board draws: kept classical ones, new names,
@@ -189,28 +191,36 @@ const pinned = new Set()
 for (const [id, pt] of Object.entries(PLACEMENTS.units)) { units[unitSource(id)] = pt; pinned.add(unitSource(id)) }
 // New labels are placed automatically inside their province, clear of borders,
 // supply centers, coast marks and the classical labels that are kept.
-const placer = new LabelPlacer()
+const placer = new Placer()
 for (const c of Object.values(centers)) placer.blockCircle(c, 12)
+// Hand-pinned unit anchors never move, so labels keep clear of their tokens (radius 11).
+for (const id of pinned) placer.blockCircle(units[id], 11)
 // Every label's box, so unit anchors can be kept clear of them afterwards.
 const labelRects = []
 const rect = (at, w, h, angle) => labelRects.push({ at, w, h, angle })
-for (const l of kept) {
-  const w = labelBox({ text: l.text, size: l.size, kind: 'sc' }).w
-  placer.blockLabel(l.at, w, l.size * 0.8, l.angle); rect(l.at, w, l.size * 0.8, l.angle)
-}
-for (const m of coastMarks) placer.blockLabel(m.at, 22, 10, m.angle)
+for (const [i, l] of kept.entries()) { const b = keptBoxes[i]; placer.blockRect(b.at, b.w, b.h, l.angle); rect(b.at, b.w, b.h, l.angle) }
+const markBox = (m) => textBox({ text: m.text, size: 12, kind: 'sc', bold: true })
+for (const m of coastMarks) { const b = markBox(m); placer.blockRect(m.at, b.w, b.h, m.angle) }
 const labelArea = (id) => P[id]
 for (const [id, hint] of Object.entries(LABELS).sort(([a], [b]) => area(labelArea(a)) - area(labelArea(b)))) {
   const pin = pinnedAt(`name:${outId(id)}`)
-  const l = { size: 16, ...hint, id: `name:${outId(id)}`, ...(pin.pinned ? { at: pin.at, angle: pin.angle ?? hint.angle ?? 0, fixed: true } : {}) }
-  // `fixed` labels keep their hand position (they may overlap their supply center).
-  const spot = l.fixed ? (placer.blockLabel(l.at, labelBox(l).w, l.size * 0.8, l.angle), { at: l.at, angle: l.angle, size: l.size }) : (l.free ? new LabelPlacer() : placer).place(labelArea(id), l, pole(labelArea(id)).point)
+  const l = { size: 16, ...hint, id: `name:${outId(id)}`, bold: BOLD_NAMES.has(hint.text), ...(pin.pinned ? { at: pin.at, angle: pin.angle ?? hint.angle ?? 0, fixed: true } : {}) }
+  const box = (size) => textBox({ ...l, size })
+  // `fixed` labels keep their hand position (they may overlap their supply center). The others
+  // go as near their hint (else the province's pole) as fits, on one line, leaning towards the
+  // hinted angle; `free` ones ignore every other label and symbol.
+  const spot = l.fixed ? (placer.blockRect(l.at, box(l.size).w, box(l.size).h, l.angle), { at: l.at, angle: l.angle, size: l.size })
+    : (l.free ? new Placer() : placer).place(labelArea(id), {
+      name: l.text, texts: [l.text], kind: l.kind, bold: l.bold, size: l.size, minSize: 10, margin: 1.2,
+      target: l.at ?? pole(labelArea(id)).point, scale: 100, prefer: l.angle ?? 0,
+      angles: l.angles ?? [...new Set([l.angle ?? 0, 0, -10, 10, -20, 20, -30, 30, -45, 45, -60, 60, -75, 75, -90])],
+    })
   if (!spot) layoutProblems.push(`no room for the ${l.text} label`)
   if (process.env.LABEL_DEBUG) console.log(id, spot && { at: spot.at, angle: spot.angle, size: spot.size })
-  labels.push(label({ ...(spot ? { ...l, ...spot } : { ...l, at: l.at ?? pole(P[id]).point }), bold: BOLD_NAMES.has(l.text) }))
-  if (spot) rect(spot.at, labelBox({ ...l, size: spot.size }).w, spot.size * 0.8, spot.angle)
+  labels.push(label({ ...(spot ? { ...l, at: spot.at, angle: spot.angle, size: spot.size } : { ...l, at: l.at ?? pole(P[id]).point }) }))
+  if (spot) rect(spot.at, box(spot.size).w, box(spot.size).h, spot.angle)
 }
-for (const m of coastMarks) rect(m.at, 22, 10, m.angle)
+for (const m of coastMarks) { const b = markBox(m); rect(m.at, b.w, b.h, m.angle) }
 
 // Unit anchors in new or relabelled provinces stay clear of labels and supply
 // centers: a unit token has radius 11, so look for the most open spot inside the
@@ -318,7 +328,9 @@ for (const p of provinces) {
 }
 const map = {
   id: '1900', name: '1900', startingYear, victoryCenters,
-  initialOwnership: Object.fromEntries(Object.entries(supply).filter(([id, s]) => id !== 'dum' && s.owner && s.owner !== 'none').map(([id, s]) => [toGame(id), s.owner])),
+  // Only centers owned at setup by someone other than their home power (Algeria, Egypt):
+  // home centers are seeded from homePower.
+  initialOwnership: Object.fromEntries(Object.entries(supply).filter(([id, s]) => id !== 'dum' && s.owner && s.owner !== 'none' && territories[toGame(id)]?.homePower !== s.owner).map(([id, s]) => [toGame(id), s.owner])),
   description: 'Diplomacy 1900 — Europe, North Africa and the Near East', playerCount: 7,
   powers: Object.entries(powerColors).map(([id, color]) => ({ id, name: { britain: 'Britain', austria: 'Austria-Hungary' }[id] ?? id[0].toUpperCase() + id.slice(1), color })),
   territories,

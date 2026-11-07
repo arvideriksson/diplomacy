@@ -72,7 +72,7 @@ function outside(...args) {
 // The cron/RPC → Edge Function shared secret lives in two places that must agree.
 function rotateAdjudicatorSecret() {
   const secret = randomBytes(32).toString('base64url')
-  supabase('db', 'query', '--linked', `update private.engine_config set service_key = '${secret}' where id`)
+  supabase('db', 'query', '--linked', `update private.engine_config set adjudicator_secret = '${secret}' where id`)
   outside('secrets', 'set', `ADJUDICATOR_SECRET=${secret}`)
   console.log(`ADJUDICATOR_SECRET rotated; sha256 ${createHash('sha256').update(secret).digest('hex')}`)
 }

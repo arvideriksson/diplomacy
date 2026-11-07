@@ -5,6 +5,8 @@ export const classicalMap: MapDefinition = {
   name: 'Classical',
   description: 'Classic Diplomacy — Europe 1901, 7 great powers, 34 supply centers',
   playerCount: 7,
+  startingYear: 1901,
+  victoryCenters: 18, // a majority of the 34
   powers: [
     // OKLCH-balanced palette (hues preserved). Most powers sit at L=0.66; chroma is pushed
     // per-hue toward each one's gamut so reds/blues/purples stay vivid. Turkey is lifted to

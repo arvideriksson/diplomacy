@@ -11,7 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:local": "LOCAL_STACK=1 vitest run src/lib/__tests__/*.local.test.ts",
+    "test:local": "LOCAL_STACK=1 vitest run --no-file-parallelism src/lib/__tests__/*.local.test.ts",
     "test:chat": "LOCAL_STACK=1 vitest run src/lib/__tests__/chatDelivery.local.test.ts",
     "test:game": "LOCAL_STACK=1 vitest run src/lib/__tests__/gameLive.local.test.ts",
     "test:7p": "node --experimental-strip-types scripts/seven-player-game.mjs",

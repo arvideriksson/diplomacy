@@ -1,6 +1,6 @@
 // Hand placement for the Era of Empire board. Coordinates are board units; angles are degrees.
 
-// Label overrides by province id (see labels.mjs): text (use \n for a line break), target (the
+// Label overrides by province id (see ../lib/labels.mjs): text (use \n for a line break), target (the
 // point to centre on), size, minSize, margin, angles, upright, across (a name in the water may also cross the coast into the province), within (how far a name in the water may sit from the province centre), spill ('first': in the water beside it, placed before the sea names; false: never), or
 // fixed with at and angle to place it exactly.
 export const LABELS = {
@@ -13,18 +13,22 @@ export const LABELS = {
   HK: { angles: [0] },
   NG: { angles: [0, -5, -10, -15, -20] },
   SCS: { angles: [0, -5, 5, -10, 10] },
+  ECS: { angles: [0, -5, 5] },
+  RAN: { angles: [0, 5, 10, 15, -5, -10] },
   // Visual centres the automatic one misses (an awkward lobe, or the supply centre in the way).
   TIB: { target: [1215, 552] },
   MYS: { target: [1003, 885], angles: [0, -45, -50, -55, -60, -65] },
   MOM: { target: [190, 1255], angles: [0] },
   PER: { target: [605, 505] },
-  SUM: { target: [1572, 1188] },
+  SUM: { target: [1584, 1178] },
   YS: { target: [1930, 505] },
   BOK: { target: [660, 355] },
   MAA: { target: [140, 1238] },
   WIO: { target: [865, 1058], within: 40 },
   EIO: { target: [1305, 1100], within: 40 },
   PA: { minSize: 17, margin: 2, spill: false, angles: [0, -5, 5, -10, 10] },
+  // Beside its island's west coast, not in the strait towards Manila.
+  FOR: { target: [1906, 618], within: 30 },
 }
 
 // Like 1900: capitals of the great powers, and the independent nations.
@@ -38,7 +42,7 @@ export const UNITS = {}
 export const IMPASSABLE_ISLETS = [[2085, 1060, 2210, 1185], [320, 1370, 385, 1430]]  // north of New Guinea; off Mombasa
 
 // Supply centers moved by hand to make room for a small province's name.
-export const CENTER_AT = { CON: [19, 285], PA: [1790, 320] }
+export const CENTER_AT = { CON: [19, 285], PA: [1790, 320], SAR: [1785, 1098] }
 
 // Water given to Cebu's ring by hand: the channel between Manila and the islet off its tip (so
 // one short sea line closes its mouth), and the strip of sea between the ring and Davao's coast.

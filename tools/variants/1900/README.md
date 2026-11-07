@@ -16,8 +16,10 @@ coast meets the classical coast at its old bottom edge.
 `lib/audit.mjs` compares every drawn border with `source/1900_adjacency.xml`; the
 build fails on any missing or extra border (crossings such as Clyde–Ireland and
 Egypt–Hejaz are declared there). `artwork.mjs` draws the board in the classical style;
-new borders are smoothed, classical ones are kept as drawn. `lib/labels.mjs` places
-new labels inside their province, clear of borders and symbols; `layout.mjs` holds
+new borders are smoothed, classical ones are kept as drawn. `../lib/labels.mjs` (shared with
+Era of Empire) places new labels inside their province, clear of borders, supply centers,
+pinned units and every other label (kept classical ones measured as drawn, with their own
+letter-spacing), at measured glyph widths; `layout.mjs` holds
 hand-placed hints, supply centers, unit anchors, coast marks and crossing arrows.
 `placements.json` holds what was placed by hand in the layout editor (`/editor` on the local
 dev server): unit anchors, supply centers and labels by dSVG id. The build applies it last,

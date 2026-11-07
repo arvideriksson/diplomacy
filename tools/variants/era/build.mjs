@@ -15,7 +15,7 @@ import { sharedEdges } from '../1900/lib/edges.mjs'
 import { drawBoard, geomPath, label } from '../1900/artwork.mjs'
 import { union, intersect, subtract, poly, contains, pole, area, boundaryDistance, channel, extendEnds, rectDistance, largestPiece, bestGridPoint, despikeReversals } from '../lib/geom.mjs'
 import { root, writeBoard, writeMapDefinition, readPlacements, checkPlacements, failUnlessDraft } from '../lib/board.mjs'
-import { Placer, textBox } from './labels.mjs'
+import { Placer, textBox } from '../lib/labels.mjs'
 import { LABELS, BOLD_NAMES, UNITS, IMPASSABLE_ISLETS, CENTER_AT, CEBU_WATER, LAND_PATCHES, WATER_PATCHES } from './layout.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))

@@ -2,9 +2,9 @@
 
 Two Edge Functions, both reached only from Postgres via `pg_net` with
 `Authorization: Bearer <ADJUDICATOR_SECRET>` (a dedicated shared secret; `verify_jwt` is
-off). Postgres holds the URL and secret in `private.engine_config` (`function_url`, and
-`service_key` — which, despite its name, holds `ADJUDICATOR_SECRET`, not the service-role
-key). `_shared/edge.ts` has the secret gate and the service-role client both use.
+off). Postgres holds the URL and secret in `private.engine_config` (`function_url`,
+`adjudicator_secret`) and reaches both through `public.call_edge_function`.
+`_shared/edge.ts` has the secret gate and the service-role client both use.
 
 ## `adjudicate`
 
