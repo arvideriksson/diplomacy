@@ -80,6 +80,26 @@ function moravia(P) {
   P.boh = union(P.boh, subtract(low.boh, back)); P.vie = union(low.vie, back); P.bud = low.bud; P.gal = low.gal
 }
 
+// Natural Earth admin-1 for North Macedonia, southern Kosovo, Serbia's Pčinja district and Bulgaria's
+// Blagoevgrad (Pirin), each placed on the classical board by its own affine fit. Serbia's part is
+// pinned to the Serbia–Montenegro–Kosovo and Serbia–Bulgaria–North Macedonia tripoints (the
+// Bosnia/Serbia/Macedonia and Serbia/Bulgaria/Macedonia corners) and the Prespa tripoint; Pirin
+// to its corner with Serbia and Macedonia, the end of its northern border and the BG–GR–MK tripoint.
+function macedonianLobe(P) {
+  const F = JSON.parse(readFileSync(new URL('../../geodata/src/macedonia.geojson', import.meta.url), 'utf8')).features
+  const reg = (pick) => union(...F.filter((f) => pick(f.properties)).map((f) => f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates))
+  const conic = geoConicEquidistant().parallels([40, 46]).rotate([-21, 0]).scale(1000).translate([0, 0])
+  const fitted = (pins) => { const fit = affine(pins.map(([ll, xy]) => [conic(ll), xy])); return (g) => transform(g, (ll) => fit(conic(ll))) }
+  const serbian = fitted([[[20.3, 42.83], [891, 1097]], [[22.36, 42.31], [955.6, 1112.5]], [[20.98, 40.86], [905, 1172]]])(reg((p) => p.admin !== 'Bulgaria'))
+  move(P, intersect(P.ser, serbian), 'mac', ['ser'])
+  const pirin = fitted([[[22.866, 41.925], [950, 1097]], [[23.763, 42.178], [980, 1102]], [[22.94, 41.34], [955, 1125]]])(reg((p) => p.admin === 'Bulgaria'))
+  move(P, intersect(P.bul, pirin), 'mac', ['bul'])
+  // Hairline remnants left inside Macedonia by the cuts, and Serbia's tail under Bulgaria at
+  // their junction with Macedonia, go to Macedonia.
+  for (const id of ['ser', 'bul']) { const crumbs = P[id].filter((pl) => area([pl]) < 20); if (crumbs.length) move(P, crumbs, 'mac', [id]) }
+  move(P, intersect(P.ser, poly([[948.6, 1092.4], [952, 1092.4], [952, 1095], [948.6, 1095]])), 'mac', ['ser'])
+}
+
 export function europe(classical) {
   const P = {}
   for (const [id, g] of Object.entries(classical.provinces)) P[RENAMES[id] ?? id] = g
@@ -144,6 +164,10 @@ export function europe(classical) {
   P.mac = P.alb; delete P.alb
   move(P, union(strip(P, 'gre', 'ser', 40), strip(P, 'gre', 'bul', 40)), 'mac', ['gre'])
   move(P, strip(P, 'bul', 'aeg', 27), 'mac', ['bul'])
+  // Macedonia takes Serbia's southern lobe (Ottoman Kosovo, without its north, and Vardar
+  // Macedonia with the Pčinja valley) and Bulgaria's south-western tip (Pirin), cut along real
+  // borders, so neither cuts into it.
+  macedonianLobe(P)
 
   // Siberia: Russia from the Volga oblasts eastward (Kostroma, Nizhny Novgorod, Penza,
   // Volgograd, ...), carried onto classical Russia by an affine fit to its cities, taken from

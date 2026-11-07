@@ -3,7 +3,7 @@
 
 // Classical labels that no longer apply (merged, split or renamed provinces and
 // Bulgaria's former south coast).
-export const DROP_LABELS = new Set(['N. Africa', 'Tunis', 'Tuscany', 'Venice', 'Albania', 'Holland', 'Ruhr', 'Smyrna', 'Syria', 'LVN', 'Livonia', 'Greece', 'Trieste', 'Burgundy', 'Rome', 'Piedmont', 'Sevastopol', 'LVP'])
+export const DROP_LABELS = new Set(['N. Africa', 'Tunis', 'Tuscany', 'Venice', 'Albania', 'Holland', 'Ruhr', 'Smyrna', 'Syria', 'LVN', 'Livonia', 'Greece', 'Trieste', 'Burgundy', 'Rome', 'Piedmont', 'Sevastopol', 'LVP', 'Serbia'])
 // Classical coast markers to drop, identified by text and approximate position.
 export const DROP_COAST_MARKS = [['SC', [1005, 1117]], ['EC', [1071, 1033]], ['SC', [220, 1204]]]
 // Classical labels moved to a new centre (and optionally a new angle): the seas that
@@ -23,7 +23,8 @@ export const LABELS = {
   ven: { text: 'Venetia', at: [664, 1016], angle: 56, size: 13, fixed: true, kind: 'land' },
   tri: { text: 'Trieste', at: [797, 1025], angle: 38, size: 15, kind: 'sc' },
   bos: { text: 'Bosnia', at: [842, 1058], angle: 20, size: 14, kind: 'land' },
-  mac: { text: 'Macedonia', at: [912, 1150], angle: -4, size: 13, kind: 'land' },
+  mac: { text: 'Macedonia', at: [936, 1126], angle: 0, size: 14, fixed: true, kind: 'land' },
+  ser: { text: 'Serbia', at: [918, 1062], angle: 0, size: 15, kind: 'sc' },
   gre: { text: 'Greece', at: [935, 1218], angle: 0, size: 14, kind: 'sc' },
   lvo: { text: 'Livonia', at: [962, 562], angle: 0, kind: 'land' },
   kon: { text: 'Konya', at: [1231, 1199], angle: -11, kind: 'land' },
@@ -49,8 +50,8 @@ export const LABELS = {
 export const COAST_MARKS = [
   { coast: 'spa/wc', text: 'WC', at: [134, 1160], angle: 62 },
   { coast: 'spa/ec', text: 'EC', at: [345, 1095], angle: -40 },
-  { coast: 'mac/wc', text: 'WC', at: [879, 1133], angle: 0 },
-  { coast: 'mac/ec', text: 'EC', at: [972, 1121], angle: 0 },
+  { coast: 'mac/wc', text: 'WC', at: [881, 1136], angle: 0 },
+  { coast: 'mac/ec', text: 'EC', at: [986, 1124], angle: 0 },
 ]
 
 // Supply-center names set in bold: the great powers' capitals (Budapest as Austria-Hungary's
@@ -71,7 +72,7 @@ export const CENTERS = {
 // Unit anchors that classical does not provide (or that moved).
 export const UNITS = {
   col: [556, 812], als: [538, 870], swi: [597, 912], mil: [646, 962], 
-  rom: [690, 1110], mac: [905, 1140], 'mac/wc': [868, 1150], 'mac/ec': [972, 1128], gre: [925, 1215],
+  rom: [690, 1110], mac: [905, 1140], 'mac/wc': [868, 1150], 'mac/ec': [979, 1140], gre: [925, 1215],
   lvo: [945, 600], ice: [262, 180], ire: [262, 640], sib: [1470, 430],
   mor: [110, 1380], alg: [455, 1318], tun: [600, 1330], sou: [330, 1470], cyr: [960, 1490],
   egy: [1175, 1490], pal: [1352, 1460], dam: [1440, 1320], kon: [1240, 1240],
