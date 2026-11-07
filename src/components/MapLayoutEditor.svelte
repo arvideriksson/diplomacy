@@ -233,6 +233,20 @@
   // ── pointer: drag items, pan the board, wheel zoom ───────────────────
   let drag: { key: string; grab: Point; start: Point } | null = null
   let pan: { inverse: DOMMatrix; from: Point; view: ViewBox } | null = null
+  // Rotating a label by its handle: the angle follows the pointer around the label's anchor.
+  // `offset` is the handle's own angle in the label's frame; `start` the angle to undo to.
+  let rotating: { key: string; offset: number; start: number } | null = null
+
+  /** The rotation handle's position in a label's own (unrotated) frame. */
+  const handleOf = (b: DOMRect): Point => ({ x: b.x + b.width + 4 + 16 / Math.sqrt(k), y: b.y + b.height / 2 })
+
+  function startRotate(e: PointerEvent, i: Item, b: DOMRect) {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    const h = handleOf(b)
+    rotating = { key: i.key, offset: (Math.atan2(h.y, h.x) * 180) / Math.PI, start: i.angle }
+    svg.setPointerCapture(e.pointerId)
+  }
 
   const toBoard = (e: { clientX: number; clientY: number }, m = svg.getScreenCTM()?.inverse()): Point => {
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m)
@@ -264,7 +278,17 @@
   }
 
   function onPointerMove(e: PointerEvent) {
-    if (drag) {
+    if (rotating) {
+      const i = items.find((x) => x.key === rotating!.key)
+      if (i) {
+        const p = toBoard(e)
+        let a = (Math.atan2(p.y - i.at.y, p.x - i.at.x) * 180) / Math.PI - rotating.offset
+        a = Math.round(a / (e.shiftKey ? 5 : 1)) * (e.shiftKey ? 5 : 1)
+        a = ((((a + 180) % 360) + 360) % 360) - 180
+        place(i, i.at, a)
+        items = items
+      }
+    } else if (drag) {
       const p = toBoard(e)
       const i = items.find((x) => x.key === drag!.key)
       if (i) {
@@ -278,6 +302,12 @@
   }
 
   function onPointerUp(e: PointerEvent) {
+    if (rotating) {
+      const i = items.find((x) => x.key === rotating!.key)
+      if (i && i.angle !== rotating.start) undoStack = [...undoStack, { key: i.key, at: { ...i.at }, angle: rotating.start }]
+      rotating = null
+      return
+    }
     if (drag) {
       const i = items.find((x) => x.key === drag!.key)
       if (i && (i.at.x !== drag.start.x || i.at.y !== drag.start.y)) undoStack = [...undoStack, { key: i.key, at: drag.start, angle: i.angle }]
@@ -468,6 +498,22 @@
                 stroke-width={1.5 / Math.sqrt(k)}
                 pointer-events="none"
               />
+              {#if i.key === selected}
+                {@const h = handleOf(b)}
+                <g transform="translate({i.at.x} {i.at.y}){i.angle ? ` rotate(${i.angle})` : ''}" class="rotate">
+                  <line x1={b.x + b.width + 2} y1={h.y} x2={h.x} y2={h.y} stroke-width={1.5 / Math.sqrt(k)} pointer-events="none" />
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <circle
+                    cx={h.x}
+                    cy={h.y}
+                    r={6 / Math.sqrt(k)}
+                    stroke-width={1.5 / Math.sqrt(k)}
+                    on:pointerdown={(e) => startRotate(e, i, b)}
+                  >
+                    <title>Drag to rotate (Shift: 5° steps)</title>
+                  </circle>
+                </g>
+              {/if}
             {/if}
           {/each}
         {/if}
@@ -665,6 +711,17 @@
   }
   .label-box.selected {
     stroke-dasharray: none;
+  }
+  .rotate line {
+    stroke: #2563eb;
+  }
+  .rotate circle {
+    fill: #fff;
+    stroke: #2563eb;
+    cursor: grab;
+  }
+  .rotate circle:hover {
+    fill: #dbeafe;
   }
   .coast-ring {
     fill: none;
