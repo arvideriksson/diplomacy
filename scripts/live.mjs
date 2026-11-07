@@ -3,7 +3,7 @@
 // all cases — so at rest the repo is unlinked and `supabase config push`, `db pull`,
 // etc. have no project to reach (scripts/supabase-guard.mjs blocks re-linking).
 //
-//   npm run live:push [-- --dry-run]       apply pending migrations
+//   npm run live:push [-- --dry-run] [-- --include-all]  apply pending migrations
 //   npm run live:deploy-functions          bundle the engine and deploy the adjudicator + notify
 //   npm run live:diagnose-push             read-only: push subscriptions + recent notify replies
 //   npm run live:usage                     read-only: database / storage size and activity vs the free tier
@@ -29,7 +29,9 @@ import { fileURLToPath } from 'node:url'
 import { resolveBackend } from './backend.ts'
 
 const COMMANDS = {
-  push: { args: ['db', 'push', '--linked'], extra: ['--dry-run'] },
+  // --include-all: apply a migration older than the newest on live (one that was pushed
+  // out of filename order); the dry run lists exactly what it would apply.
+  push: { args: ['db', 'push', '--linked'], extra: ['--dry-run', '--include-all'] },
   'deploy-functions': { args: ['functions', 'deploy', 'adjudicate', 'notify'], extra: [] },
   'diagnose-push': { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/push.sql'], extra: [] },
   usage: { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/usage.sql'], extra: [] },
