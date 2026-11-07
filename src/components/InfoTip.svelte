@@ -2,6 +2,8 @@
   // A small ⓘ next to a setting that shows its explanation on hover / focus / tap, in
   // place of a subtitle. The bubble is position: fixed, placed on open, so the card or
   // modal it sits in can't clip it.
+  import Icon from './Icon.svelte'
+
   export let text: string
 
   let anchor: HTMLButtonElement
@@ -42,11 +44,7 @@
   on:blur={hide}
   on:click|preventDefault|stopPropagation={() => (open && Date.now() - shownAt > 400 ? hide() : show())}
 >
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="12" y1="11" x2="12" y2="16" />
-    <circle cx="12" cy="7.5" r="0.5" fill="currentColor" />
-  </svg>
+  <Icon name="info" size={14} round />
 </button>
 
 {#if open}

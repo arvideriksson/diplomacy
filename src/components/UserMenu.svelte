@@ -7,6 +7,8 @@
   import Toggle from './Toggle.svelte'
   import { pushSupported, pushEnabled, enablePush, disablePush } from '../lib/push'
   import { influencePaint } from '../lib/mapPrefs'
+  import { errorMessage } from '../lib/errors'
+  import { dismissable } from '../lib/actions/dismissable'
 
   let showMenu = false
   let renaming = false
@@ -18,44 +20,39 @@
 
   let pushBusy = false
   let pushBlocked = false
+  let pushError = ''
 
   async function setPush(on: boolean) {
     pushBusy = true
+    pushError = ''
     try {
       if (on) pushBlocked = !(await enablePush())
       else await disablePush(true)
+    } catch (e) {
+      pushError = errorMessage(e)
     } finally {
       pushBusy = false
     }
   }
-
-  function handleClickOutside(e: MouseEvent) {
-    if (showMenu) showMenu = false
-  }
 </script>
 
-<svelte:window on:click={handleClickOutside} />
-
 {#if $user}
-  <div class="user-menu" transition:fade={{ duration: 150 }}>
+  <div class="user-menu" transition:fade={{ duration: 150 }} use:dismissable={{ onDismiss: () => (showMenu = false), enabled: showMenu }}>
     <button
       class="avatar-btn"
-      on:click|stopPropagation={() => (showMenu = !showMenu)}
+      on:click={() => (showMenu = !showMenu)}
       aria-expanded={showMenu}
     >
       <Avatar name={$displayName} />
     </button>
 
     {#if showMenu}
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="dropdown" transition:fly={{ y: -8, duration: 180 }} on:click|stopPropagation>
+      <div class="dropdown" transition:fly={{ y: -8, duration: 180 }}>
         <div class="dropdown-header">
           <div class="name-row">
             <p class="name">{$displayName && $displayName !== $user.email ? $displayName : 'No name'}</p>
             <button class="edit-name" on:click={rename} title="Change name" aria-label="Change name">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
-              </svg>
+              <Icon name="pencil" size={14} round />
             </button>
           </div>
           <p class="email">{$user.email}</p>
@@ -72,6 +69,7 @@
               onChange={setPush}
             />
           </div>
+          {#if pushError}<p class="form-error push-error">{pushError}</p>{/if}
           <div class="dropdown-divider"></div>
         {/if}
         <div class="dropdown-item push-row">
@@ -203,6 +201,10 @@
 
   .push-label {
     flex: 1;
+  }
+
+  .push-error {
+    margin: 0 16px 10px;
   }
 
   .sign-out {

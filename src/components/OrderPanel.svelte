@@ -237,7 +237,7 @@
   }
   .prompt {
     margin: 0 0 8px;
-    color: var(--text-secondary, #555);
+    color: var(--text-secondary);
   }
   .copy {
     margin-left: auto;

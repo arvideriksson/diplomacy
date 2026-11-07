@@ -2,12 +2,14 @@
   import { adminDeleteAllGames, fetchGames } from '../lib/game'
   import { errorMessage } from '../lib/errors'
   import Icon from './Icon.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
 
   let deleting = false
   let result = ''
+  let confirming = false
 
   async function handleDeleteAll() {
-    if (!confirm('Delete ALL games? This cannot be undone.')) return
+    confirming = false
     deleting = true
     result = ''
     try {
@@ -32,7 +34,7 @@
   </summary>
 
   <div class="admin-actions">
-    <button class="delete-all" on:click={handleDeleteAll} disabled={deleting}>
+    <button class="delete-all" on:click={() => (confirming = true)} disabled={deleting}>
       {deleting ? 'Deleting...' : 'Delete all games'}
     </button>
   </div>
@@ -41,6 +43,17 @@
     <p class="result">{result}</p>
   {/if}
 </details>
+
+{#if confirming}
+  <ConfirmDialog
+    title="Delete ALL games?"
+    message="This cannot be undone."
+    confirmLabel="Delete all games"
+    tone="danger"
+    onConfirm={handleDeleteAll}
+    onCancel={() => (confirming = false)}
+  />
+{/if}
 
 <style>
   .admin-panel {

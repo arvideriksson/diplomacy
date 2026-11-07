@@ -11,6 +11,8 @@
   import { toRenderState } from '../lib/map/renderState'
   import { toGameId } from '../lib/map/idMap'
   import { isCoast } from '../lib/map/coasts'
+  import { coastName } from '../lib/orders/notation'
+  import ConfirmDialog from './ConfirmDialog.svelte'
   import { unitToken } from '../lib/map/render/units'
   import { bullseye } from '../lib/map/render/atmosphere'
   import { DEFAULT_UNIT_STYLE } from '../lib/map/unitStyles'
@@ -76,10 +78,10 @@
   const inside = (i: Item, p: Point = i.at): boolean => !i.region || ctx.isPointInPath(i.region, p.x, p.y, 'evenodd')
   const round = (n: number) => Math.round(n * 10) / 10
 
-  function unitType(id: string): 'Army' | 'Fleet' {
-    if (isCoast(id)) return 'Fleet'
+  function unitType(id: string): 'army' | 'fleet' {
+    if (isCoast(id)) return 'fleet'
     const type = mapDef.territories[toGameId(id)]?.type
-    return type === 'sea' || (type === 'coast' && fleetsOnCoasts) ? 'Fleet' : 'Army'
+    return type === 'sea' || (type === 'coast' && fleetsOnCoasts) ? 'fleet' : 'army'
   }
 
   /** The province or coast a unit anchor, center or label belongs to. */
@@ -90,7 +92,7 @@
     const id = targetOf(i)
     const t = mapDef.territories[toGameId(id)]
     if (!t) return id
-    const coast = isCoast(id) ? t.coasts?.[id.split('/')[1]]?.name ?? id.split('/')[1].toUpperCase() : ''
+    const coast = isCoast(id) ? coastName(mapDef, toGameId(id), id.split('/')[1]) : ''
     const name = coast ? `${t.name} (${coast})` : t.name
     return i.kind === 'center' ? `${name} supply center` : i.kind === 'label' ? `${name} ${i.id.startsWith('coast:') ? 'coast mark' : 'label'}` : name
   }
@@ -146,8 +148,14 @@
     for (const i of changed) labelEl(i)?.setAttribute('transform', transformOf(i))
   }
 
+  // A map switch waiting on "discard unsaved changes?".
+  let pendingMap: string | null = null
   function switchMap(id: string) {
-    if (changed.length && !confirm(`Discard ${changed.length} unsaved change(s)?`)) return
+    if (changed.length) pendingMap = id
+    else openMap(id)
+  }
+  function openMap(id: string) {
+    pendingMap = null
     mapId = id
     const url = new URL(location.href)
     url.searchParams.set('map', id)
@@ -321,7 +329,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if ((e.target as HTMLElement).closest('input, select')) return
+    if (pendingMap || (e.target as HTMLElement).closest('input, select')) return
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
       e.preventDefault()
       undo()
@@ -359,7 +367,7 @@
     }
   }
 
-  const tokenMarkup = (i: Item, type: 'Army' | 'Fleet', isSelected: boolean, out: boolean): string =>
+  const tokenMarkup = (i: Item, type: 'army' | 'fleet', isSelected: boolean, out: boolean): string =>
     unitToken(i.at.x, i.at.y, type, out ? '#dc2626' : isSelected ? '#2563eb' : '#57534e', DEFAULT_UNIT_STYLE, isSelected ? 1 : 0.85)
 </script>
 
@@ -510,6 +518,17 @@
     {/if}
   </div>
 </div>
+
+{#if pendingMap}
+  {@const id = pendingMap}
+  <ConfirmDialog
+    title="Discard {changed.length} unsaved change(s)?"
+    confirmLabel="Discard"
+    tone="danger"
+    onConfirm={() => openMap(id)}
+    onCancel={() => (pendingMap = null)}
+  />
+{/if}
 
 <style>
   .editor {

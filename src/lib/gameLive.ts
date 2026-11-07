@@ -34,6 +34,42 @@ export function subscribeToGame(
   current: () => GameState | null,
   onChange: (game: GameState) => void,
 ): LiveTopic {
+  // Scoped to tab VISIBILITY: a hidden tab gets its WebSocket frozen by the browser
+  // anyway, so holding the topic is pure waste. Leave it while hidden and join afresh on
+  // focus; each join reads the row back only if it changed meanwhile, so a focus with
+  // nothing new costs almost nothing.
+  if (typeof document === 'undefined') return joinGameTopic(id, current, onChange)
+  let live: LiveTopic | null = null
+  let markJoined = () => {}
+  const joined = new Promise<void>((resolve) => (markJoined = resolve))
+  const join = () => {
+    if (live) return
+    live = joinGameTopic(id, current, onChange)
+    live.joined.then(markJoined)
+  }
+  const leave = () => {
+    live?.stop()
+    live = null
+  }
+  const onVisibility = () => (document.visibilityState === 'visible' ? join() : leave())
+  document.addEventListener('visibilitychange', onVisibility)
+  onVisibility()
+  return {
+    joined,
+    revive: () => live?.revive(),
+    stop() {
+      document.removeEventListener('visibilitychange', onVisibility)
+      leave()
+    },
+  }
+}
+
+/** One join of a game's topic, for as long as the tab stays visible. */
+function joinGameTopic(
+  id: string,
+  current: () => GameState | null,
+  onChange: (game: GameState) => void,
+): LiveTopic {
   let fullSince = current()?.updated_at ?? ''
   let stopped = false
   // A read that started before a broadcast can land after it: never step backwards.

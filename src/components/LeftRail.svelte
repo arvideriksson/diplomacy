@@ -70,8 +70,8 @@
     width: var(--rail-width, 320px);
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--border, #e5e7eb);
-    background: var(--bg-card, #fff);
+    border-right: 1px solid var(--border);
+    background: var(--bg-card);
     overflow: hidden;
   }
   .left-body {
@@ -89,7 +89,7 @@
     gap: 10px;
     padding: 12px 14px;
     min-height: 52px;
-    border-bottom: 1px solid var(--border, #eee);
+    border-bottom: 1px solid var(--border);
   }
   .side-title .game-name {
     font-weight: 700;

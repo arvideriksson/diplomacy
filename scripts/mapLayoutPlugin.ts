@@ -15,6 +15,16 @@ const PLACEMENTS: Record<string, string | null> = {
   era: 'tools/variants/era/placements.json',
 }
 
+/**
+ * Boards generated FROM another board: 1900 inherits classical's kept labels, unit anchors
+ * and geometry (tools/variants/1900/build.mjs reads public/maps/classical.dsvg). An edit to
+ * the source board changes the generated one on its next build — CI's "generated boards"
+ * check fails until it is rebuilt — so a save says which builds to rerun.
+ */
+const DERIVED: Record<string, { board: string; command: string }[]> = {
+  classical: [{ board: '1900', command: 'npm run map:1900' }],
+}
+
 export function mapLayoutPlugin(): Plugin {
   return {
     name: 'map-layout',
@@ -41,8 +51,12 @@ export function mapLayoutPlugin(): Plugin {
               writeFileSync(path, mergePlacements(readFileSync(path, 'utf8'), layout))
             }
             const saved = Object.values(layout).reduce((n, group) => n + Object.keys(group ?? {}).length, 0)
+            const rebuild = DERIVED[map] ?? []
+            for (const d of rebuild) {
+              server.config.logger.warn(`[map-layout] ${map}.dsvg changed; ${d.board} is built from it — run \`${d.command}\``)
+            }
             res.setHeader('content-type', 'application/json')
-            res.end(JSON.stringify({ saved }))
+            res.end(JSON.stringify({ saved, rebuild: rebuild.map((d) => d.command) }))
           } catch (e) {
             res.statusCode = 400
             res.end(e instanceof Error ? e.message : String(e))

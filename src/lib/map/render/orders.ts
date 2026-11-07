@@ -105,7 +105,7 @@ const buildMarkup = (
   const token = unitToken(
     position.x,
     position.y,
-    order.unitType ?? 'Army',
+    order.unitType ?? 'army',
     color,
     style,
     GHOST_UNIT_OPACITY

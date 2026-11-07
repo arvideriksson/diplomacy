@@ -1,3 +1,4 @@
+import type { Unit } from '../types'
 // Unit token styles — pluggable army/fleet glyphs for the map renderer.
 //
 // Shapes are authored in a normalised 64×64 box (chip disc r=22 centred at 32,32)
@@ -203,13 +204,13 @@ function defMarkup(def: Def, color: string, style: UnitStyle): string {
 export function unitTokenSvg(
   cx: number,
   cy: number,
-  type: 'Army' | 'Fleet',
+  type: Unit['type'],
   color: string,
   radius: number,
   style: UnitStyle,
   opacity = 1
 ): string {
-  const def = type === 'Army' ? ARMY_BY_ID[style.army] : FLEET_BY_ID[style.fleet]
+  const def = type === 'army' ? ARMY_BY_ID[style.army] : FLEET_BY_ID[style.fleet]
   const scale = radius / BOX_R
   const tx = cx - BOX_C * scale
   const ty = cy - BOX_C * scale
@@ -227,7 +228,7 @@ export function unitTokenSvg(
 export function unitOutlineSvg(
   cx: number,
   cy: number,
-  type: 'Army' | 'Fleet',
+  type: Unit['type'],
   radius: number,
   style: UnitStyle,
   stroke: string,
@@ -235,7 +236,7 @@ export function unitOutlineSvg(
   inner = '',
   fill = 'none'
 ): string {
-  const def = type === 'Army' ? ARMY_BY_ID[style.army] : FLEET_BY_ID[style.fleet]
+  const def = type === 'army' ? ARMY_BY_ID[style.army] : FLEET_BY_ID[style.fleet]
   const scale = radius / BOX_R
   const tx = cx - BOX_C * scale
   const ty = cy - BOX_C * scale

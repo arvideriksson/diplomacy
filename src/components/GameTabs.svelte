@@ -94,8 +94,8 @@
     height: 18px;
     padding: 0 5px;
     border-radius: 999px;
-    background: #ef4444;
-    color: #fff;
+    background: var(--accent);
+    color: var(--text-inverse);
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
@@ -120,11 +120,13 @@
   }
   .badge.todo {
     background: var(--amber);
+    color: #fff;
   }
   .badge.unsent {
     background: var(--accent);
   }
   .badge.done {
     background: var(--green);
+    color: #fff;
   }
 </style>

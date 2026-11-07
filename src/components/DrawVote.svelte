@@ -5,8 +5,9 @@
   import { onMount } from 'svelte'
   import type { MapDefinition } from '../lib/mapDefinition'
   import { victoryThreshold } from '../lib/adjudicator/resolve'
-  import { flagUrl } from '../lib/flags'
   import { findPower, powerInfo } from '../lib/powers'
+  import Flag from './Flag.svelte'
+  import Icon from './Icon.svelte'
   import { errorMessage } from '../lib/errors'
   import { fetchFinalVotes, fetchMyVote, setDrawVote, type DrawVote } from '../lib/draw'
 
@@ -25,7 +26,6 @@
   $: win = victoryThreshold(map)
   const name = (n: string) => powerInfo(map, n).name
   const color = (n: string) => powerInfo(map, n).color
-  const flag = (n: string) => flagUrl[powerInfo(map, n).id]
 
   // The saved vote, and the one being edited.
   let saved: DrawVote = { kind: 'solo' }
@@ -110,7 +110,7 @@
         {#each [...nations].sort((a, b) => rank(a) - rank(b)) as n (n)}
           <li class="power-row" style="--c:{color(n)}">
             <span class="edge"></span>
-            {#if flag(n)}<img class="flag" src={flag(n)} alt="" width="22" height="22" />{:else}<span></span>{/if}
+            <Flag powers={map} nation={n} size={22} />
             <span class="name">{name(n)}</span>
             <span class="verdict" class:tie={finals[n].kind === 'tie'} title={finals[n].kind === 'tie' ? describe(finals[n]) : undefined}>{finalLabel(finals[n])}</span>
           </li>
@@ -125,9 +125,7 @@
       <span class="sum">
         {#if loading}…{:else if !isAlive}Eliminated{:else}Your vote: <b>{label(saved)}</b>{/if}
       </span>
-      <svg class="chevron" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 6l4 4 4-4" />
-      </svg>
+      <span class="chevron"><Icon name="chevron-down" size={16} strokeWidth={3} round /></span>
     </button>
     {#if !open}
       <!-- folded -->
@@ -157,14 +155,14 @@
             <div class="members" role="group" aria-label="Powers in the tie">
               <div class="power-row me" style="--c:{color(nation)}">
                 <span class="edge"></span>
-                {#if flag(nation)}<img class="flag" src={flag(nation)} alt="" width="18" height="18" />{:else}<span></span>{/if}
+                <Flag powers={map} nation={nation} size={18} />
                 <span class="name">{name(nation)} <span class="you">(you)</span></span>
                 <span class="box on" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
               </div>
               {#each others as n (n)}
                 <button type="button" class="power-row pick" class:on={picked.includes(n)} style="--c:{color(n)}" aria-pressed={picked.includes(n)} on:click={() => toggle(n)}>
                   <span class="edge"></span>
-                  {#if flag(n)}<img class="flag" src={flag(n)} alt="" width="18" height="18" />{:else}<span></span>{/if}
+                  <Flag powers={map} nation={n} size={18} />
                   <span class="name">{name(n)}</span>
                   <span class="box" class:on={picked.includes(n)} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
                 </button>
@@ -237,6 +235,7 @@
   }
   .chevron {
     flex: none;
+    display: flex;
     color: var(--text-tertiary);
     transform: rotate(-90deg);
     transition: transform 0.15s ease;
@@ -326,7 +325,7 @@
     height: 36px;
   }
   /* Indent the checklist's flags under the option text (past the radio column). */
-  .members .power-row .flag {
+  .members .power-row :global(.flag) {
     margin-left: 17px;
   }
   .members .power-row {
@@ -336,9 +335,6 @@
   .edge {
     align-self: stretch;
     background: var(--c);
-  }
-  .flag {
-    display: block;
   }
   .name {
     font-weight: 600;

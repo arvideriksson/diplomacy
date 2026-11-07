@@ -1,3 +1,4 @@
+import type { Unit } from '../types'
 // The action bar shown at the bottom of the map while a unit or supply center is picked:
 // order types in movement, retreat/disband in retreats, unit types in builds. Pure data —
 // GameBoard decides what to offer, ActionBar draws it.
@@ -25,7 +26,7 @@ export interface Action {
   label: string
   /** Inner markup of a 24×24 stroke icon (see ACTION_ICONS), or a unit token to draw. */
   icon?: string
-  token?: { type: 'Army' | 'Fleet'; color: string }
+  token?: { type: Unit['type']; color: string }
   /** Desktop keyboard shortcut shown as a hint. */
   key?: string
   /** The selected action (the mode the map is in, or the placed build) — drawn filled. */

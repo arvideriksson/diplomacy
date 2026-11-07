@@ -390,9 +390,11 @@ const HOMES = {
 const START = 'A DEL F MAD A BOM F ADE A PEK F SHA A SIN A TON F ANN A COC A TOK F KYU F KYO A BOR F JAV F SUM A MOS A IRK F VLA F ODE A ANG F BAG F CON'.match(/[AF] \w+/g)
 // Colours: the classical palette where a power carries over; China, Japan and the
 // Netherlands take the board's own yellow, a green and the board's orange.
+// Flag asset keys (src/lib/flags.ts) for powers that don't fly the one named after them.
+const FLAGS = { russia: 'russia-imperial' }
 const POWERS = [
-  ['britain', 'Britain', '#4b85fe'], ['china', 'China', '#f5af20'], ['france', 'France', '#00bdd5'], ['japan', 'Japan', '#4aa961'],
-  ['netherlands', 'Netherlands', '#e9802f'], ['russia', 'Russia', '#9975fa'], ['turkey', 'Turkey', '#f0574e'],
+  ['britain', 'Britain', '#4b85fe'], ['china', 'China', '#f5af20'], ['france', 'France', '#00bdd5'], ['japan', 'Japan', '#ffffff'],
+  ['netherlands', 'Netherlands', '#e9802f'], ['russia', 'Russia', '#8c929f'], ['turkey', 'Turkey', '#f0574e'],
 ]
 const homeOf = Object.fromEntries(Object.entries(HOMES).flatMap(([p, ps]) => ps.map((id) => [id, p])))
 const territories = {}
@@ -415,7 +417,7 @@ const map = {
   // The rulebook's Winter rules: build in any owned center (conscription), switch a unit's
   // type on a center (conversion); powers tied for the most centers at 22+ share the win.
   rules: { buildAnyCenter: true, conversion: true, sharedVictory: true },
-  powers: POWERS.map(([id, name, color]) => ({ id, name, color })),
+  powers: POWERS.map(([id, name, color]) => ({ id, name, color, ...(FLAGS[id] ? { flag: FLAGS[id] } : {}) })),
   territories,
   startingUnits: START.map((u) => { const [t, id] = u.split(' '); return { type: t === 'A' ? 'army' : 'fleet', power: homeOf[id], territory: id } }),
 }

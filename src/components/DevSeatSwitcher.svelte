@@ -6,7 +6,8 @@
   import { currentGame, fetchGame } from '../lib/game'
   import { activeDevSeat, backendTarget } from '../lib/supabase'
   import { SEATS, seatUser, switchSeat, fillLobby, readyOtherSeats, seatReadiness } from '../lib/devSeats'
-  import { flagUrl } from '../lib/flags'
+  import { getMap } from '../lib/maps'
+  import Flag from './Flag.svelte'
   import { isOrderPhase } from '../lib/phases'
 
   const location = useLocation()
@@ -89,8 +90,8 @@
           <li>
             <button class="seat" class:active={s.seat === active} disabled={!!busy || s.seat === active} on:click={() => choose(s.seat)}>
               <span class="num">{s.seat}</span>
-              {#if s.nation && flagUrl[s.nation]}
-                <img src={flagUrl[s.nation]} alt="" class="flag" />
+              {#if s.nation && game}
+                <Flag powers={getMap(game.map_id)} nation={s.nation} size={18} />
               {/if}
               <span class="label">
                 {#if s.nation}<span class="nation">{s.nation}</span>{/if}
@@ -207,11 +208,6 @@
     text-align: center;
     color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
-  }
-
-  .flag {
-    width: 18px;
-    height: 18px;
   }
 
   .label {

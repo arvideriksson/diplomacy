@@ -5,7 +5,7 @@
   // are dealt when the game starts. The host removes players with ×.
   import type { PlayerInfo } from '../lib/game'
   import type { PowerDefinition } from '../lib/mapDefinition'
-  import { flagUrl } from '../lib/flags'
+  import Flag from './Flag.svelte'
   import Icon from './Icon.svelte'
 
   export let players: Record<string, PlayerInfo>
@@ -57,11 +57,7 @@
       {@const holder = byNation[p.id]}
       <div class="seat" class:open={!holder} class:mine={holder?.uid === userId} style="--c:{p.color}">
         <span class="edge" style:background={p.color}></span>
-        {#if flagUrl[p.id]}
-          <img class="flag" src={flagUrl[p.id]} alt="" width="26" height="26" />
-        {:else}
-          <span class="dot" style:background={p.color}></span>
-        {/if}
+        <Flag {powers} nation={p.id} size={26} />
         <span class="text">
           <span class="title">{p.name}</span>
           <span class="sub">
@@ -120,13 +116,8 @@
     align-self: stretch;
     margin: -6px 0;
   }
-  .flag {
-    display: block;
-  }
-  .dot {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
+  .edge[style*='background']:not([style*='transparent']) {
+    box-shadow: inset 0 0 0 1px var(--power-edge-line);
   }
   .random {
     display: grid;
@@ -167,8 +158,7 @@
     font-weight: 600;
     color: var(--text-tertiary);
   }
-  .seat.open .flag,
-  .seat.open .dot {
+  .seat.open :global(.flag) {
     opacity: 0.35;
     filter: grayscale(1);
   }
@@ -176,7 +166,7 @@
   .seat.open .title {
     color: var(--text-tertiary);
   }
-  .seat.open:not(:has(.flag, .dot)) .title {
+  .seat.open:not(:has(:global(.flag))) .title {
     font-weight: 500;
   }
   .seat.mine {

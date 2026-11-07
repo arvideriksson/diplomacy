@@ -44,7 +44,7 @@
     background: var(--amber-subtle);
   }
   .done {
-    color: var(--green, #059669);
+    color: var(--green);
   }
   .power-chip {
     /* Full name; ellipsis only if the heading itself runs out of room. */
@@ -57,7 +57,8 @@
     border-radius: 999px;
     letter-spacing: 0;
     text-transform: none;
-    color: var(--c);
+    color: oklch(from var(--c) clamp(var(--power-ink-min-l), l, var(--power-ink-max-l)) c h);
     background: color-mix(in srgb, var(--c) 16%, transparent);
+    box-shadow: inset 0 0 0 1px var(--power-edge-line);
   }
 </style>

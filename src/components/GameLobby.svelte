@@ -12,6 +12,10 @@
   import LobbySettings from './LobbySettings.svelte'
   import LobbySeats from './LobbySeats.svelte'
   import Icon from './Icon.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
+  import StatusPage from './StatusPage.svelte'
+  import { errorMessage } from '../lib/errors'
+  import { dismissable } from '../lib/actions/dismissable'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -77,6 +81,8 @@
     await runClaim(() => claimNation(gameId, myNation === nation ? null : nation))
   }
 
+  // A failed first read (no initialGame) replaces the lobby with the error.
+  let loadError = ''
   onMount(async () => {
     try {
       if (!game) {
@@ -90,6 +96,8 @@
         game = updated
         if (justStarted) onStart(updated)
       })
+    } catch (e) {
+      loadError = errorMessage(e)
     } finally {
       loading = false
     }
@@ -156,6 +164,7 @@
   async function handleLeave() {
     if (!game || !$user) return
     const left = await run(async () => (await leaveGame(gameId), true))
+    confirming = null // a failure shows under the title
     if (left) onBack() // leaving returns to the game list
   }
 
@@ -224,6 +233,7 @@
     removing = true
     const deleted = await run(async () => (await deleteLobbyGame(gameId), true))
     removing = false
+    confirming = null
     if (deleted) {
       fetchGames().catch(() => {})
       onBack()
@@ -237,12 +247,12 @@
   }
 </script>
 
-<svelte:window on:click={() => (menuOpen = false)} />
-
 {#if loading}
   <div class="loading">
     <div class="spinner"></div>
   </div>
+{:else if loadError}
+  <StatusPage message={loadError} actionLabel="Back to games" onAction={onBack} />
 {:else if game}
   <div class="lobby">
     <header class="lobby-head">
@@ -266,16 +276,16 @@
           {#if copied}<Icon name="check" size={15} />Copied{:else}<Icon name="copy" size={15} /><span class="lbl">{canShare ? 'Invite' : 'Copy invite link'}</span>{/if}
         </button>
         {#if isAdmin || isMember}
-          <div class="menu-wrap">
-            <button class="btn btn-line more" type="button" aria-label="More" aria-expanded={menuOpen} on:click|stopPropagation={() => (menuOpen = !menuOpen)}>
+          <div class="menu-wrap" use:dismissable={{ onDismiss: () => (menuOpen = false), enabled: menuOpen }}>
+            <button class="btn btn-line more" type="button" aria-label="More" aria-expanded={menuOpen} on:click={() => (menuOpen = !menuOpen)}>
               <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" /></svg>
             </button>
             {#if menuOpen}
               <div class="menu" role="menu">
                 {#if isAdmin}
-                  <button role="menuitem" class="danger" on:click|stopPropagation={() => ask('delete')}>Delete game</button>
+                  <button role="menuitem" class="danger" on:click={() => ask('delete')}>Delete game</button>
                 {:else}
-                  <button role="menuitem" class="danger" on:click|stopPropagation={() => ask('leave')}>Leave game</button>
+                  <button role="menuitem" class="danger" on:click={() => ask('leave')}>Leave game</button>
                 {/if}
               </div>
             {/if}
@@ -285,24 +295,6 @@
     </header>
 
     {#if error}<p class="form-error">{error}</p>{/if}
-
-    {#if confirming}
-      <div class="confirm" role="alertdialog" aria-label={confirming === 'delete' ? 'Delete game' : 'Leave game'}>
-        {#if confirming === 'delete'}
-          <b>Delete {game.name}?</b>
-          <p>{deleteNote}</p>
-        {:else}
-          <b>Leave {game.name}?</b>
-          <p>Your seat opens for someone else. You can rejoin while it’s open.</p>
-        {/if}
-        <div class="confirm-actions">
-          <button class="btn btn-danger" type="button" disabled={removing} on:click={confirming === 'delete' ? handleDelete : handleLeave}>
-            {confirming === 'delete' ? (removing ? 'Deleting…' : 'Delete game') : 'Leave game'}
-          </button>
-          <button class="btn btn-fill" type="button" on:click={() => (confirming = null)}>Cancel</button>
-        </div>
-      </div>
-    {/if}
 
     <div class="cols">
       <section class="seats-col">
@@ -376,6 +368,27 @@
       </div>
     {/if}
   </div>
+{/if}
+
+{#if game && confirming === 'delete'}
+  <ConfirmDialog
+    title="Delete {game.name}?"
+    message={deleteNote}
+    confirmLabel={removing ? 'Deleting…' : 'Delete game'}
+    tone="danger"
+    busy={removing}
+    onConfirm={handleDelete}
+    onCancel={() => (confirming = null)}
+  />
+{:else if game && confirming === 'leave'}
+  <ConfirmDialog
+    title="Leave {game.name}?"
+    message="Your seat opens for someone else. You can rejoin while it’s open."
+    confirmLabel="Leave game"
+    tone="danger"
+    onConfirm={handleLeave}
+    onCancel={() => (confirming = null)}
+  />
 {/if}
 
 <style>
@@ -490,38 +503,6 @@
     color: var(--red);
   }
 
-  /* In-page confirmation for delete and leave. */
-  .confirm {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-    background: var(--red-subtle);
-    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
-  }
-  .confirm b {
-    font-weight: 600;
-  }
-  .confirm p {
-    margin: 0;
-    font-size: 13.5px;
-    color: var(--text-secondary);
-  }
-  .confirm-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .btn-danger {
-    color: #fff;
-    background: var(--red);
-    border-color: var(--red);
-  }
-  .btn-fill {
-    background: var(--bg-fill);
-    color: var(--text);
-  }
-
   /* Seats beside settings. */
   .cols {
     display: grid;
@@ -597,8 +578,7 @@
       font-size: 22px;
     }
     /* Rows run edge to edge (App's main has 16px gutters). */
-    .list,
-    .confirm {
+    .list {
       margin: 0 -16px;
       border-left: none;
       border-right: none;

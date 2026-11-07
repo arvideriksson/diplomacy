@@ -9,6 +9,7 @@ import { toDsvgId } from '../map/idMap'
 import { toOrderStates, type Draft, type Step } from './wizard'
 import { retreatTargets, type BuildSituation, type BuildSpot, type ConvertChoice } from './adjustments'
 import type { AnyOrder, BuildOrder, Order, RetreatOrder } from './types'
+export { coastShort } from './notation'
 
 /** The province an order is keyed by (every order kind has one). */
 export const orderSource = (o: AnyOrder): string => (o as { source: string }).source
@@ -121,12 +122,6 @@ export function buildPrompt(situations: NationSituation[], anyCenter = false): s
   return 'No adjustments needed this phase.'
 }
 
-/**
- * Spell out a coast code for display (the terse Stp(sc) form is for notation), from
- * the map's own coast names: "North Coast" → "North".
- */
-export const coastName = (map: MapDefinition, province: string, c: string): string =>
-  map.territories[province]?.coasts?.[c]?.name.replace(/ Coast$/, '') ?? c
 
 const MOVE_TYPES = ['Hold', 'Move', 'Support', 'Convoy']
 
@@ -153,14 +148,14 @@ export function toRenderOrders(
       out.push(mark(o, { type: 'Disband', nation: r.nation, source: toDsvgId(r.source, r.sourceCoast), dislodged: true }))
     } else if (o.type === 'Build') {
       const b = o as BuildOrder
-      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' }))
+      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType }))
     } else if (o.type === 'Remove') {
       const b = o as BuildOrder
       out.push(mark(o, { type: 'Disband', nation: b.nation, source: toDsvgId(b.source) }))
     } else if (o.type === 'Convert') {
       // The unit as it will be: a ghost of the new type on its own province.
       const b = o as BuildOrder
-      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType === 'fleet' ? 'Fleet' : 'Army' }))
+      out.push(mark(o, { type: 'Build', nation: b.nation, source: toDsvgId(b.source, b.sourceCoast), unitType: b.unitType }))
     }
   }
   return out

@@ -258,7 +258,7 @@
     gap: 12px;
   }
   .empty {
-    color: var(--text-secondary, #888);
+    color: var(--text-secondary);
     margin: 0;
   }
 </style>

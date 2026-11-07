@@ -3,45 +3,19 @@
 // spots) over each case's board, and reports orders the UI cannot produce.
 import { it } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import datc from '../adjudicator/__tests__/datc.json'
 import { classicalMap } from '../maps/classical'
-import { adjudicate, boardFromUnits } from '../adjudicator/index'
-import type { BoardState, Phase, Season } from '../adjudicator/types'
+import { adjudicate } from '../adjudicator/index'
+import type { BoardState } from '../adjudicator/types'
 import type { Unit } from '../types'
-import { casePhase, parseLoc, parseOrder, parseUnit, splitNation, unitType, type CasePhase } from '../adjudicator/__tests__/datc-parse'
-import { toNation } from '../adjudicator/__tests__/datc-codes'
+import { casePhase, parseOrder, splitNation, unitType, type CasePhase } from '../adjudicator/__tests__/datc-parse'
 import { nextStep, finalize, applicableOrderTypes, type Draft } from './wizard'
 import { applyChoice, retreatChoices, openBuildSpots, openRemovals, type NationSituation } from './board'
 import { buildSituation } from './adjustments'
 import { toDsvgId } from '../map/idMap'
-import type { AnyOrder, BuildOrder, Order, OrderType, RetreatOrder } from './types'
+import { cases, caseBoard } from '../adjudicator/__tests__/datc-cases'
 
-interface Case {
-  name: string
-  url: string
-  phase: CasePhase
-  orders: Record<string, 'Succeeds' | 'Fails' | null>
-  starting_state?: string[]
-  ignore?: string
-  edition?: string
-  preceding_main_phase?: { orders: Record<string, 'Succeeds' | 'Fails' | null> }
-}
-const cases = (datc as unknown as { cases: Case[] }).cases
 const map = classicalMap
-
-function inferUnits(orderStrings: string[]): Unit[] {
-  const units = new Map<string, Unit>()
-  for (const s of orderStrings) {
-    const [code, body] = splitNation(s)
-    const parts = body.split(/\s+/)
-    if (parts[2]?.toLowerCase() === 'build') continue
-    const loc = parseLoc(parts[1])
-    units.set(loc.province, { type: unitType(parts[0]), nation: toNation(code), territory: loc.province, coast: loc.coast })
-  }
-  return [...units.values()]
-}
-const caseBoard = (c: { starting_state?: string[]; orders: Record<string, unknown> }, season: Season, phase: Phase): BoardState =>
-  boardFromUnits(map, c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders)), 1901, season, phase)
+import type { AnyOrder, BuildOrder, Order, OrderType, RetreatOrder } from './types'
 
 /** Every movement order the wizard can produce for `unit` (with the convoy route picked). */
 type Click = { province: string } | { action: string }

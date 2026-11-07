@@ -9,6 +9,7 @@
   import { listTime } from '../lib/chatTime'
   import { gifUrl } from '../lib/chatGif'
   import ChatAvatar from './ChatAvatar.svelte'
+  import Icon from './Icon.svelte'
 
   export let chat: ChatStore
   export let labels: ReturnType<typeof chatLabels>
@@ -143,7 +144,7 @@
           <span class="line">
             <span class="title">{channelLabel(c.conv)}</span>
             {#if c.kind === 'channel' && $pinned.includes(c.id)}
-              <svg class="pin" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-label="Pinned"><path d="M16 3l5 5-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z" /></svg>
+              <span class="pin" role="img" aria-label="Pinned"><Icon name="pin" size={13} fill="currentColor" stroke="none" /></span>
             {/if}
             {#if c.kind === 'channel' && c.last}<span class="time">{listTime(c.at)}</span>{/if}
           </span>
@@ -415,6 +416,7 @@
   }
   .pin {
     flex: none;
+    display: flex;
     color: var(--text-tertiary);
   }
   .time {

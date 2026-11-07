@@ -31,6 +31,8 @@ export interface PowerInfo {
   id: string
   name: string
   color: string
+  /** Key into lib/flags.ts flagUrl. */
+  flag: string
 }
 
 /**
@@ -43,5 +45,5 @@ export function powerInfo(
 ): PowerInfo {
   const powers = 'powers' in source ? source.powers : source
   const p = findPower(powers, nation)
-  return { id: p?.id ?? nation, name: p?.name ?? nation, color: p?.color ?? UNKNOWN_POWER_COLOR }
+  return { id: p?.id ?? nation, name: p?.name ?? nation, color: p?.color ?? UNKNOWN_POWER_COLOR, flag: p?.flag ?? p?.id ?? nation }
 }

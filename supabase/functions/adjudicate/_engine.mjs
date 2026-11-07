@@ -513,15 +513,23 @@ function resolveRetreat(map, board, orders) {
   return { units: sortUnits(survivors), results };
 }
 var isRetreatBlocked = (dest, attackedFrom, occupied, contested) => occupied.has(dest) || dest === attackedFrom || contested.includes(dest);
+function retreatTargets(map, unit, attackedFrom, occupied, contested) {
+  const out = [];
+  for (const province of directReach(map, unit)) {
+    if (isRetreatBlocked(province, attackedFrom, occupied, contested)) continue;
+    if (unit.type === "fleet" && map.territories[province]?.coasts) {
+      const coasts = landingCoasts(map, province, unit.territory);
+      if (coasts.length) out.push({ province, coasts });
+    } else out.push({ province, coasts: [] });
+  }
+  return out;
+}
 function legalRetreat(map, dis, dest, coast, occupied, contested) {
-  if (isRetreatBlocked(dest, dis.attackedFrom, occupied, contested)) return false;
-  if (!directReach(map, dis.unit).includes(dest)) return false;
-  const destT = map.territories[dest];
-  if (dis.unit.type === "fleet" && destT?.coasts) {
-    const valid = landingCoasts(map, dest, dis.unit.territory);
-    if (valid.length === 0) return false;
-    if (coast && !valid.includes(coast)) return false;
-    if (!coast && valid.length > 1) return false;
+  const target = retreatTargets(map, dis.unit, dis.attackedFrom, occupied, contested).find((t) => t.province === dest);
+  if (!target) return false;
+  if (target.coasts.length) {
+    if (coast && !target.coasts.includes(coast)) return false;
+    if (!coast && target.coasts.length > 1) return false;
   }
   return true;
 }
@@ -3201,7 +3209,7 @@ var mapEra = {
     {
       "id": "japan",
       "name": "Japan",
-      "color": "#4aa961"
+      "color": "#ffffff"
     },
     {
       "id": "netherlands",
@@ -3211,7 +3219,8 @@ var mapEra = {
     {
       "id": "russia",
       "name": "Russia",
-      "color": "#9975fa"
+      "color": "#8c929f",
+      "flag": "russia-imperial"
     },
     {
       "id": "turkey",

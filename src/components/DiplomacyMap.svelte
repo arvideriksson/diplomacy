@@ -683,7 +683,7 @@
     max-height: none;
     border-radius: 0;
     /* letterbox margins match the app theme (dark in dark mode) instead of sea-blue */
-    background: var(--bg, #0b0e14);
+    background: var(--bg);
   }
   .map-wrap.grabbing {
     cursor: grabbing;

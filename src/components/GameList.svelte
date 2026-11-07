@@ -7,7 +7,7 @@
   import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import type { Sandbox } from '../lib/sandbox'
   import { maps, getMap } from '../lib/maps'
-  import { flagUrl } from '../lib/flags'
+  import type { Snippet } from 'svelte'
   import { powerInfo } from '../lib/powers'
   import { victoryFor } from '../lib/adjudicator'
   import { isOrderPhase, roundLabel } from '../lib/phases'
@@ -15,6 +15,7 @@
   import { readDraftBackup } from '../lib/draftBackup'
   import Modal from './Modal.svelte'
   import Icon from './Icon.svelte'
+  import Flag from './Flag.svelte'
 
   export let onSelectGame: (game: { id: string }) => void = () => {}
   export let onOpenSandbox: (id: string) => void = () => {}
@@ -116,11 +117,11 @@
     showNewSandbox = false
   }
 
-  const onKey = (open: () => void) => (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      open()
-    }
+  // Rows are real links (middle-click, open in new tab); a plain click navigates in-app.
+  const follow = (open: () => void) => (e: MouseEvent) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    open()
   }
 </script>
 
@@ -131,8 +132,36 @@
   </span>
 {/snippet}
 
-{#snippet chevron()}
-  <span class="chev"><Icon name="chevron-right" size={16} /></span>
+<!-- One row: power edge, lead glyph, name and meta, status, then › or Join. -->
+{#snippet row(
+  href: string,
+  open: () => void,
+  lead: Snippet,
+  name: string,
+  meta: string,
+  status?: Snippet,
+  opts: { edge?: string; lock?: boolean; join?: boolean } = {},
+)}
+  <a class="row" {href} on:click={follow(open)}>
+    <span class="edge" style:background={opts.edge}></span>
+    {@render lead()}
+    <span class="text">
+      <span class="name">{name}{#if opts.lock}<span class="lock" title="Private"><Icon name="lock" size={12} /></span>{/if}</span>
+      <span class="meta">{meta}</span>
+    </span>
+    <span class="status">{@render status?.()}</span>
+    {#if opts.join}
+      <span class="join">Join</span>
+    {:else}
+      <span class="chev"><Icon name="chevron-right" size={16} /></span>
+    {/if}
+  </a>
+{/snippet}
+
+{#snippet glyph(name: 'users' | 'plus' | 'eye' | 'flask')}
+  <span class="glyph">
+    {#if name === 'plus'}<Icon name="plus" size={14} strokeWidth={2.4} round />{:else}<Icon {name} size={14} round={name === 'flask'} />{/if}
+  </span>
 {/snippet}
 
 <!-- One of your games: your power's edge and flag, then what it's waiting on. -->
@@ -140,41 +169,32 @@
   {@const nation = g.me?.nation ?? ''}
   {@const status = orderStatus(g)}
   {@const end = g.phase === 'complete' ? outcome(g) : null}
-  <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
-    <span class="edge" style:background={nation ? color(g, nation) : 'transparent'}></span>
-    {#if nation && flagUrl[nation]}
-      <img class="flag" src={flagUrl[nation]} alt="" width="26" height="26" />
-    {:else}
-      <span class="glyph"><Icon name="users" size={14} /></span>
-    {/if}
-    <span class="text">
-      <span class="name">{g.name}{#if g.is_private}<span class="lock" title="Private"><Icon name="lock" size={12} /></span>{/if}</span>
-      <span class="meta">{when(g)}</span>
-    </span>
-    <span class="status">
-      {#if g.phase === 'lobby'}
-        {@render pips(g)}
-        <span class="sub">{g.player_count} of {seats(g)}</span>
-      {:else if g.phase === 'complete'}
-        {#if end}
-          <span class="main">
-            <span class="flags">{#each end.nations as n (n)}{#if flagUrl[n]}<img src={flagUrl[n]} alt="" width="16" height="16" />{/if}{/each}</span>
-            {end.kind === 'won' ? (end.nations.length > 1 ? 'Shared win' : 'Won') : `${end.nations.length}-way tie`}
-          </span>
-          <span class="sub">{end.kind === 'won' ? end.nations.map((n) => name(g, n)).join(' & ') : 'Agreed'}</span>
-        {:else}
-          <span class="main quiet">Ended</span>
-        {/if}
-      {:else if status === 'todo' || status === 'unsent'}
-        <span class="main due">{left(g, $now) ?? 'Now'}</span>
-        <span class="sub">{status === 'todo' ? 'Orders due' : 'Changes not sent'}</span>
-      {:else if isOrderPhase(g.phase)}
-        {#if left(g, $now)}<span class="main quiet">{left(g, $now)}</span>{/if}
-        <span class="sub">Submitted</span>
+  {#snippet lead()}
+    {#if nation}<Flag powers={getMap(g.map_id)} {nation} size={26} />{:else}{@render glyph('users')}{/if}
+  {/snippet}
+  {#snippet state()}
+    {#if g.phase === 'lobby'}
+      {@render pips(g)}
+      <span class="sub">{g.player_count} of {seats(g)}</span>
+    {:else if g.phase === 'complete'}
+      {#if end}
+        <span class="main">
+          <span class="flags">{#each end.nations as n (n)}<Flag powers={getMap(g.map_id)} nation={n} size={16} />{/each}</span>
+          {end.kind === 'won' ? (end.nations.length > 1 ? 'Shared win' : 'Won') : `${end.nations.length}-way tie`}
+        </span>
+        <span class="sub">{end.kind === 'won' ? end.nations.map((n) => name(g, n)).join(' & ') : 'Agreed'}</span>
+      {:else}
+        <span class="main quiet">Ended</span>
       {/if}
-    </span>
-    {@render chevron()}
-  </div>
+    {:else if status === 'todo' || status === 'unsent'}
+      <span class="main due">{left(g, $now) ?? 'Now'}</span>
+      <span class="sub">{status === 'todo' ? 'Orders due' : 'Changes not sent'}</span>
+    {:else if isOrderPhase(g.phase)}
+      {#if left(g, $now)}<span class="main quiet">{left(g, $now)}</span>{/if}
+      <span class="sub">Submitted</span>
+    {/if}
+  {/snippet}
+  {@render row(`/game/${g.id}`, () => onSelectGame(g), lead, g.name, when(g), state, { edge: nation ? color(g, nation) : 'transparent', lock: g.is_private })}
 {/snippet}
 
 <div class="home">
@@ -195,19 +215,12 @@
       {#if openGames.length}
         <div class="list">
           {#each openGames as g (g.id)}
-            <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
-              <span class="edge"></span>
-              <span class="glyph"><Icon name="plus" size={14} strokeWidth={2.4} round /></span>
-              <span class="text">
-                <span class="name">{g.name}</span>
-                <span class="meta">{when(g)}</span>
-              </span>
-              <span class="status">
-                {@render pips(g)}
-                <span class="sub">{seats(g) - g.player_count} {seats(g) - g.player_count === 1 ? 'seat' : 'seats'} left</span>
-              </span>
-              <span class="join">Join</span>
-            </div>
+            {#snippet lead()}{@render glyph('plus')}{/snippet}
+            {#snippet seatsLeft()}
+              {@render pips(g)}
+              <span class="sub">{seats(g) - g.player_count} {seats(g) - g.player_count === 1 ? 'seat' : 'seats'} left</span>
+            {/snippet}
+            {@render row(`/game/${g.id}`, () => onSelectGame(g), lead, g.name, when(g), seatsLeft, { join: true })}
           {/each}
         </div>
       {:else}
@@ -227,16 +240,8 @@
       {#if watchGames.length}
         <div class="list">
           {#each watchShown as g (g.id)}
-            <div class="row" role="link" tabindex="0" on:click={() => onSelectGame(g)} on:keydown={onKey(() => onSelectGame(g))}>
-              <span class="edge"></span>
-              <span class="glyph"><Icon name="eye" size={14} /></span>
-              <span class="text">
-                <span class="name">{g.name}</span>
-                <span class="meta">{when(g)}</span>
-              </span>
-              <span class="status"></span>
-              {@render chevron()}
-            </div>
+            {#snippet lead()}{@render glyph('eye')}{/snippet}
+            {@render row(`/game/${g.id}`, () => onSelectGame(g), lead, g.name, when(g))}
           {/each}
         </div>
       {:else}
@@ -261,16 +266,8 @@
       {#if kept.length}
         <div class="list">
           {#each kept as s (s.id)}
-            <div class="row" role="link" tabindex="0" on:click={() => onOpenSandbox(s.id)} on:keydown={onKey(() => onOpenSandbox(s.id))}>
-              <span class="edge"></span>
-              <span class="glyph"><Icon name="flask" size={14} round /></span>
-              <span class="text">
-                <span class="name">{sandboxName(s)}</span>
-                <span class="meta">{sandboxWhen(s)}</span>
-              </span>
-              <span class="status"></span>
-              {@render chevron()}
-            </div>
+            {#snippet lead()}{@render glyph('flask')}{/snippet}
+            {@render row(`/sandbox/${s.id}`, () => onOpenSandbox(s.id), lead, sandboxName(s), sandboxWhen(s))}
           {/each}
         </div>
       {/if}
@@ -355,6 +352,8 @@
   }
   .row {
     display: grid;
+    color: inherit;
+    text-decoration: none;
     grid-template-columns: 3px 26px minmax(0, 1fr) auto minmax(16px, auto);
     column-gap: 12px;
     align-items: center;
@@ -379,8 +378,8 @@
     align-self: stretch;
     margin: -8px 0;
   }
-  .flag {
-    display: block;
+  .edge[style*='background']:not([style*='transparent']) {
+    box-shadow: inset 0 0 0 1px var(--power-edge-line);
   }
   .glyph {
     display: grid;
@@ -457,10 +456,7 @@
   .flags {
     display: inline-flex;
   }
-  .flags img {
-    display: block;
-  }
-  .flags img + img {
+  .flags > :global(.flag + .flag) {
     margin-left: -4px;
   }
   .pips {

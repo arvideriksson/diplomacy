@@ -1,6 +1,5 @@
 // How the press panel names and decorates conversations and nations for one viewer.
-import { flagUrl } from './flags'
-import { findPower, powerName, powerColor, sameNation } from './powers'
+import { powerName, sameNation } from './powers'
 import type { PowerDefinition } from './mapDefinition'
 import type { PlayerInfo } from './game'
 
@@ -13,14 +12,8 @@ export const otherMembers = (members: string[], nation: string): string[] =>
 
 /** Display helpers for one viewer (`nation`) on a map's powers and the game's roster. */
 export function chatLabels(powers: PowerDefinition[], nation: string, players: Record<string, PlayerInfo> = {}) {
-  // nation → display name + color (matched by id or name, case-insensitive).
+  // nation → display name (matched by id or name, case-insensitive).
   const display = (n: string) => powerName(powers, n)
-  const colorOf = (n: string) => powerColor(powers, n, 'var(--text-secondary, #888)')
-  // Flag roundel for a nation (keyed by power id); undefined if the map has no asset.
-  const flagOf = (n: string): string | undefined => {
-    const id = findPower(powers, n)?.id
-    return id ? flagUrl[id] : undefined
-  }
   // nation → the player's username (null when the seat has no named player).
   const users = new Map<string, string>()
   for (const p of Object.values(players)) if (p?.nation && p.display_name) users.set(p.nation.toLowerCase(), p.display_name)
@@ -38,5 +31,5 @@ export function chatLabels(powers: PowerDefinition[], nation: string, players: R
   }
   // For a named channel, show the member list as a subtitle so you know who's in it.
   const memberList = (c: Labelled): string => others(c).map(display).join(', ')
-  return { display, colorOf, flagOf, userOf, who, others, isDirect, channelLabel, memberList }
+  return { powers, display, userOf, who, others, isDirect, channelLabel, memberList }
 }

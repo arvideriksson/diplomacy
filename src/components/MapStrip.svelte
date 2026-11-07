@@ -2,6 +2,7 @@
   // The slim glass bar at the foot of the map (phones always, desktop while the order
   // sidebar is hidden): what's left to order as text, one button (Submit, Resubmit, …) on
   // the right. With `onLatest`, the past-phase variant: a way back to the live phase.
+  import Icon from './Icon.svelte'
 
   /** History: jump back to the live phase (renders the past-phase bar instead). */
   export let onLatest: (() => void) | null = null
@@ -53,7 +54,7 @@
         <span class="unsent">Unsent changes</span>
       {:else if idle}
         <span class="strip-done">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+          <Icon name="check" strokeWidth={2.6} round />
           <strong>{label}</strong>
         </span>
       {:else if nextUnit}
@@ -183,13 +184,8 @@
     gap: 10px;
     color: var(--green);
   }
-  .strip-done svg {
+  .strip-done :global(svg) {
     flex: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
   .strip-done strong {
     color: var(--text);

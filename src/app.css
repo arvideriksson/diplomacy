@@ -18,6 +18,12 @@
 }
 
 :root {
+  /* A power colour used as text is clamped to this lightness band (oklch L), so a very
+     light power (Era's white Japan) or a very dark one still reads on the surface. */
+  --power-ink-min-l: 0;
+  --power-ink-max-l: 0.52;
+  /* Outline on power-colour strips, so a white or near-surface colour still shows. */
+  --power-edge-line: rgba(0, 0, 0, 0.16);
   /* The device's own interface font (San Francisco, Segoe UI, Roboto…), as most messaging
      apps do: nothing to download, and press reads like the player's other chats. */
   --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
@@ -72,6 +78,9 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --power-ink-min-l: 0.74;
+    --power-ink-max-l: 1;
+    --power-edge-line: rgba(255, 255, 255, 0.14);
     --bg: #111113;
     --bg-card: #1c1c1f;
     --bg-elevated: #232326;

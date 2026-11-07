@@ -12,6 +12,7 @@
   import { gifUrl } from '../lib/chatGif'
   import ChatAvatar from './ChatAvatar.svelte'
   import Icon from './Icon.svelte'
+  import { dismissable } from '../lib/actions/dismissable'
 
   export let chat: ChatStore
   export let labels: ReturnType<typeof chatLabels>
@@ -126,6 +127,14 @@
     if (details) detailsEl?.focus()
     else toggleEl?.focus()
   }
+  // Escape or a press outside (the header's toggles excepted) closes it; only Escape,
+  // a keyboard act, hands focus back.
+  let headEl: HTMLElement | null = null
+  function dismissDetails() {
+    const refocus = !!detailsEl?.contains(document.activeElement)
+    details = false
+    if (refocus) tick().then(() => toggleEl?.focus())
+  }
 
   function jumpToLatest() {
     scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
@@ -138,7 +147,7 @@
 
 {#if $openChan}
   <div class="thread">
-    <header class="thread-head">
+    <header class="thread-head" bind:this={headEl}>
       {#if onBack}
         <button class="icon-btn back" on:click={onBack} aria-label="Back to conversations" title="Back">
           <Icon name="back" size={22} strokeWidth={2.4} round />
@@ -163,15 +172,20 @@
         </span>
       </button>
       <button class="icon-btn" class:on={details} bind:this={toggleEl} on:click={toggleDetails} aria-label="Conversation details" aria-expanded={details} title="Conversation details">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" />
-        </svg>
+        <Icon name="info" size={20} round />
       </button>
     </header>
 
     <div class="body-area">
     {#if details}
-      <div class="details" bind:this={detailsEl} tabindex="-1" role="region" aria-label="Conversation details">
+      <div
+        class="details"
+        bind:this={detailsEl}
+        tabindex="-1"
+        role="region"
+        aria-label="Conversation details"
+        use:dismissable={{ onDismiss: dismissDetails, ignore: [headEl] }}
+      >
         {#if $renaming}
           <div class="rename-row">
             <!-- svelte-ignore a11y_autofocus -->
@@ -191,16 +205,14 @@
           {/if}
         {:else if $renamable}
           <button class="action" on:click={rename}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
-            </svg>
+            <Icon name="pencil" round />
             {$openChan.name ? 'Rename conversation' : 'Name this conversation'}
           </button>
         {/if}
         {#if $active}
           {@const id = $active.id}
           <button class="action" on:click={() => chat.togglePin(id)}>
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M16 3l5 5-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z" /></svg>
+            <Icon name="pin" stroke-linejoin="round" />
             {$pinned.includes(id) ? 'Unpin from top of list' : 'Pin to top of list'}
           </button>
         {/if}
@@ -336,10 +348,9 @@
 <style>
   .thread {
     /* Incoming bubbles: a tint of the text colour over the panel, visible in both themes.
-       Outgoing: a deep blue that keeps white text above 4.5:1 in both themes (the dark
-       theme's accent is too pale for that). */
+       Outgoing: the theme's accent, with its inverse text colour. */
     --bubble-in: color-mix(in srgb, var(--text) 8%, var(--bg-card));
-    --bubble-out: #2563eb;
+    --bubble-out: var(--accent);
     position: relative;
     flex: 1;
     display: flex;
@@ -655,7 +666,7 @@
   }
   .row.mine .bubble {
     background: var(--bubble-out);
-    color: #fff;
+    color: var(--text-inverse);
   }
   .from {
     display: flex;
@@ -750,7 +761,7 @@
     }
   }
   .row.mine .time {
-    color: rgba(255, 255, 255, 0.85);
+    color: color-mix(in srgb, var(--text-inverse) 85%, transparent);
   }
 
   .pending .bubble {
@@ -878,7 +889,7 @@
     border: none;
     border-radius: 50%;
     background: var(--bubble-out);
-    color: #fff;
+    color: var(--text-inverse);
     cursor: pointer;
     transition: opacity 0.15s, transform 0.15s;
   }

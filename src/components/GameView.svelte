@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte'
+  import { onMount } from 'svelte'
   import GameBoard from './GameBoard.svelte'
   import SandboxBoard from './SandboxBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
@@ -129,31 +129,11 @@
   // Live updates: when the adjudicator resolves a round it writes the games row, which
   // is broadcast on the game's topic. Reassigning `game` cascades to the round-change
   // reload below (new board) and recomputes the `ready` prop — so the board advances
-  // without a reload. A ready toggle arrives as a small patch, not the whole row.
-  //
-  // The subscription is scoped to tab VISIBILITY: a hidden tab gets its WebSocket frozen
-  // by the browser anyway, so holding it open is pure waste. So we leave the topic when
-  // hidden and rejoin on focus; each join reads the row back only if it changed while
-  // we were away (subscribeToGame), so a focus with nothing new costs almost nothing.
-  let channel: ReturnType<typeof subscribeToGame> | null = null
-  function subscribe() {
-    if (!channel) channel = subscribeToGame(game.id, () => game, (updated) => (game = updated))
-  }
-  function unsubscribe() {
-    channel?.stop()
-    channel = null
-  }
-  function onVisibilityChange() {
-    if (document.visibilityState === 'visible') subscribe()
-    else unsubscribe()
-  }
+  // without a reload. A ready toggle arrives as a small patch, not the whole row. The
+  // subscription pauses while the tab is hidden (subscribeToGame).
   onMount(() => {
-    if (document.visibilityState === 'visible') subscribe()
-    document.addEventListener('visibilitychange', onVisibilityChange)
-  })
-  onDestroy(() => {
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-    unsubscribe()
+    const channel = subscribeToGame(game.id, () => game, (updated) => (game = updated))
+    return () => channel.stop()
   })
 
   // A new round (resolution or revert): jump to the live phase, and if the history has
@@ -311,7 +291,7 @@
     <svelte:fragment slot="map-action">
       {#if !isComplete}
         <button class="glass sb-chip" class:icon={$compact} on:click={scratchSandbox} title="Experiment in a temporary sandbox (discarded when you leave)" aria-label="Open a temporary sandbox">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3" /><path d="M7.5 15h9" /></svg>
+          <Icon name="flask" strokeWidth={2.2} round />
           {#if !$compact}<span>Sandbox</span>{/if}
         </button>
       {/if}
@@ -342,7 +322,7 @@
         <section class="sb-launch">
           <button class="fold" type="button" aria-expanded={sandboxOpen} on:click={() => (sandboxOpen = !sandboxOpen)}>
             <h4>Sandbox</h4>
-            <svg class="chev" class:open={sandboxOpen} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+            <span class="chev" class:open={sandboxOpen}><Icon name="chevron-down" size={16} strokeWidth={3} round /></span>
           </button>
           {#if sandboxOpen}
           <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {roundSeason(frame.board)} {frame.board.year}</button>
@@ -469,12 +449,9 @@
   }
   .chev {
     flex: none;
+    display: flex;
     margin-left: auto;
-    fill: none;
-    stroke: var(--text-tertiary);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    color: var(--text-tertiary);
     transform: rotate(-90deg);
     transition: transform 0.15s ease;
   }

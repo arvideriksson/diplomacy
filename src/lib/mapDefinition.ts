@@ -61,6 +61,9 @@ export interface PowerDefinition {
   id: string
   name: string
   color: string
+  /** Flag asset key in lib/flags.ts when it isn't the power id (Era's Russia flies the
+   *  1870 imperial flag). */
+  flag?: string
 }
 
 export interface TerritoryDefinition {

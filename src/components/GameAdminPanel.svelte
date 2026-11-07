@@ -6,6 +6,7 @@
   import { toLocalInput } from '../lib/time'
   import InfoTip from './InfoTip.svelte'
   import Modal from './Modal.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
   import PacingSettings from './PacingSettings.svelte'
 
   export let game: GameState
@@ -61,19 +62,16 @@
     if (ok) onClose()
   }
 
-  function resolveNow() {
-    if (!confirm('Resolve this phase now? Powers that haven’t submitted will hold.')) return
-    act(() => forceResolve(game.id))
-  }
+  // The turn action awaiting confirmation.
+  let confirming: 'resolve' | 'revert' | null = null
+  $: revertTarget = revertOptions[revertIndex]
 
-  function revert() {
-    const target = revertOptions[revertIndex]
-    if (!target) return
-    const msg =
-      `Revert the game to ${roundLabel(target)}? Every later phase is erased and ` +
-      `players’ orders for that phase reopen as unsubmitted drafts. This can’t be undone.`
-    if (!confirm(msg)) return
-    act(() => revertTo(game.id, target))
+  function confirmed() {
+    const what = confirming
+    const target = revertTarget
+    confirming = null
+    if (what === 'resolve') act(() => forceResolve(game.id))
+    else if (what === 'revert' && target) act(() => revertTo(game.id, target))
   }
 
   // ── Deadline override ────────────────────────────────────────────────────────
@@ -103,10 +101,10 @@
             <option value={i}>{roundLabel(r)}</option>
           {/each}
         </select>
-        <button class="btn btn-danger" on:click={revert} disabled={saving}>Revert</button>
+        <button class="btn btn-danger" on:click={() => (confirming = 'revert')} disabled={saving}>Revert</button>
       {/if}
       {#if isActive}
-        <button class="btn" on:click={resolveNow} disabled={saving}>Resolve now</button>
+        <button class="btn" on:click={() => (confirming = 'resolve')} disabled={saving}>Resolve now</button>
       {/if}
     </div>
   </div>
@@ -153,6 +151,25 @@
     />
   {/if}
 </Modal>
+
+{#if confirming === 'resolve'}
+  <ConfirmDialog
+    title="Resolve this phase now?"
+    message="Powers that haven’t submitted will hold."
+    confirmLabel="Resolve now"
+    onConfirm={confirmed}
+    onCancel={() => (confirming = null)}
+  />
+{:else if confirming === 'revert' && revertTarget}
+  <ConfirmDialog
+    title="Revert the game to {roundLabel(revertTarget)}?"
+    message="Every later phase is erased and players’ orders for that phase reopen as unsubmitted drafts. This can’t be undone."
+    confirmLabel="Revert"
+    tone="danger"
+    onConfirm={confirmed}
+    onCancel={() => (confirming = null)}
+  />
+{/if}
 
 <style>
   .action-row {

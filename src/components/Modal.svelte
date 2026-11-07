@@ -1,7 +1,13 @@
+<script lang="ts" context="module">
+  // Open dialogs, innermost last: Escape closes only the top one (a confirm over a panel).
+  const open: symbol[] = []
+</script>
+
 <script lang="ts">
   // Centered dialog over a dimmed backdrop, with a title and a close ✕. Clicking the
   // backdrop or pressing Escape closes it. The body goes in the default slot. Without
   // `onClose` it can't be dismissed — the body has to resolve it.
+  import { onMount } from 'svelte'
   import { fade, scale } from 'svelte/transition'
   import Icon from './Icon.svelte'
 
@@ -11,7 +17,16 @@
   export let top = '48px'
   export let onClose: (() => void) | undefined = undefined
 
-  const onKeydown = (e: KeyboardEvent) => e.key === 'Escape' && onClose?.()
+  const me = Symbol()
+  onMount(() => {
+    open.push(me)
+    return () => open.splice(open.indexOf(me), 1)
+  })
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Escape' || open[open.length - 1] !== me || !onClose) return
+    e.preventDefault()
+    onClose()
+  }
 </script>
 
 <svelte:window on:keydown={onKeydown} />

@@ -66,7 +66,7 @@ export const toRenderState = (input: ToRenderStateInput): RenderState => {
   const toUnitState = (unit: Unit, dislodged?: true): UnitState => ({
     province: toDsvgId(unit.territory, unit.coast),
     nation: register(unit.nation),
-    type: unit.type === 'fleet' ? 'Fleet' : 'Army',
+    type: unit.type,
     ...(dislodged ? { dislodged } : {}),
   })
 

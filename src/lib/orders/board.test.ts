@@ -68,7 +68,7 @@ describe('toRenderOrders', () => {
     expect(toRenderOrders(orders)).toEqual([
       { type: 'Move', nation: 'france', source: 'par', target: 'gas', dislodged: true },
       { type: 'Disband', nation: 'france', source: 'bre', dislodged: true },
-      { type: 'Build', nation: 'russia', source: 'stp/nc', unitType: 'Fleet' },
+      { type: 'Build', nation: 'russia', source: 'stp/nc', unitType: 'fleet' },
       { type: 'Disband', nation: 'austria', source: 'vie' },
     ])
   })

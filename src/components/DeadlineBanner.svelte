@@ -43,7 +43,7 @@
     align-items: center;
     gap: 2px;
     padding: 8px 14px;
-    border-bottom: 1px solid var(--border, #eee);
+    border-bottom: 1px solid var(--border);
   }
   .deadline.row {
     flex-direction: row;
@@ -64,7 +64,7 @@
     font-size: 14px;
     font-weight: 700;
     letter-spacing: -0.1px;
-    color: var(--text, #1a1a1a);
+    color: var(--text);
     font-variant-numeric: tabular-nums;
   }
   .deadline .deadline-abs {
@@ -72,7 +72,7 @@
     color: var(--text-secondary);
   }
   .deadline.urgent .countdown {
-    color: var(--red, #dc2626);
+    color: var(--red);
   }
   .deadline.grace {
     background: var(--amber-subtle);
@@ -89,6 +89,6 @@
   .deadline.grace .grace-detail {
     font-size: 14px;
     font-weight: 700;
-    color: var(--text, #1a1a1a);
+    color: var(--text);
   }
 </style>

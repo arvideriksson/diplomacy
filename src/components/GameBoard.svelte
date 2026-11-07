@@ -24,17 +24,17 @@
   import {
     orderSource, withImplicitHolds, toRenderOrders, orderFailed, supportCut, applyChoice, commitMove, unorderedUnitIds,
     retreatChoices as retreatChoicesFor, retreatMapInputs,
-    openBuildSpots, openRemovals, openConversions, buildMapInputs, convertMapIds, buildPrompt as buildPromptFor, coastName,
+    openBuildSpots, openRemovals, openConversions, buildMapInputs, convertMapIds, buildPrompt as buildPromptFor, coastShort,
   } from '../lib/orders/board'
   import { isIdle } from '../lib/adjudicator/idle'
-  import { formatAnyOrder, describeAnyOrder } from '../lib/orders/notation'
+  import { formatAnyOrder, describeAnyOrder, unitTypeName } from '../lib/orders/notation'
   import { choiceNotes } from '../lib/orders/board'
   import SupplyCenterCard from './SupplyCenterCard.svelte'
   import LeftRail from './LeftRail.svelte'
   import DeadlineBanner from './DeadlineBanner.svelte'
   import OrderPanel from './OrderPanel.svelte'
   import SubmitControls from './SubmitControls.svelte'
-  import Modal from './Modal.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
   import PhaseHeader from './PhaseHeader.svelte'
   import GameTopBar from './GameTopBar.svelte'
   import GameTabs from './GameTabs.svelte'
@@ -253,7 +253,8 @@
 
   // Keyboard shortcuts: Escape cancels; each open action has its own key (M move, H hold, …).
   function onKeydown(e: KeyboardEvent) {
-    if (inactive) return
+    // Not under the submit confirm (its Escape is its own) or a popup that took the key.
+    if (inactive || confirmingSubmit || e.defaultPrevented) return
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
     // [ and ] toggle the left and right sidebars.
@@ -561,13 +562,13 @@
       const placed = $orders.find((o) => o.type === 'Build' && orderSource(o) === buildSel!.province) as BuildOrder | undefined
       const is = (t: string, c?: string) => placed?.unitType === t && (c === undefined || placed?.sourceCoast === c)
       const items: Action[] = []
-      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', choice: { kind: 'build', unitType: 'army' }, label: 'Army', token: { type: 'Army', color }, key: 'A', active: is('army') })
+      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', choice: { kind: 'build', unitType: 'army' }, label: 'Army', token: { type: 'army', color }, key: 'A', active: is('army') })
       if (buildSpotChoice.types.includes('fleet')) {
         const coasts = buildSpotChoice.coasts ?? []
         if (coasts.length > 1) {
           for (const c of coasts)
-            items.push({ id: `fleet:${c}`, choice: { kind: 'build', unitType: 'fleet', coast: c }, label: `Fleet ${coastName(mapDef, buildSel.province, c)}`, token: { type: 'Fleet', color }, active: is('fleet', c) })
-        } else items.push({ id: 'fleet', choice: { kind: 'build', unitType: 'fleet' }, label: 'Fleet', token: { type: 'Fleet', color }, key: 'F', active: is('fleet') })
+            items.push({ id: `fleet:${c}`, choice: { kind: 'build', unitType: 'fleet', coast: c }, label: `Fleet ${coastShort(mapDef, buildSel.province, c)}`, token: { type: 'fleet', color }, active: is('fleet', c) })
+        } else items.push({ id: 'fleet', choice: { kind: 'build', unitType: 'fleet' }, label: 'Fleet', token: { type: 'fleet', color }, key: 'F', active: is('fleet') })
       }
       if (placed) items.push({ id: 'undo', choice: { kind: 'undo' }, label: 'No build', icon: ACTION_ICONS.Disband, key: 'N', tone: 'danger' })
       return { anchor: toDsvgId(buildSel.province), items }
@@ -583,13 +584,13 @@
       if (owesRemoval(removeSel.nation) || placedType === 'Remove')
         items.push({ id: 'remove', choice: { kind: 'remove' }, label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: placedType === 'Remove' })
       if (conv) {
-        const kind = conv.to === 'fleet' ? 'Fleet' : 'Army'
+        const kind = unitTypeName(conv.to)
         const coasts = conv.coasts ?? []
         const active = (c?: string) => placedType === 'Convert' && (c === undefined || placed?.sourceCoast === c)
         if (coasts.length > 1)
           for (const c of coasts)
-            items.push({ id: `convert:${conv.to}:${c}`, choice: { kind: 'convert', unitType: conv.to, coast: c }, label: `To ${kind} ${coastName(mapDef, at, c)}`, token: { type: kind, color }, active: active(c) })
-        else items.push({ id: `convert:${conv.to}`, choice: { kind: 'convert', unitType: conv.to }, label: `To ${kind}`, token: { type: kind, color }, key: 'C', active: active() })
+            items.push({ id: `convert:${conv.to}:${c}`, choice: { kind: 'convert', unitType: conv.to, coast: c }, label: `To ${kind} ${coastShort(mapDef, at, c)}`, token: { type: conv.to, color }, active: active(c) })
+        else items.push({ id: `convert:${conv.to}`, choice: { kind: 'convert', unitType: conv.to }, label: `To ${kind}`, token: { type: conv.to, color }, key: 'C', active: active() })
       }
       if (placedType) items.push({ id: 'undo', choice: { kind: 'undo' }, label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' })
       return { anchor: toDsvgId(at, u?.coast), items }
@@ -831,19 +832,19 @@
   const provinceName = (id: string): string => mapDef.territories[id]?.name ?? id
   $: draftUnit = draft ? units.find((u) => u.territory === draft!.source) : undefined
   $: draftLabel = draftUnit
-    ? `${draftUnit.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(draft!.source)}`
+    ? `${unitTypeName(draftUnit.type)} ${provinceName(draft!.source)}`
     : ''
 
   $: retreatLabel = (() => {
     if (!retreatSel) return ''
     const d = dislodgedAt(retreatSel)
-    return d ? `${d.unit.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(retreatSel)} dislodged` : ''
+    return d ? `${unitTypeName(d.unit.type)} ${provinceName(retreatSel)} dislodged` : ''
   })()
 
   // The to-do lists cover what's left to place; the prompt only speaks when they're empty.
   $: buildPrompt = phase !== 'build' || todos.length || $orders.length ? '' : buildPromptFor(buildSituations, Boolean(mapDef.rules?.buildAnyCenter))
 
-  const unitLabel = (u: Unit) => `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(u.territory)}`
+  const unitLabel = (u: Unit) => `${unitTypeName(u.type)} ${provinceName(u.territory)}`
   const unitLabelAt = (p: string) => {
     const u = units.find((x) => x.territory === p)
     return u ? unitLabel(u) : provinceName(p)
@@ -928,7 +929,7 @@
     const text = describeAnyOrder(mapDef, o)
     if (o.type === 'Build' || o.type === 'Remove' || o.type === 'Convert') return text
     const u = units.find((x) => x.territory === o.source) ?? dislodged.find((d) => d.unit.territory === o.source)?.unit
-    return u ? `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${text}` : text
+    return u ? `${unitTypeName(u.type)} ${text}` : text
   }
 </script>
 
@@ -1213,15 +1214,18 @@
 </div>
 
 {#if confirmingSubmit}
-  <Modal title="Submit with orders missing?" onClose={() => (confirmingSubmit = false)} top="max(48px, 18vh)">
+  <ConfirmDialog
+    title="Submit with orders missing?"
+    confirmLabel="Submit anyway"
+    cancelLabel="Keep ordering"
+    tone="amber"
+    onConfirm={submitAnyway}
+    onCancel={() => (confirmingSubmit = false)}
+  >
     <ul class="submit-warnings">
       {#each submitWarnings as w (w)}<li>{w}</li>{/each}
     </ul>
-    <div class="submit-confirm">
-      <button class="btn btn-primary anyway" on:click={submitAnyway}>Submit anyway</button>
-      <button class="btn btn-ghost" on:click={() => (confirmingSubmit = false)}>Keep ordering</button>
-    </div>
-  </Modal>
+  </ConfirmDialog>
 {/if}
 
 <style>
@@ -1250,8 +1254,8 @@
     width: 340px;
     display: flex;
     flex-direction: column;
-    border-left: 1px solid var(--border, #e5e7eb);
-    background: var(--bg-card, #fff);
+    border-left: 1px solid var(--border);
+    background: var(--bg-card);
     overflow-y: auto;
   }
 
@@ -1476,7 +1480,7 @@
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
-    border-bottom: 1px solid var(--border, #eee);
+    border-bottom: 1px solid var(--border);
   }
   .side-body {
     flex: 1;
@@ -1560,21 +1564,5 @@
     flex-direction: column;
     gap: 8px;
     color: var(--text-secondary);
-  }
-  .submit-confirm {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  /* Amber like the Submit button it confirms (orders still missing). */
-  .submit-confirm .anyway,
-  .submit-confirm .anyway:hover:not(:disabled) {
-    background: var(--amber);
-    border-color: var(--amber);
-    color: #fff;
-  }
-  .submit-confirm .btn {
-    min-height: 46px;
-    font-size: 15px;
   }
 </style>

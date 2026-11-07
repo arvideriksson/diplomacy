@@ -1,3 +1,4 @@
+import type { Unit } from '../../types'
 // Unit tokens and the addons (retreat flag, disband minus, civil-disorder badge) they carry.
 import type { Point } from '../dsvgParser'
 import { formatCoord, minus } from '../svgPrimitives'
@@ -66,7 +67,7 @@ const unitAddons = (unit: UnitState, disbanding: boolean, cx: number, cy: number
 export const unitToken = (
   cx: number,
   cy: number,
-  type: 'Army' | 'Fleet',
+  type: Unit['type'],
   color: string,
   style: UnitStyle,
   opacity = 1

@@ -2,6 +2,7 @@
   // Footer of the order panel: the Submit button and its committed states.
   // Presentational — the parent owns the submit/load logic and passes its state in.
   import { submitState } from '../lib/submitState'
+  import Icon from './Icon.svelte'
 
   /** Sandbox: a plain Submit that resolves locally; none of the live states apply. */
   export let sandbox: boolean = false
@@ -32,7 +33,7 @@
     <!-- Nothing to press: committed (shown at once while the save is in flight), or nothing
          to order this phase (auto-readied server-side). A calm confirmation, not a button. -->
     <div class="done-bar" class:resubmit={tone === 'resubmit'} role="status">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+      <Icon name="check" strokeWidth={2.6} round />
       <strong>{label}</strong>
     </div>
   {:else}
@@ -74,16 +75,16 @@
     letter-spacing: 0.2px;
   }
   .actions .primary.submit {
-    background: var(--green, #059669);
+    background: var(--green);
   }
   .actions .primary.resolve {
-    background: var(--amber, #d97706);
+    background: var(--amber);
   }
   .actions .primary.resubmit {
-    background: var(--accent, #2563eb);
+    background: var(--accent);
   }
   .actions .primary.incomplete {
-    background: var(--amber, #d97706);
+    background: var(--amber);
   }
   .actions .primary:disabled {
     opacity: 0.6;
@@ -101,13 +102,8 @@
   .done-bar.resubmit {
     color: var(--accent);
   }
-  .done-bar svg {
+  .done-bar :global(svg) {
     flex: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
   .done-bar strong {
     font-size: 14px;
@@ -115,9 +111,9 @@
   }
   .status {
     font-size: 13px;
-    color: var(--text-secondary, #777);
+    color: var(--text-secondary);
   }
   .status.error {
-    color: #dc2626;
+    color: var(--red);
   }
 </style>

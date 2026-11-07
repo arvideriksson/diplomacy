@@ -302,7 +302,7 @@
     color: var(--text-tertiary);
   }
   .r-code {
-    color: var(--text-secondary, #777);
+    color: var(--text-secondary);
     font-size: 12px;
   }
   .results li.fail .r-code {
@@ -310,6 +310,6 @@
   }
   .r-reason {
     font-size: 11px;
-    color: var(--text-tertiary, #8c8c8c);
+    color: var(--text-tertiary);
   }
 </style>

@@ -5,7 +5,8 @@
   import type { MapDefinition } from '../lib/mapDefinition'
   import { scCountByNation, supplyCenterProvinces } from '../lib/adjudicator/state'
   import { victoryThreshold } from '../lib/adjudicator/resolve'
-  import { flagUrl } from '../lib/flags'
+  import Flag from './Flag.svelte'
+  import Icon from './Icon.svelte'
   import { sameNation } from '../lib/powers'
 
   /** The board's map: its powers (in map order), centers and victory rule. */
@@ -63,9 +64,7 @@
   <button class="sc-head" on:click={toggle} aria-expanded={!collapsed} title={collapsed ? 'Show standings' : 'Collapse'}>
     <span class="title">Supply Centers</span>
     <span class="goal" title={goalTitle}><b>{win}</b> to win{#if strict}, sole lead{/if}</span>
-    <svg class="chevron" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M4 6l4 4 4-4" />
-    </svg>
+    <span class="chevron"><Icon name="chevron-down" size={16} strokeWidth={3} round /></span>
   </button>
   {#if !collapsed}
     <ul class="sc-rows">
@@ -79,7 +78,7 @@
           data-nation={p.id}
         >
           <span class="edge"></span>
-          <img class="flag" src={flagUrl[p.id]} alt="" width="22" height="22" />
+          <Flag powers={map} nation={p.id} size={22} />
           <span class="name">{p.name}</span>
           <span class="count">{p.count}</span>
         </li>
@@ -140,8 +139,7 @@
   }
   .chevron {
     flex: none;
-    width: 16px;
-    height: 16px;
+    display: flex;
     color: var(--text-tertiary);
     transition: transform 0.15s ease;
   }
@@ -170,11 +168,7 @@
   .edge {
     align-self: stretch;
     background: var(--c);
-  }
-  .flag {
-    width: 22px;
-    height: 22px;
-    display: block;
+    box-shadow: inset 0 0 0 1px var(--power-edge-line);
   }
   .name {
     font-weight: 600;
@@ -208,7 +202,7 @@
   .sc-row.eliminated .count {
     color: var(--text-tertiary);
   }
-  .sc-row.eliminated .flag {
+  .sc-row.eliminated :global(.flag) {
     opacity: 0.4;
     filter: grayscale(1);
   }

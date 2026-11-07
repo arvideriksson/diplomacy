@@ -3,6 +3,7 @@
   // single nation, two overlapping for a pair, a 2×2 cluster for larger groups, and a
   // megaphone for public press.
   import type { chatLabels } from '../lib/chatLabels'
+  import Flag from './Flag.svelte'
 
   export let labels: ReturnType<typeof chatLabels>
   /** The nations to picture (the viewer is already left out). */
@@ -10,7 +11,7 @@
   export let isPublic = false
   export let size = 44
 
-  $: ({ display, colorOf, flagOf } = labels)
+  $: ({ powers, display } = labels)
   // A 2×2 cluster shows three flags and a "+n" once there are more than four.
   $: shown = nations.length > 4 ? nations.slice(0, 3) : nations.slice(0, 4)
   $: extra = nations.length - shown.length
@@ -18,11 +19,7 @@
 </script>
 
 {#snippet flag(n: string)}
-  {#if flagOf(n)}
-    <img class="flag" src={flagOf(n)} alt={display(n)} title={display(n)} />
-  {:else}
-    <span class="flag dot" style="background: {colorOf(n)}" title={display(n)}>{display(n)[0]}</span>
-  {/if}
+  <Flag {powers} nation={n} alt={display(n)} title={display(n)} />
 {/snippet}
 
 <span class="avatar {layout}" style:--size="{size}px" aria-hidden={layout === 'public' ? 'true' : undefined}>
@@ -46,40 +43,36 @@
   }
   /* A hairline ring keeps white flag fields (France, Russia…) from melting into a
      light background. */
-  .flag {
+  .avatar :global(.flag) {
     display: block;
     border-radius: 50%;
     object-fit: cover;
     box-shadow: 0 0 0 1px var(--border-strong);
   }
-  .dot,
-  .more {
+  .avatar .more {
     display: grid;
     place-items: center;
-    color: #fff;
     font-weight: 700;
     font-size: calc(var(--size) * 0.3);
-  }
-  .more {
     background: var(--bg-elevated);
     color: var(--text-secondary);
     box-shadow: inset 0 0 0 1px var(--border-strong);
   }
-  .one .flag {
+  .one :global(.flag) {
     width: 100%;
     height: 100%;
   }
   /* Pair: back flag top-left, front flag bottom-right, ringed in the panel colour. */
-  .pair .flag {
+  .pair :global(.flag) {
     position: absolute;
     width: 70%;
     height: 70%;
   }
-  .pair .flag:first-child {
+  .pair :global(.flag:first-child) {
     top: 0;
     left: 0;
   }
-  .pair .flag:nth-child(2) {
+  .pair :global(.flag:nth-child(2)) {
     right: 0;
     bottom: 0;
     box-shadow: 0 0 0 1px var(--border-strong), 0 0 0 3px var(--bg-card);
@@ -89,7 +82,7 @@
     grid-template-columns: 1fr 1fr;
     gap: 2px;
   }
-  .grid .flag {
+  .grid :global(.flag) {
     width: 100%;
     height: 100%;
   }

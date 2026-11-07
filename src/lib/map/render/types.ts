@@ -1,3 +1,4 @@
+import type { Unit } from '../../types'
 // Render-state types: what the game layer hands the renderer (all ids in dSVG space).
 import type { UnitStyle } from '../unitStyles'
 import type { MapTheme } from '../theme'
@@ -5,7 +6,7 @@ import type { MapTheme } from '../theme'
 export type UnitState = {
   province: string
   nation: string
-  type: 'Army' | 'Fleet'
+  type: Unit['type']
   dislodged?: boolean
   civilDisorder?: boolean
 }
@@ -25,7 +26,7 @@ export type OrderState = {
   source: string
   target?: string
   aux?: string
-  unitType?: 'Army' | 'Fleet'
+  unitType?: Unit['type']
   failed?: boolean
   /** A failed support that was cut: drawn broken rather than slashed. */
   cut?: boolean

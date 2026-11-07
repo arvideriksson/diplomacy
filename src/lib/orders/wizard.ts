@@ -8,6 +8,7 @@ import { toDsvgId } from '../map/idMap'
 import { isLongRoute } from '../adjudicator/rules'
 import { unitAt } from '../adjudicator/state'
 import type { OrderState } from '../map/mapRenderer'
+import { coastName } from './notation'
 import {
   moveTargets,
   reachableCoasts,
@@ -56,8 +57,6 @@ export type Step =
 
 const name = (map: MapDefinition, id: string): string => map.territories[id]?.name ?? id
 
-const coastName = (map: MapDefinition, province: string, coast: string): string =>
-  map.territories[province]?.coasts?.[coast]?.name ?? coast.toUpperCase()
 
 const provinceChoices = (map: MapDefinition, ids: string[]): Choice[] =>
   ids.map((id) => ({ id, label: name(map, id) }))

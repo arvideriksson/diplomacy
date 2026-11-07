@@ -94,6 +94,29 @@ export const isRetreatBlocked = (
   contested: string[],
 ): boolean => occupied.has(dest) || dest === attackedFrom || contested.includes(dest)
 
+/**
+ * Where a dislodged unit may retreat: provinces it reaches directly that aren't blocked
+ * (isRetreatBlocked), each with the coasts a fleet may land on (empty when the province
+ * has no named coasts). The single rule — order entry lists these as the choices.
+ */
+export function retreatTargets(
+  map: MapDefinition,
+  unit: Unit,
+  attackedFrom: string | undefined,
+  occupied: Set<string>,
+  contested: string[],
+): { province: string; coasts: string[] }[] {
+  const out: { province: string; coasts: string[] }[] = []
+  for (const province of directReach(map, unit)) {
+    if (isRetreatBlocked(province, attackedFrom, occupied, contested)) continue
+    if (unit.type === 'fleet' && map.territories[province]?.coasts) {
+      const coasts = landingCoasts(map, province, unit.territory)
+      if (coasts.length) out.push({ province, coasts })
+    } else out.push({ province, coasts: [] })
+  }
+  return out
+}
+
 function legalRetreat(
   map: MapDefinition,
   dis: BoardState['dislodged'][number],
@@ -102,14 +125,12 @@ function legalRetreat(
   occupied: Set<string>,
   contested: string[],
 ): boolean {
-  if (isRetreatBlocked(dest, dis.attackedFrom, occupied, contested)) return false
-  if (!directReach(map, dis.unit).includes(dest)) return false
-  const destT = map.territories[dest]
-  if (dis.unit.type === 'fleet' && destT?.coasts) {
-    const valid = landingCoasts(map, dest, dis.unit.territory)
-    if (valid.length === 0) return false
-    if (coast && !valid.includes(coast)) return false
-    if (!coast && valid.length > 1) return false
+  const target = retreatTargets(map, dis.unit, dis.attackedFrom, occupied, contested).find((t) => t.province === dest)
+  if (!target) return false
+  // A multi-coast landing must name one of its coasts, unless only one is reachable.
+  if (target.coasts.length) {
+    if (coast && !target.coasts.includes(coast)) return false
+    if (!coast && target.coasts.length > 1) return false
   }
   return true
 }

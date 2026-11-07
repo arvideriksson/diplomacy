@@ -91,11 +91,22 @@ export function formatAnyOrder(
   }
 }
 
+/** A unit type as players read it: "Army", "Fleet". */
+export const unitTypeName = (t: string): string => (t === 'fleet' ? 'Fleet' : 'Army')
+
+/** A coast spelled out from the map's own names ("South Coast"); the code ("SC") if unnamed. */
+export const coastName = (map: MapDefinition, province: string, coast: string): string =>
+  map.territories[province]?.coasts?.[coast]?.name ?? coast.toUpperCase()
+
+/** The short form for tight labels: "South Coast" → "South". */
+export const coastShort = (map: MapDefinition, province: string, coast: string): string =>
+  coastName(map, province, coast).replace(/ Coast$/, '')
+
 /** A province's full name, with its coast spelled out ("Spain (South Coast)"). */
 function placeName(map: MapDefinition, id: string, coast?: string): string {
   const t = map.territories[id]
   const name = t?.name ?? id
-  return coast ? `${name} (${t?.coasts?.[coast]?.name ?? coast.toUpperCase()})` : name
+  return coast ? `${name} (${coastName(map, id, coast)})` : name
 }
 
 /**

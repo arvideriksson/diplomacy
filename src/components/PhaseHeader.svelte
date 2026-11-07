@@ -39,12 +39,12 @@
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    border-bottom: 1px solid var(--border, #eee);
+    border-bottom: 1px solid var(--border);
   }
   .side-head .nav {
-    border: 1px solid var(--border-strong, #cbd5e1);
-    background: var(--bg-input, #fff);
-    color: var(--text, #1a1a1a);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-input);
+    color: var(--text);
     border-radius: 6px;
     width: 28px;
     height: 28px;

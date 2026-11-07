@@ -3,37 +3,13 @@
 // DATC section (from the case url). See datc.NOTICE.md for corpus provenance.
 
 import { describe, it, expect } from 'vitest'
-import datc from './datc.json'
 import { classicalMap } from '../../maps/classical'
-import { adjudicate, boardFromUnits } from '../index'
-import type { BoardState, Phase, Season } from '../types'
-import type { Unit } from '../../types'
-import { assertCodesCoverMap, toNation } from './datc-codes'
-import {
-  casePhase,
-  orderSource,
-  parseLoc,
-  parseOrder,
-  parseUnit,
-  splitNation,
-  unitType,
-  type CasePhase,
-} from './datc-parse'
+import { adjudicate } from '../index'
+import type { BoardState } from '../types'
+import { assertCodesCoverMap } from './datc-codes'
+import { casePhase, orderSource, parseOrder } from './datc-parse'
 import { SKIP } from './datc-allowlist'
-
-interface Case {
-  name: string
-  url: string
-  phase: CasePhase
-  orders: Record<string, 'Succeeds' | 'Fails' | null>
-  starting_state?: string[]
-  ignore?: string
-  /** Rulebook edition; absent means the default (2000) ruleset this engine implements. */
-  edition?: string
-  preceding_main_phase?: { orders: Record<string, 'Succeeds' | 'Fails' | null> }
-}
-
-const cases = (datc as unknown as { cases: Case[] }).cases
+import { cases, caseBoard, type Case } from './datc-cases'
 
 // ── code-coverage guard: every province token in the corpus maps to a real key ──
 const tokenRe = /([FA] |-> |convoys |supports [FA] )([a-z]{3})/g
@@ -49,29 +25,6 @@ for (const c of cases) {
 assertCodesCoverMap(classicalMap, [...allTokens])
 
 const section = (url: string): string => url.match(/#(6\.[A-J])/)?.[1] ?? 'other'
-
-// infer a unit standing at each ordered/placed province
-function inferUnits(orderStrings: string[]): Unit[] {
-  const units = new Map<string, Unit>()
-  for (const s of orderStrings) {
-    const [code, body] = splitNation(s)
-    const parts = body.split(/\s+/)
-    if (parts[2]?.toLowerCase() === 'build') continue // build orders reference an empty center
-    const loc = parseLoc(parts[1])
-    units.set(loc.province, { type: unitType(parts[0]), nation: toNation(code), territory: loc.province, coast: loc.coast })
-  }
-  return [...units.values()]
-}
-
-/** The case's board (stated or inferred units, home centers seeded) in the given phase. */
-function caseBoard(
-  c: { starting_state?: string[]; orders: Record<string, unknown> },
-  season: Season,
-  phase: Phase,
-): BoardState {
-  const units = c.starting_state ? c.starting_state.map(parseUnit) : inferUnits(Object.keys(c.orders))
-  return boardFromUnits(classicalMap, units, 1901, season, phase)
-}
 
 /** Build the board in the case's target phase, running any preceding main phase. */
 function boardForCase(c: Case): BoardState {

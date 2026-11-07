@@ -32,7 +32,7 @@ export const mapEra: MapDefinition = {
     {
       "id": "japan",
       "name": "Japan",
-      "color": "#4aa961"
+      "color": "#ffffff"
     },
     {
       "id": "netherlands",
@@ -42,7 +42,8 @@ export const mapEra: MapDefinition = {
     {
       "id": "russia",
       "name": "Russia",
-      "color": "#9975fa"
+      "color": "#8c929f",
+      "flag": "russia-imperial"
     },
     {
       "id": "turkey",

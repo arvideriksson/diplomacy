@@ -4,15 +4,12 @@
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Unit } from '../types'
-import { reachable, reachableCoasts, type MoveTarget } from './options'
+import type { MoveTarget } from './options'
 import { buildSites, conversionTarget, convertibleUnits, unitAllowance } from '../adjudicator/rules'
-import { isRetreatBlocked } from '../adjudicator/retreat'
+import { retreatTargets as engineRetreatTargets } from '../adjudicator/retreat'
 
-/**
- * Legal retreat destinations for a dislodged unit: reachable provinces that are
- * unoccupied, not the province the dislodging attack came from, and not a standoff
- * (contested) square. `attackedFrom` may be empty when dislodged by a convoy.
- */
+/** Legal retreat destinations for a dislodged unit — the engine's own rule (see
+ *  adjudicator/retreat.ts), given the board's units. */
 export function retreatTargets(
   map: MapDefinition,
   unit: Unit,
@@ -20,20 +17,7 @@ export function retreatTargets(
   units: Unit[],
   contested: string[],
 ): MoveTarget[] {
-  const occupied = new Set(units.map((u) => u.territory))
-  const out: MoveTarget[] = []
-  for (const province of reachable(map, unit)) {
-    if (isRetreatBlocked(province, attackedFrom, occupied, contested)) continue
-    const t = map.territories[province]
-    if (unit.type === 'fleet' && t?.coasts) {
-      const coasts = reachableCoasts(map, province, unit.territory)
-      if (coasts.length === 0) continue
-      out.push({ province, coasts })
-    } else {
-      out.push({ province, coasts: [] })
-    }
-  }
-  return out
+  return engineRetreatTargets(map, unit, attackedFrom, new Set(units.map((u) => u.territory)), contested)
 }
 
 export interface BuildSpot {
