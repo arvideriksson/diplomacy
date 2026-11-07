@@ -29,7 +29,7 @@
     <div class="side-title">
       {#if onExit}
         <button class="glass back" on:click={onExit} title={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'} aria-label={exitLabel ? `Back to ${exitLabel.toLowerCase()}` : 'Exit to games'}>
-          <Icon name={exitLabel ? 'back' : 'exit'} strokeWidth={2.2} round />
+          <Icon name={exitLabel ? 'back' : 'home'} strokeWidth={2.2} round />
         </button>
       {/if}
       {#if title}<span class="game-name">{title}</span>{/if}

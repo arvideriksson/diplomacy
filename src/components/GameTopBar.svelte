@@ -27,7 +27,7 @@
 <header class="top" class:sandbox>
   {#if onExit}
     <button class="icon-btn exit" on:click={onExit} aria-label={exitLabel || 'Leave game'}>
-      <Icon name={exitLabel ? 'back' : 'exit'} size={20} strokeWidth={2.4} round />
+      <Icon name={exitLabel ? 'back' : 'home'} size={20} strokeWidth={2.4} round />
       {#if exitLabel}<span class="exit-label">{exitLabel}</span>{/if}
     </button>
   {/if}
