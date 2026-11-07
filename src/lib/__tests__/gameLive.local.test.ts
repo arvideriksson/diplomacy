@@ -7,57 +7,17 @@
 // nothing when nothing changed, and list_games leaves out finished games the caller
 // wasn't in and carries only the caller's own ready flag.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createClient, REALTIME_SUBSCRIBE_STATES, type SupabaseClient } from '@supabase/supabase-js'
+import { REALTIME_SUBSCRIBE_STATES, type SupabaseClient } from '@supabase/supabase-js'
+import { RUN, fresh, newGame, ok, POWERS, service as serviceClient, sleep, startedGame, until } from './localStack'
 
-const URL_ = 'http://127.0.0.1:54321'
-// The local stack's fixed demo keys (supabase status).
-const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
-const SERVICE = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
-const POWERS = ['austria', 'england', 'france', 'germany', 'italy', 'russia', 'turkey']
-const RUN = !!process.env.LOCAL_STACK
-
-const fresh = () => createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } })
-
-// lib/game's own client (lib/supabase reads Vite env): a fresh one, signed in below.
-vi.mock('../supabase', async () => {
-  const { createClient } = await import('@supabase/supabase-js')
-  return {
-    supabase: createClient('http://127.0.0.1:54321', ANON, { auth: { persistSession: false, autoRefreshToken: false } }),
-  }
-})
+// The module's own client (lib/supabase reads Vite env): a fresh one, signed in below.
+vi.mock('../supabase', async () => ({ supabase: (await import('./localStack')).fresh() }))
 
 const { supabase } = await import('../supabase')
-const { subscribeToGame, fetchGame, fetchGameIfNewer, fetchGames, submitOrders } = await import('../game')
+const { fetchGame, fetchGameIfNewer, fetchGames } = await import('../game')
+const { subscribeToGame } = await import('../gameLive')
+const { submitOrders } = await import('../orders/api')
 type GameState = import('../game').GameState
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-async function until(cond: () => boolean, ms = 8000): Promise<boolean> {
-  const end = Date.now() + ms
-  while (Date.now() < end) {
-    if (cond()) return true
-    await sleep(50)
-  }
-  return cond()
-}
-
-async function ok<T>(p: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
-  const { data, error } = await p
-  if (error) throw error
-  return data
-}
-
-async function newGame(c: SupabaseClient, uid: string, name: string, isPrivate: boolean): Promise<string> {
-  const g = await ok(
-    c.from('games')
-      .insert({
-        name, phase: 'lobby', year: 1901, season: 'Spring', map_id: 'classical', is_private: isPrivate, created_by: uid,
-        players: { [uid]: { role: 'host', display_name: 'T0', joined_at: new Date().toISOString() } },
-      })
-      .select('id')
-      .single(),
-  )
-  return (g as { id: string }).id
-}
 
 /** Join `game:<id>` as `c` and record every Broadcast event name; resolves once the join settles. */
 async function listen(c: SupabaseClient, id: string) {
@@ -80,16 +40,14 @@ describe.skipIf(!RUN)('game pushes and list (local stack)', () => {
   let gameId = ''
 
   beforeAll(async () => {
-    clients.push(supabase, ...Array.from({ length: 6 }, fresh))
-    for (const c of clients) ids.push((await ok(c.auth.signInAnonymously())).user!.id)
-    gameId = await newGame(clients[0], ids[0], 'game push test', false)
-    for (const c of clients.slice(1)) await ok(c.rpc('join_public_game', { game_id: gameId }))
-    for (const [i, c] of clients.entries()) await ok(c.rpc('claim_nation', { p_game_id: gameId, p_nation: POWERS[i] }))
-    await ok(clients[0].rpc('start_game', { p_game_id: gameId }))
+    const g = await startedGame(supabase, 'game push test')
+    clients.push(...g.clients)
+    ids.push(...g.ids)
+    gameId = g.gameId
   }, 60_000)
 
   it('keeps readiness secret until the grace period, then names who is left', async () => {
-    const service = createClient(URL_, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
+    const service = serviceClient()
     let game: GameState | null = await fetchGame(gameId)
     const topic = subscribeToGame(gameId, () => game, (g) => (game = g))
     const raw = await listen(clients[1], gameId)
@@ -111,7 +69,7 @@ describe.skipIf(!RUN)('game pushes and list (local stack)', () => {
     })
 
     // Our own submit updates our own flag.
-    await submitOrders(gameId, [], true, { year: 1901, season: 'Spring', phase: 'movement' })
+    await submitOrders(gameId, [], { year: 1901, season: 'Spring', phase: 'movement' })
     expect(await until(() => game?.ready?.austria === true)).toBe(true)
     expect(raw.events).toEqual([])
 
@@ -165,7 +123,7 @@ describe.skipIf(!RUN)('game pushes and list (local stack)', () => {
   }, 30_000)
 
   it('lists running public games but not finished ones the caller was not in', async () => {
-    const service = createClient(URL_, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
+    const service = serviceClient()
     const other = fresh()
     const otherId = (await ok(other.auth.signInAnonymously())).user!.id
     const finishedId = await newGame(other, otherId, 'finished elsewhere', false)

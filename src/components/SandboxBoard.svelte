@@ -8,6 +8,7 @@
   import VictoryBanner from './VictoryBanner.svelte'
   import Icon from './Icon.svelte'
   import { powerName } from '../lib/powers'
+  import { roundSeason } from '../lib/phases'
   import {
     resolveCurrent,
     setCurrentOrders,
@@ -56,7 +57,7 @@
   onDestroy(() => noticeTimer && clearTimeout(noticeTimer))
 
   function handleResolve(orders: AnyOrder[]) {
-    const label = board.phase === 'build' ? `Winter ${board.year} builds` : `${board.season} ${board.year}${board.phase === 'retreat' ? ' retreats' : ''}`
+    const label = `${roundSeason(board)} ${board.year}${board.phase === 'build' ? ' builds' : board.phase === 'retreat' ? ' retreats' : ''}`
     preUnits = board.units
     preDislodged = board.dislodged
     const result = resolveCurrent(sb.id, orders)
@@ -99,6 +100,7 @@
   season={board.season}
   year={board.year}
   controlAll={true}
+  mode="sandbox"
   onResolve={handleResolve}
   initialOrders={frame.orders ?? []}
   historyResults={frame.results ?? []}

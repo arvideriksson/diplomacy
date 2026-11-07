@@ -4,6 +4,7 @@ import { supabase } from './supabase'
 import { rpc } from './rpc'
 import { disablePush } from './push'
 import { clearDeviceCaches } from './deviceCache'
+import { session as sessionStore } from './localStore'
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS ?? '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean)
 
@@ -27,15 +28,7 @@ export const needsDisplayName = derived(user, ($user) => !!$user && !$user.is_an
 // redirect allowlist, which would drop a deep link.
 const RETURN_PATH_KEY = 'auth-return-path'
 
-function takeReturnPath(): string | null {
-  try {
-    const path = sessionStorage.getItem(RETURN_PATH_KEY)
-    sessionStorage.removeItem(RETURN_PATH_KEY)
-    return path
-  } catch {
-    return null
-  }
-}
+const takeReturnPath = (): string | null => sessionStore.take(RETURN_PATH_KEY)
 
 export async function initAuth() {
   const { data } = await supabase.auth.getSession()
@@ -53,9 +46,7 @@ export async function initAuth() {
 }
 
 export async function signInWithGoogle() {
-  try {
-    sessionStorage.setItem(RETURN_PATH_KEY, location.pathname + location.search)
-  } catch {}
+  sessionStore.write(RETURN_PATH_KEY, location.pathname + location.search)
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     // The origin always matches the site URL; initAuth restores the deep link.

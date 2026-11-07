@@ -82,14 +82,13 @@ var convoyChain = (map, from, fleets) => {
   return seen;
 };
 
-// src/lib/orders/options.ts
-var territory = (map, id) => map.territories[id];
+// src/lib/adjudicator/graph.ts
 var reachable = (map, unit) => {
-  const t = territory(map, unit.territory);
+  const t = map.territories[unit.territory];
   if (!t) return [];
   if (unit.type === "army") {
     return t.adjacent.filter((id) => {
-      const adj = territory(map, id);
+      const adj = map.territories[id];
       return adj ? canArmyEnter(adj) : false;
     });
   }
@@ -98,17 +97,15 @@ var reachable = (map, unit) => {
   }
   if (t.fleetAdjacent) return [...t.fleetAdjacent];
   return t.adjacent.filter((id) => {
-    const adj = territory(map, id);
+    const adj = map.territories[id];
     return adj ? canFleetEnter(adj) : false;
   });
 };
 var reachableCoasts = (map, target, from) => {
-  const t = territory(map, target);
+  const t = map.territories[target];
   if (!t?.coasts) return [];
   return Object.entries(t.coasts).filter(([, coast]) => coast.fleetAdjacency.includes(from)).map(([id]) => id);
 };
-
-// src/lib/adjudicator/graph.ts
 var adjacentProvinces = (map, province) => {
   const t = map.territories[province];
   return t ? [...t.adjacent].sort() : [];
@@ -687,6 +684,21 @@ function distanceToNearest(map, unit, homes) {
   return 999;
 }
 
+// src/lib/adjudicator/idle.ts
+function isIdle(map, board, nation) {
+  if (board.phase === "retreat") return !board.dislodged.some((d) => d.unit.nation === nation);
+  if (board.phase === "build") {
+    const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0);
+    if (delta < 0) return false;
+    if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false;
+    return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0;
+  }
+  return !board.units.some((u) => u.nation === nation);
+}
+function idleNations(map, board) {
+  return nationsOf(board.supplyCenters, board.units).filter((n) => isIdle(map, board, n));
+}
+
 // src/lib/adjudicator/resolve.ts
 function adjudicate(map, board, orders) {
   switch (board.phase) {
@@ -729,11 +741,8 @@ function advanceAfterRetreats(map, season, year, units, owners) {
     return { phase: "movement", season: "Fall", year, units, supplyCenters: owners, dislodged: [], contested: [] };
   }
   const newOwners = recomputeSupplyCenters(map, units, owners);
-  const uc = unitCountByNation(units);
-  const needsAdjustment = nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0)) || units.some((u) => conversionTarget(map, u, newOwners));
-  if (needsAdjustment) {
-    return { phase: "build", season: "Fall", year, units, supplyCenters: newOwners, dislodged: [], contested: [] };
-  }
+  const build = { phase: "build", season: "Fall", year, units, supplyCenters: newOwners, dislodged: [], contested: [] };
+  if (nationsOf(newOwners, units).some((n) => !isIdle(map, build, n))) return build;
   return { phase: "movement", season: "Spring", year: year + 1, units, supplyCenters: newOwners, dislodged: [], contested: [] };
 }
 function finalize(map, next, results) {
@@ -763,28 +772,13 @@ function victoryFor(map, owners) {
   return victory;
 }
 
-// src/lib/adjudicator/idle.ts
-function isIdle(map, board, nation) {
-  if (board.phase === "retreat") return !board.dislodged.some((d) => d.unit.nation === nation);
-  if (board.phase === "build") {
-    const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0);
-    if (delta < 0) return false;
-    if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false;
-    return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0;
-  }
-  return !board.units.some((u) => u.nation === nation);
-}
-function idleNations(map, board) {
-  const present = /* @__PURE__ */ new Set([
-    ...board.units.map((u) => u.nation),
-    ...Object.values(board.supplyCenters)
-  ]);
-  return [...present].filter((n) => isIdle(map, board, n));
-}
+// src/lib/phases.ts
+var ORDER_PHASES = ["movement", "retreat", "build"];
+var isOrderPhase = (p) => ORDER_PHASES.includes(p ?? "");
 
 // src/lib/adjudicator/fold.ts
 var SEASON_ORDER = { Spring: 0, Fall: 1 };
-var PHASE_ORDER = { movement: 0, retreat: 1, build: 2 };
+var PHASE_ORDER = Object.fromEntries(ORDER_PHASES.map((p, i) => [p, i]));
 var roundRank = (r) => r.year * 100 + (SEASON_ORDER[r.season] ?? 0) * 10 + (PHASE_ORDER[r.phase] ?? 0);
 function replayLog(map, initial, rows, until) {
   const rounds = /* @__PURE__ */ new Map();
@@ -806,6 +800,7 @@ function replayLog(map, initial, rows, until) {
     for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1e3; guard++) {
       state = pushFrame(state, []);
     }
+    if (roundRank(state) > roundRank(round)) continue;
     state = pushFrame(state, round.orders);
   }
   for (let guard = 0; until && PHASE_ORDER[until.phase] !== void 0 && roundRank(state) < roundRank(until) && guard < 1e3; guard++) {
@@ -879,8 +874,7 @@ var classicalMap = {
       type: "coast",
       supplyCenter: false,
       adjacent: ["EDI", "LVP", "NWG", "NAO"],
-      fleetAdjacent: ["EDI", "LVP", "NWG", "NAO"],
-      render: { center: [133, 201] }
+      fleetAdjacent: ["EDI", "LVP", "NWG", "NAO"]
     },
     EDI: {
       name: "Edinburgh",
@@ -888,8 +882,7 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["CLY", "YOR", "LVP", "NTH", "NWG"],
-      fleetAdjacent: ["CLY", "YOR", "NTH", "NWG"],
-      render: { center: [152, 202] }
+      fleetAdjacent: ["CLY", "YOR", "NTH", "NWG"]
     },
     LVP: {
       name: "Liverpool",
@@ -897,24 +890,21 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["CLY", "EDI", "YOR", "WAL", "NAO", "IRI"],
-      fleetAdjacent: ["CLY", "WAL", "NAO", "IRI"],
-      render: { center: [138, 230] }
+      fleetAdjacent: ["CLY", "WAL", "NAO", "IRI"]
     },
     YOR: {
       name: "Yorkshire",
       type: "coast",
       supplyCenter: false,
       adjacent: ["EDI", "LVP", "LON", "WAL", "NTH"],
-      fleetAdjacent: ["EDI", "LON", "NTH"],
-      render: { center: [155, 254] }
+      fleetAdjacent: ["EDI", "LON", "NTH"]
     },
     WAL: {
       name: "Wales",
       type: "coast",
       supplyCenter: false,
       adjacent: ["LVP", "YOR", "LON", "ENG", "IRI"],
-      fleetAdjacent: ["LVP", "LON", "ENG", "IRI"],
-      render: { center: [130, 275] }
+      fleetAdjacent: ["LVP", "LON", "ENG", "IRI"]
     },
     LON: {
       name: "London",
@@ -922,8 +912,7 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "england",
       adjacent: ["YOR", "WAL", "NTH", "ENG"],
-      fleetAdjacent: ["YOR", "WAL", "NTH", "ENG"],
-      render: { center: [160, 280] }
+      fleetAdjacent: ["YOR", "WAL", "NTH", "ENG"]
     },
     // ──────────────────────────── FRANCE ────────────────────────────
     BRE: {
@@ -932,31 +921,27 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "france",
       adjacent: ["PIC", "PAR", "GAS", "ENG", "MAO"],
-      fleetAdjacent: ["PIC", "GAS", "ENG", "MAO"],
-      render: { center: [130, 345] }
+      fleetAdjacent: ["PIC", "GAS", "ENG", "MAO"]
     },
     PIC: {
       name: "Picardy",
       type: "coast",
       supplyCenter: false,
       adjacent: ["BRE", "PAR", "BUR", "BEL", "ENG"],
-      fleetAdjacent: ["BRE", "BEL", "ENG"],
-      render: { center: [168, 326] }
+      fleetAdjacent: ["BRE", "BEL", "ENG"]
     },
     PAR: {
       name: "Paris",
       type: "land",
       supplyCenter: true,
       homePower: "france",
-      adjacent: ["BRE", "PIC", "BUR", "GAS"],
-      render: { center: [155, 358] }
+      adjacent: ["BRE", "PIC", "BUR", "GAS"]
     },
     BUR: {
       name: "Burgundy",
       type: "land",
       supplyCenter: false,
-      adjacent: ["PIC", "PAR", "GAS", "MAR", "BEL", "RUH", "MUN"],
-      render: { center: [185, 371] }
+      adjacent: ["PIC", "PAR", "GAS", "MAR", "BEL", "RUH", "MUN"]
     },
     GAS: {
       name: "Gascony",
@@ -964,8 +949,7 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["BRE", "PAR", "BUR", "MAR", "SPA", "MAO"],
       // Not MAR: Gascony and Marseilles share only a land border, no coastline.
-      fleetAdjacent: ["BRE", "SPA", "MAO"],
-      render: { center: [130, 400] }
+      fleetAdjacent: ["BRE", "SPA", "MAO"]
     },
     MAR: {
       name: "Marseilles",
@@ -974,8 +958,7 @@ var classicalMap = {
       homePower: "france",
       adjacent: ["GAS", "BUR", "PIE", "SPA", "GOL"],
       // Not GAS: land border only.
-      fleetAdjacent: ["PIE", "SPA", "GOL"],
-      render: { center: [173, 412] }
+      fleetAdjacent: ["PIE", "SPA", "GOL"]
     },
     // ──────────────────────────── GERMANY ────────────────────────────
     KIE: {
@@ -986,8 +969,7 @@ var classicalMap = {
       // BAL belongs here (Kiel is the canal joining HEL and BAL); it was missing,
       // which broke F Kie–Bal and convoys staged out of Kiel via the Baltic.
       adjacent: ["HOL", "DEN", "BER", "MUN", "RUH", "HEL", "BAL"],
-      fleetAdjacent: ["HOL", "DEN", "BER", "HEL", "BAL"],
-      render: { center: [237, 285] }
+      fleetAdjacent: ["HOL", "DEN", "BER", "HEL", "BAL"]
     },
     BER: {
       name: "Berlin",
@@ -995,38 +977,33 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "germany",
       adjacent: ["KIE", "MUN", "SIL", "PRU", "BAL"],
-      fleetAdjacent: ["KIE", "PRU", "BAL"],
-      render: { center: [272, 292] }
+      fleetAdjacent: ["KIE", "PRU", "BAL"]
     },
     MUN: {
       name: "Munich",
       type: "land",
       supplyCenter: true,
       homePower: "germany",
-      adjacent: ["KIE", "BER", "SIL", "BOH", "TYR", "BUR", "RUH"],
-      render: { center: [235, 360] }
+      adjacent: ["KIE", "BER", "SIL", "BOH", "TYR", "BUR", "RUH"]
     },
     PRU: {
       name: "Prussia",
       type: "coast",
       supplyCenter: false,
       adjacent: ["BER", "SIL", "WAR", "LVN", "BAL"],
-      fleetAdjacent: ["BER", "LVN", "BAL"],
-      render: { center: [335, 283] }
+      fleetAdjacent: ["BER", "LVN", "BAL"]
     },
     RUH: {
       name: "Ruhr",
       type: "land",
       supplyCenter: false,
-      adjacent: ["BEL", "HOL", "KIE", "MUN", "BUR"],
-      render: { center: [215, 330] }
+      adjacent: ["BEL", "HOL", "KIE", "MUN", "BUR"]
     },
     SIL: {
       name: "Silesia",
       type: "land",
       supplyCenter: false,
-      adjacent: ["MUN", "BER", "PRU", "WAR", "GAL", "BOH"],
-      render: { center: [304, 325] }
+      adjacent: ["MUN", "BER", "PRU", "WAR", "GAL", "BOH"]
     },
     // ──────────────────────────── ITALY ────────────────────────────
     PIE: {
@@ -1035,8 +1012,7 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["MAR", "TYR", "VEN", "TUS", "GOL"],
       // Not VEN: Piedmont (Ligurian coast) and Venice (Adriatic) share land only.
-      fleetAdjacent: ["MAR", "TUS", "GOL"],
-      render: { center: [215, 408] }
+      fleetAdjacent: ["MAR", "TUS", "GOL"]
     },
     VEN: {
       name: "Venice",
@@ -1045,8 +1021,7 @@ var classicalMap = {
       homePower: "italy",
       adjacent: ["PIE", "TYR", "TRI", "TUS", "APU", "ADR", "ROM"],
       // Not PIE/TUS/ROM: those border Venice by land only (Venice is Adriatic-side).
-      fleetAdjacent: ["TRI", "APU", "ADR"],
-      render: { center: [245, 407] }
+      fleetAdjacent: ["TRI", "APU", "ADR"]
     },
     TUS: {
       name: "Tuscany",
@@ -1054,8 +1029,7 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["PIE", "VEN", "ROM", "GOL", "TYS"],
       // Not VEN: land border only.
-      fleetAdjacent: ["PIE", "ROM", "GOL", "TYS"],
-      render: { center: [240, 425] }
+      fleetAdjacent: ["PIE", "ROM", "GOL", "TYS"]
     },
     ROM: {
       name: "Rome",
@@ -1064,8 +1038,7 @@ var classicalMap = {
       homePower: "italy",
       adjacent: ["TUS", "NAP", "APU", "TYS", "VEN"],
       // Not APU/VEN: both border Rome by land only (DATC 6.A.9 / 6.A.10).
-      fleetAdjacent: ["TUS", "NAP", "TYS"],
-      render: { center: [257, 452] }
+      fleetAdjacent: ["TUS", "NAP", "TYS"]
     },
     NAP: {
       name: "Naples",
@@ -1073,8 +1046,7 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "italy",
       adjacent: ["ROM", "APU", "TYS", "ION"],
-      fleetAdjacent: ["ROM", "APU", "TYS", "ION"],
-      render: { center: [293, 493] }
+      fleetAdjacent: ["ROM", "APU", "TYS", "ION"]
     },
     APU: {
       name: "Apulia",
@@ -1082,31 +1054,27 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["VEN", "ROM", "NAP", "ADR", "ION"],
       // Not ROM: land border only (Apulia is Adriatic/Ionian-side).
-      fleetAdjacent: ["VEN", "NAP", "ADR", "ION"],
-      render: { center: [291, 470] }
+      fleetAdjacent: ["VEN", "NAP", "ADR", "ION"]
     },
     // ──────────────────────────── AUSTRIA-HUNGARY ────────────────────────────
     BOH: {
       name: "Bohemia",
       type: "land",
       supplyCenter: false,
-      adjacent: ["MUN", "SIL", "GAL", "VIE", "TYR"],
-      render: { center: [283, 347] }
+      adjacent: ["MUN", "SIL", "GAL", "VIE", "TYR"]
     },
     TYR: {
       name: "Tyrolia",
       type: "land",
       supplyCenter: false,
-      adjacent: ["MUN", "BOH", "VIE", "TRI", "VEN", "PIE"],
-      render: { center: [255, 380] }
+      adjacent: ["MUN", "BOH", "VIE", "TRI", "VEN", "PIE"]
     },
     VIE: {
       name: "Vienna",
       type: "land",
       supplyCenter: true,
       homePower: "austria",
-      adjacent: ["BOH", "GAL", "BUD", "TRI", "TYR"],
-      render: { center: [307, 370] }
+      adjacent: ["BOH", "GAL", "BUD", "TRI", "TYR"]
     },
     TRI: {
       name: "Trieste",
@@ -1114,23 +1082,20 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "austria",
       adjacent: ["TYR", "VIE", "BUD", "SER", "ALB", "ADR", "VEN"],
-      fleetAdjacent: ["ALB", "ADR", "VEN"],
-      render: { center: [305, 425] }
+      fleetAdjacent: ["ALB", "ADR", "VEN"]
     },
     BUD: {
       name: "Budapest",
       type: "land",
       supplyCenter: true,
       homePower: "austria",
-      adjacent: ["VIE", "GAL", "RUM", "SER", "TRI"],
-      render: { center: [350, 390] }
+      adjacent: ["VIE", "GAL", "RUM", "SER", "TRI"]
     },
     GAL: {
       name: "Galicia",
       type: "land",
       supplyCenter: false,
-      adjacent: ["BOH", "SIL", "WAR", "UKR", "RUM", "BUD", "VIE"],
-      render: { center: [355, 343] }
+      adjacent: ["BOH", "SIL", "WAR", "UKR", "RUM", "BUD", "VIE"]
     },
     // ──────────────────────────── RUSSIA ────────────────────────────
     STP: {
@@ -1140,18 +1105,16 @@ var classicalMap = {
       homePower: "russia",
       adjacent: ["NOR", "FIN", "MOS", "LVN", "BAR", "BOT"],
       coasts: {
-        nc: { name: "North Coast", fleetAdjacency: ["BAR", "NOR"], render: { center: [466, 128] } },
-        sc: { name: "South Coast", fleetAdjacency: ["BOT", "LVN", "FIN"], render: { center: [416, 201] } }
-      },
-      render: { center: [460, 149] }
+        nc: { name: "North Coast", fleetAdjacency: ["BAR", "NOR"] },
+        sc: { name: "South Coast", fleetAdjacency: ["BOT", "LVN", "FIN"] }
+      }
     },
     MOS: {
       name: "Moscow",
       type: "land",
       supplyCenter: true,
       homePower: "russia",
-      adjacent: ["STP", "LVN", "WAR", "UKR", "SEV"],
-      render: { center: [460, 265] }
+      adjacent: ["STP", "LVN", "WAR", "UKR", "SEV"]
     },
     FIN: {
       name: "Finland",
@@ -1159,31 +1122,27 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["STP", "NOR", "SWE", "BOT"],
       // Not NOR: Finland and Norway share a land border only.
-      fleetAdjacent: ["STP", "SWE", "BOT"],
-      render: { center: [375, 160] }
+      fleetAdjacent: ["STP", "SWE", "BOT"]
     },
     LVN: {
       name: "Livonia",
       type: "coast",
       supplyCenter: false,
       adjacent: ["STP", "MOS", "WAR", "PRU", "BAL", "BOT"],
-      fleetAdjacent: ["STP", "PRU", "BAL", "BOT"],
-      render: { center: [380, 260] }
+      fleetAdjacent: ["STP", "PRU", "BAL", "BOT"]
     },
     WAR: {
       name: "Warsaw",
       type: "land",
       supplyCenter: true,
       homePower: "russia",
-      adjacent: ["LVN", "MOS", "UKR", "GAL", "SIL", "PRU"],
-      render: { center: [355, 304] }
+      adjacent: ["LVN", "MOS", "UKR", "GAL", "SIL", "PRU"]
     },
     UKR: {
       name: "Ukraine",
       type: "land",
       supplyCenter: false,
-      adjacent: ["MOS", "WAR", "GAL", "RUM", "SEV"],
-      render: { center: [420, 340] }
+      adjacent: ["MOS", "WAR", "GAL", "RUM", "SEV"]
     },
     SEV: {
       name: "Sevastopol",
@@ -1191,8 +1150,7 @@ var classicalMap = {
       supplyCenter: true,
       homePower: "russia",
       adjacent: ["MOS", "UKR", "RUM", "ARM", "BLA"],
-      fleetAdjacent: ["RUM", "ARM", "BLA"],
-      render: { center: [540, 350] }
+      fleetAdjacent: ["RUM", "ARM", "BLA"]
     },
     // ──────────────────────────── TURKEY ────────────────────────────
     CON: {
@@ -1202,8 +1160,7 @@ var classicalMap = {
       homePower: "turkey",
       adjacent: ["BUL", "BLA", "ANK", "SMY", "AEG"],
       // Constantinople is the strait joining the Black Sea (BLA) and the Aegean (AEG).
-      fleetAdjacent: ["BUL", "BLA", "ANK", "SMY", "AEG"],
-      render: { center: [435, 483] }
+      fleetAdjacent: ["BUL", "BLA", "ANK", "SMY", "AEG"]
     },
     ANK: {
       name: "Ankara",
@@ -1212,8 +1169,7 @@ var classicalMap = {
       homePower: "turkey",
       adjacent: ["CON", "BLA", "ARM", "SMY"],
       // Not SMY: Ankara (Black Sea side) reaches Smyrna by land only.
-      fleetAdjacent: ["CON", "BLA", "ARM"],
-      render: { center: [510, 455] }
+      fleetAdjacent: ["CON", "BLA", "ARM"]
     },
     SMY: {
       name: "Smyrna",
@@ -1222,8 +1178,7 @@ var classicalMap = {
       homePower: "turkey",
       adjacent: ["CON", "AEG", "EAS", "SYR", "ARM", "ANK"],
       // Not ARM/ANK: Smyrna (Aegean side) reaches them by land only.
-      fleetAdjacent: ["CON", "AEG", "EAS", "SYR"],
-      render: { center: [460, 510] }
+      fleetAdjacent: ["CON", "AEG", "EAS", "SYR"]
     },
     ARM: {
       name: "Armenia",
@@ -1231,8 +1186,7 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["SEV", "BLA", "ANK", "SMY", "SYR"],
       // Not SMY/SYR: Armenia (Black Sea side) reaches them by land only.
-      fleetAdjacent: ["SEV", "BLA", "ANK"],
-      render: { center: [585, 467] }
+      fleetAdjacent: ["SEV", "BLA", "ANK"]
     },
     SYR: {
       name: "Syria",
@@ -1240,8 +1194,7 @@ var classicalMap = {
       supplyCenter: false,
       adjacent: ["SMY", "ARM", "EAS"],
       // Not ARM: land border only.
-      fleetAdjacent: ["SMY", "EAS"],
-      render: { center: [570, 535] }
+      fleetAdjacent: ["SMY", "EAS"]
     },
     // ──────────────────────────── NEUTRALS ────────────────────────────
     NOR: {
@@ -1250,40 +1203,35 @@ var classicalMap = {
       supplyCenter: true,
       adjacent: ["NWG", "NTH", "SKA", "SWE", "FIN", "STP", "BAR"],
       // Not FIN: Norway and Finland share a land border only.
-      fleetAdjacent: ["NWG", "NTH", "SKA", "SWE", "STP", "BAR"],
-      render: { center: [250, 175] }
+      fleetAdjacent: ["NWG", "NTH", "SKA", "SWE", "STP", "BAR"]
     },
     SWE: {
       name: "Sweden",
       type: "coast",
       supplyCenter: true,
       adjacent: ["NOR", "FIN", "DEN", "SKA", "BAL", "BOT"],
-      fleetAdjacent: ["NOR", "FIN", "DEN", "SKA", "BAL", "BOT"],
-      render: { center: [300, 170] }
+      fleetAdjacent: ["NOR", "FIN", "DEN", "SKA", "BAL", "BOT"]
     },
     DEN: {
       name: "Denmark",
       type: "coast",
       supplyCenter: true,
       adjacent: ["NTH", "SKA", "SWE", "KIE", "HEL", "BAL"],
-      fleetAdjacent: ["NTH", "SKA", "SWE", "KIE", "HEL", "BAL"],
-      render: { center: [250, 235] }
+      fleetAdjacent: ["NTH", "SKA", "SWE", "KIE", "HEL", "BAL"]
     },
     HOL: {
       name: "Holland",
       type: "coast",
       supplyCenter: true,
       adjacent: ["BEL", "RUH", "KIE", "NTH", "HEL"],
-      fleetAdjacent: ["BEL", "KIE", "NTH", "HEL"],
-      render: { center: [210, 290] }
+      fleetAdjacent: ["BEL", "KIE", "NTH", "HEL"]
     },
     BEL: {
       name: "Belgium",
       type: "coast",
       supplyCenter: true,
       adjacent: ["HOL", "RUH", "BUR", "PIC", "ENG", "NTH"],
-      fleetAdjacent: ["HOL", "PIC", "ENG", "NTH"],
-      render: { center: [192, 321] }
+      fleetAdjacent: ["HOL", "PIC", "ENG", "NTH"]
     },
     SPA: {
       name: "Spain",
@@ -1291,57 +1239,50 @@ var classicalMap = {
       supplyCenter: true,
       adjacent: ["POR", "GAS", "MAR", "MAO", "GOL", "WES"],
       coasts: {
-        nc: { name: "North Coast", fleetAdjacency: ["POR", "GAS", "MAO"], render: { center: [78, 406] } },
-        sc: { name: "South Coast", fleetAdjacency: ["POR", "MAR", "GOL", "WES"], render: { center: [98, 468] } }
-      },
-      render: { center: [85, 450] }
+        nc: { name: "North Coast", fleetAdjacency: ["POR", "GAS", "MAO"] },
+        sc: { name: "South Coast", fleetAdjacency: ["POR", "MAR", "GOL", "WES"] }
+      }
     },
     POR: {
       name: "Portugal",
       type: "coast",
       supplyCenter: true,
       adjacent: ["SPA", "MAO"],
-      fleetAdjacent: ["SPA", "MAO"],
-      render: { center: [22, 440] }
+      fleetAdjacent: ["SPA", "MAO"]
     },
     NAF: {
       name: "North Africa",
       type: "coast",
       supplyCenter: false,
       adjacent: ["MAO", "WES", "TUN"],
-      fleetAdjacent: ["MAO", "WES", "TUN"],
-      render: { center: [130, 536] }
+      fleetAdjacent: ["MAO", "WES", "TUN"]
     },
     TUN: {
       name: "Tunis",
       type: "coast",
       supplyCenter: true,
       adjacent: ["NAF", "WES", "TYS", "ION"],
-      fleetAdjacent: ["NAF", "WES", "TYS", "ION"],
-      render: { center: [210, 555] }
+      fleetAdjacent: ["NAF", "WES", "TYS", "ION"]
     },
     SER: {
       name: "Serbia",
       type: "land",
       supplyCenter: true,
-      adjacent: ["BUD", "TRI", "ALB", "GRE", "BUL", "RUM"],
-      render: { center: [350, 450] }
+      adjacent: ["BUD", "TRI", "ALB", "GRE", "BUL", "RUM"]
     },
     ALB: {
       name: "Albania",
       type: "coast",
       supplyCenter: false,
       adjacent: ["TRI", "SER", "GRE", "ADR", "ION"],
-      fleetAdjacent: ["TRI", "GRE", "ADR", "ION"],
-      render: { center: [333, 460] }
+      fleetAdjacent: ["TRI", "GRE", "ADR", "ION"]
     },
     GRE: {
       name: "Greece",
       type: "coast",
       supplyCenter: true,
       adjacent: ["SER", "ALB", "BUL", "AEG", "ION"],
-      fleetAdjacent: ["ALB", "BUL", "AEG", "ION"],
-      render: { center: [352, 490] }
+      fleetAdjacent: ["ALB", "BUL", "AEG", "ION"]
     },
     BUL: {
       name: "Bulgaria",
@@ -1349,152 +1290,131 @@ var classicalMap = {
       supplyCenter: true,
       adjacent: ["SER", "GRE", "CON", "RUM", "BLA", "AEG"],
       coasts: {
-        ec: { name: "East Coast", fleetAdjacency: ["BLA", "CON", "RUM"], render: { center: [415, 433] } },
-        sc: { name: "South Coast", fleetAdjacency: ["AEG", "GRE", "CON"], render: { center: [402, 459] } }
-      },
-      render: { center: [395, 443] }
+        ec: { name: "East Coast", fleetAdjacency: ["BLA", "CON", "RUM"] },
+        sc: { name: "South Coast", fleetAdjacency: ["AEG", "GRE", "CON"] }
+      }
     },
     RUM: {
       name: "Rumania",
       type: "coast",
       supplyCenter: true,
       adjacent: ["BUD", "GAL", "UKR", "SEV", "BUL", "SER", "BLA"],
-      fleetAdjacent: ["SEV", "BUL", "BLA"],
-      render: { center: [410, 415] }
+      fleetAdjacent: ["SEV", "BUL", "BLA"]
     },
     // ──────────────────────────── SEA ZONES ────────────────────────────
     NAO: {
       name: "North Atlantic Ocean",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NWG", "CLY", "LVP", "IRI", "MAO"],
-      render: { center: [65, 120] }
+      adjacent: ["NWG", "CLY", "LVP", "IRI", "MAO"]
     },
     NWG: {
       name: "Norwegian Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NAO", "CLY", "EDI", "NOR", "BAR", "NTH"],
-      render: { center: [220, 70] }
+      adjacent: ["NAO", "CLY", "EDI", "NOR", "BAR", "NTH"]
     },
     BAR: {
       name: "Barents Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NWG", "NOR", "STP"],
-      render: { center: [440, 15] }
+      adjacent: ["NWG", "NOR", "STP"]
     },
     NTH: {
       name: "North Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NWG", "NOR", "DEN", "SKA", "HOL", "BEL", "ENG", "LON", "YOR", "EDI", "HEL"],
-      render: { center: [190, 230] }
+      adjacent: ["NWG", "NOR", "DEN", "SKA", "HOL", "BEL", "ENG", "LON", "YOR", "EDI", "HEL"]
     },
     SKA: {
       name: "Skagerrak",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NOR", "SWE", "DEN", "NTH"],
-      render: { center: [255, 220] }
+      adjacent: ["NOR", "SWE", "DEN", "NTH"]
     },
     HEL: {
       name: "Helgoland Bight",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NTH", "HOL", "DEN", "KIE"],
-      render: { center: [220, 265] }
+      adjacent: ["NTH", "HOL", "DEN", "KIE"]
     },
     BAL: {
       name: "Baltic Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["DEN", "SWE", "KIE", "BER", "PRU", "LVN", "BOT"],
-      render: { center: [308, 260] }
+      adjacent: ["DEN", "SWE", "KIE", "BER", "PRU", "LVN", "BOT"]
     },
     BOT: {
       name: "Gulf of Bothnia",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["SWE", "FIN", "STP", "LVN", "BAL"],
-      render: { center: [328, 175] }
+      adjacent: ["SWE", "FIN", "STP", "LVN", "BAL"]
     },
     ENG: {
       name: "English Channel",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["LON", "WAL", "IRI", "MAO", "BRE", "PIC", "BEL", "NTH"],
-      render: { center: [135, 306] }
+      adjacent: ["LON", "WAL", "IRI", "MAO", "BRE", "PIC", "BEL", "NTH"]
     },
     IRI: {
       name: "Irish Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NAO", "LVP", "WAL", "ENG", "MAO"],
-      render: { center: [95, 270] }
+      adjacent: ["NAO", "LVP", "WAL", "ENG", "MAO"]
     },
     MAO: {
       name: "Mid-Atlantic Ocean",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["NAO", "IRI", "ENG", "BRE", "GAS", "SPA", "POR", "NAF", "WES"],
-      render: { center: [50, 355] }
+      adjacent: ["NAO", "IRI", "ENG", "BRE", "GAS", "SPA", "POR", "NAF", "WES"]
     },
     WES: {
       name: "Western Mediterranean",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["MAO", "SPA", "GOL", "NAF", "TUN", "TYS"],
-      render: { center: [160, 491] }
+      adjacent: ["MAO", "SPA", "GOL", "NAF", "TUN", "TYS"]
     },
     GOL: {
       name: "Gulf of Lyon",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["SPA", "MAR", "PIE", "TUS", "WES", "TYS"],
-      render: { center: [170, 457] }
+      adjacent: ["SPA", "MAR", "PIE", "TUS", "WES", "TYS"]
     },
     TYS: {
       name: "Tyrrhenian Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["GOL", "TUS", "ROM", "NAP", "WES", "TUN", "ION"],
-      render: { center: [245, 495] }
+      adjacent: ["GOL", "TUS", "ROM", "NAP", "WES", "TUN", "ION"]
     },
     ION: {
       name: "Ionian Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["TUN", "TYS", "NAP", "APU", "ADR", "ALB", "GRE", "AEG", "EAS"],
-      render: { center: [315, 520] }
+      adjacent: ["TUN", "TYS", "NAP", "APU", "ADR", "ALB", "GRE", "AEG", "EAS"]
     },
     ADR: {
       name: "Adriatic Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["VEN", "TRI", "ALB", "APU", "ION"],
-      render: { center: [308, 460] }
+      adjacent: ["VEN", "TRI", "ALB", "APU", "ION"]
     },
     AEG: {
       name: "Aegean Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["GRE", "BUL", "CON", "SMY", "EAS", "ION"],
-      render: { center: [392, 510] }
+      adjacent: ["GRE", "BUL", "CON", "SMY", "EAS", "ION"]
     },
     EAS: {
       name: "Eastern Mediterranean",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["AEG", "SMY", "SYR", "ION"],
-      render: { center: [455, 550] }
+      adjacent: ["AEG", "SMY", "SYR", "ION"]
     },
     BLA: {
       name: "Black Sea",
       type: "sea",
       supplyCenter: false,
-      adjacent: ["RUM", "SEV", "ARM", "ANK", "CON", "BUL"],
-      render: { center: [500, 418] }
+      adjacent: ["RUM", "SEV", "ARM", "ANK", "CON", "BUL"]
     }
   },
   startingUnits: [
@@ -1607,13 +1527,7 @@ var map1900 = {
         "BOS",
         "MAC",
         "ION"
-      ],
-      "render": {
-        "center": [
-          815.6,
-          1109.1
-        ]
-      }
+      ]
     },
     "AEG": {
       "name": "Aegean Sea",
@@ -1626,13 +1540,7 @@ var map1900 = {
         "KON",
         "EAS",
         "ION"
-      ],
-      "render": {
-        "center": [
-          1028,
-          1261.9
-        ]
-      }
+      ]
     },
     "ALG": {
       "name": "Algeria",
@@ -1650,13 +1558,7 @@ var map1900 = {
         "WES",
         "TYS",
         "TUN"
-      ],
-      "render": {
-        "center": [
-          453.9,
-          1294.4
-        ]
-      }
+      ]
     },
     "ALS": {
       "name": "Alsace",
@@ -1668,13 +1570,7 @@ var map1900 = {
         "COL",
         "MUN",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          531.1,
-          883.7
-        ]
-      }
+      ]
     },
     "ANK": {
       "name": "Ankara",
@@ -1691,13 +1587,7 @@ var map1900 = {
         "BLA",
         "ARM",
         "CON"
-      ],
-      "render": {
-        "center": [
-          1236.5,
-          1120.7
-        ]
-      }
+      ]
     },
     "APU": {
       "name": "Apulia",
@@ -1715,13 +1605,7 @@ var map1900 = {
         "ADR",
         "ION",
         "NAP"
-      ],
-      "render": {
-        "center": [
-          794.8,
-          1142
-        ]
-      }
+      ]
     },
     "ARA": {
       "name": "Arabia",
@@ -1731,13 +1615,7 @@ var map1900 = {
         "DAM",
         "PAL",
         "HEJ"
-      ],
-      "render": {
-        "center": [
-          1452.6,
-          1452.8
-        ]
-      }
+      ]
     },
     "ARM": {
       "name": "Armenia",
@@ -1754,13 +1632,7 @@ var map1900 = {
         "ANK",
         "SEV",
         "BLA"
-      ],
-      "render": {
-        "center": [
-          1450.6,
-          1085.8
-        ]
-      }
+      ]
     },
     "BAL": {
       "name": "Baltic Sea",
@@ -1774,13 +1646,7 @@ var map1900 = {
         "DEN",
         "SWE",
         "GBO"
-      ],
-      "render": {
-        "center": [
-          835.1,
-          615.9
-        ]
-      }
+      ]
     },
     "BAR": {
       "name": "Barents Sea",
@@ -1790,13 +1656,7 @@ var map1900 = {
         "NWG",
         "STP",
         "NOR"
-      ],
-      "render": {
-        "center": [
-          1095.8,
-          56
-        ]
-      }
+      ]
     },
     "BEL": {
       "name": "Belgium",
@@ -1816,13 +1676,7 @@ var map1900 = {
         "NTH",
         "NET",
         "PIC"
-      ],
-      "render": {
-        "center": [
-          529.8,
-          789
-        ]
-      }
+      ]
     },
     "BER": {
       "name": "Berlin",
@@ -1840,13 +1694,7 @@ var map1900 = {
         "KIE",
         "BAL",
         "PRU"
-      ],
-      "render": {
-        "center": [
-          678.6,
-          751.1
-        ]
-      }
+      ]
     },
     "BLA": {
       "name": "Black Sea",
@@ -1859,13 +1707,7 @@ var map1900 = {
         "ANK",
         "CON",
         "BUL"
-      ],
-      "render": {
-        "center": [
-          1254.2,
-          1015.6
-        ]
-      }
+      ]
     },
     "BOH": {
       "name": "Bohemia",
@@ -1878,13 +1720,7 @@ var map1900 = {
         "BUD",
         "VIE",
         "TYR"
-      ],
-      "render": {
-        "center": [
-          743.4,
-          851
-        ]
-      }
+      ]
     },
     "BOS": {
       "name": "Bosnia",
@@ -1900,13 +1736,7 @@ var map1900 = {
         "MAC",
         "ADR",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          856.4,
-          1042.3
-        ]
-      }
+      ]
     },
     "BRE": {
       "name": "Brest",
@@ -1925,13 +1755,7 @@ var map1900 = {
         "ENG",
         "PIC",
         "GAS"
-      ],
-      "render": {
-        "center": [
-          350.1,
-          856.1
-        ]
-      }
+      ]
     },
     "BUD": {
       "name": "Budapest",
@@ -1945,13 +1769,7 @@ var map1900 = {
         "RUM",
         "SER",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          915.6,
-          954
-        ]
-      }
+      ]
     },
     "BUL": {
       "name": "Bulgaria",
@@ -1968,13 +1786,7 @@ var map1900 = {
         "CON",
         "BLA",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          984,
-          1083.3
-        ]
-      }
+      ]
     },
     "BUR": {
       "name": "Burgundy",
@@ -1988,13 +1800,7 @@ var map1900 = {
         "BEL",
         "ALS",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          494.1,
-          913
-        ]
-      }
+      ]
     },
     "CLY": {
       "name": "Clyde",
@@ -2013,13 +1819,7 @@ var map1900 = {
         "IRE",
         "NAO",
         "NWG"
-      ],
-      "render": {
-        "center": [
-          365.3,
-          562.1
-        ]
-      }
+      ]
     },
     "COL": {
       "name": "Cologne",
@@ -2032,13 +1832,7 @@ var map1900 = {
         "NET",
         "KIE",
         "MUN"
-      ],
-      "render": {
-        "center": [
-          566,
-          816.9
-        ]
-      }
+      ]
     },
     "CON": {
       "name": "Constantinople",
@@ -2060,13 +1854,7 @@ var map1900 = {
         "ANK",
         "KON",
         "AEG"
-      ],
-      "render": {
-        "center": [
-          1082.3,
-          1154.9
-        ]
-      }
+      ]
     },
     "CYR": {
       "name": "Cyrenaica",
@@ -2083,13 +1871,7 @@ var map1900 = {
         "ION",
         "EAS",
         "EGY"
-      ],
-      "render": {
-        "center": [
-          960,
-          1490
-        ]
-      }
+      ]
     },
     "DAM": {
       "name": "Damascus",
@@ -2107,13 +1889,7 @@ var map1900 = {
         "PAL",
         "EAS",
         "KON"
-      ],
-      "render": {
-        "center": [
-          1385.2,
-          1326
-        ]
-      }
+      ]
     },
     "DEN": {
       "name": "Denmark",
@@ -2134,13 +1910,7 @@ var map1900 = {
         "BAL",
         "KIE",
         "SKA"
-      ],
-      "render": {
-        "center": [
-          624.1,
-          609.9
-        ]
-      }
+      ]
     },
     "EAS": {
       "name": "Eastern Mediterranean",
@@ -2154,13 +1924,7 @@ var map1900 = {
         "EGY",
         "CYR",
         "ION"
-      ],
-      "render": {
-        "center": [
-          1198.7,
-          1295.7
-        ]
-      }
+      ]
     },
     "EDI": {
       "name": "Edinburgh",
@@ -2179,13 +1943,7 @@ var map1900 = {
         "NWG",
         "CLY",
         "YOR"
-      ],
-      "render": {
-        "center": [
-          409.3,
-          504.2
-        ]
-      }
+      ]
     },
     "EGY": {
       "name": "Egypt",
@@ -2204,13 +1962,7 @@ var map1900 = {
         "PAL",
         "HEJ",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          1181.8,
-          1492.7
-        ]
-      }
+      ]
     },
     "ENG": {
       "name": "English Channel",
@@ -2225,13 +1977,7 @@ var map1900 = {
         "BEL",
         "PIC",
         "BRE"
-      ],
-      "render": {
-        "center": [
-          384.2,
-          764.9
-        ]
-      }
+      ]
     },
     "FIN": {
       "name": "Finland",
@@ -2247,13 +1993,7 @@ var map1900 = {
         "SWE",
         "STP",
         "GBO"
-      ],
-      "render": {
-        "center": [
-          944.1,
-          335.3
-        ]
-      }
+      ]
     },
     "GAL": {
       "name": "Galicia",
@@ -2266,13 +2006,7 @@ var map1900 = {
         "BUD",
         "BOH",
         "SIL"
-      ],
-      "render": {
-        "center": [
-          960.9,
-          816.1
-        ]
-      }
+      ]
     },
     "GAS": {
       "name": "Gascony",
@@ -2290,13 +2024,7 @@ var map1900 = {
         "SPA",
         "MAO",
         "BRE"
-      ],
-      "render": {
-        "center": [
-          375.4,
-          945.1
-        ]
-      }
+      ]
     },
     "GBO": {
       "name": "Gulf of Bothnia",
@@ -2308,13 +2036,7 @@ var map1900 = {
         "STP",
         "LVO",
         "BAL"
-      ],
-      "render": {
-        "center": [
-          834.1,
-          433.1
-        ]
-      }
+      ]
     },
     "GIB": {
       "name": "Gibraltar",
@@ -2331,13 +2053,7 @@ var map1900 = {
         "WES",
         "MOR",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          158,
-          1205
-        ]
-      }
+      ]
     },
     "GLY": {
       "name": "Gulf of Lyon",
@@ -2350,13 +2066,7 @@ var map1900 = {
         "ROM",
         "TYS",
         "WES"
-      ],
-      "render": {
-        "center": [
-          490.7,
-          1126.2
-        ]
-      }
+      ]
     },
     "GRE": {
       "name": "Greece",
@@ -2371,13 +2081,7 @@ var map1900 = {
         "MAC",
         "AEG",
         "ION"
-      ],
-      "render": {
-        "center": [
-          928,
-          1206.6
-        ]
-      }
+      ]
     },
     "HEJ": {
       "name": "Hejaz",
@@ -2392,13 +2096,7 @@ var map1900 = {
       "fleetAdjacent": [
         "EGY",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          1407.7,
-          1562.1
-        ]
-      }
+      ]
     },
     "HEL": {
       "name": "Helgoland Bight",
@@ -2409,13 +2107,7 @@ var map1900 = {
         "DEN",
         "KIE",
         "NET"
-      ],
-      "render": {
-        "center": [
-          600.2,
-          651.7
-        ]
-      }
+      ]
     },
     "ICE": {
       "name": "Iceland",
@@ -2429,13 +2121,7 @@ var map1900 = {
       "fleetAdjacent": [
         "NAO",
         "NWG"
-      ],
-      "render": {
-        "center": [
-          272.8,
-          175.4
-        ]
-      }
+      ]
     },
     "ION": {
       "name": "Ionian Sea",
@@ -2453,13 +2139,7 @@ var map1900 = {
         "EAS",
         "CYR",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          845.7,
-          1282.6
-        ]
-      }
+      ]
     },
     "IRE": {
       "name": "Ireland",
@@ -2476,13 +2156,7 @@ var map1900 = {
         "CLY",
         "IRI",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          274,
-          639.8
-        ]
-      }
+      ]
     },
     "IRI": {
       "name": "Irish Sea",
@@ -2495,13 +2169,7 @@ var map1900 = {
         "ENG",
         "MAO",
         "IRE"
-      ],
-      "render": {
-        "center": [
-          284.2,
-          712.8
-        ]
-      }
+      ]
     },
     "KIE": {
       "name": "Kiel",
@@ -2523,13 +2191,7 @@ var map1900 = {
         "DEN",
         "BAL",
         "BER"
-      ],
-      "render": {
-        "center": [
-          636.9,
-          687.4
-        ]
-      }
+      ]
     },
     "KON": {
       "name": "Konya",
@@ -2548,13 +2210,7 @@ var map1900 = {
         "EAS",
         "AEG",
         "CON"
-      ],
-      "render": {
-        "center": [
-          1237,
-          1225.9
-        ]
-      }
+      ]
     },
     "LON": {
       "name": "London",
@@ -2572,13 +2228,7 @@ var map1900 = {
         "NTH",
         "ENG",
         "WAL"
-      ],
-      "render": {
-        "center": [
-          446.1,
-          690.6
-        ]
-      }
+      ]
     },
     "LVO": {
       "name": "Livonia",
@@ -2597,13 +2247,7 @@ var map1900 = {
         "BAL",
         "GBO",
         "STP"
-      ],
-      "render": {
-        "center": [
-          956.8,
-          594.6
-        ]
-      }
+      ]
     },
     "LVP": {
       "name": "Liverpool",
@@ -2623,13 +2267,7 @@ var map1900 = {
         "IRI",
         "NAO",
         "CLY"
-      ],
-      "render": {
-        "center": [
-          389.1,
-          617.4
-        ]
-      }
+      ]
     },
     "MAC": {
       "name": "Macedonia",
@@ -2652,13 +2290,7 @@ var map1900 = {
             "GRE",
             "AEG",
             "CON"
-          ],
-          "render": {
-            "center": [
-              981.2,
-              1117.2
-            ]
-          }
+          ]
         },
         "wc": {
           "name": "West Coast",
@@ -2667,20 +2299,8 @@ var map1900 = {
             "ADR",
             "ION",
             "GRE"
-          ],
-          "render": {
-            "center": [
-              881.3,
-              1153.2
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          925.4,
-          1149.2
-        ]
       }
     },
     "MAR": {
@@ -2700,13 +2320,7 @@ var map1900 = {
         "SPA",
         "GLY",
         "PIE"
-      ],
-      "render": {
-        "center": [
-          467.3,
-          1014.6
-        ]
-      }
+      ]
     },
     "MAO": {
       "name": "Mid-Atlantic Ocean",
@@ -2725,13 +2339,7 @@ var map1900 = {
         "MOR",
         "EGY",
         "HEJ"
-      ],
-      "render": {
-        "center": [
-          114,
-          829.4
-        ]
-      }
+      ]
     },
     "MIL": {
       "name": "Milan",
@@ -2744,13 +2352,7 @@ var map1900 = {
         "TYR",
         "VEN",
         "ROM"
-      ],
-      "render": {
-        "center": [
-          607.7,
-          978.5
-        ]
-      }
+      ]
     },
     "MOR": {
       "name": "Morocco",
@@ -2768,13 +2370,7 @@ var map1900 = {
         "GIB",
         "WES",
         "ALG"
-      ],
-      "render": {
-        "center": [
-          110,
-          1369
-        ]
-      }
+      ]
     },
     "MOS": {
       "name": "Moscow",
@@ -2788,13 +2384,7 @@ var map1900 = {
         "UKR",
         "SEV",
         "SIB"
-      ],
-      "render": {
-        "center": [
-          1301.4,
-          522.5
-        ]
-      }
+      ]
     },
     "MUN": {
       "name": "Munich",
@@ -2810,13 +2400,7 @@ var map1900 = {
         "BOH",
         "TYR",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          646.9,
-          814.7
-        ]
-      }
+      ]
     },
     "NAP": {
       "name": "Naples",
@@ -2834,13 +2418,7 @@ var map1900 = {
         "TYS",
         "ION",
         "APU"
-      ],
-      "render": {
-        "center": [
-          780,
-          1221.6
-        ]
-      }
+      ]
     },
     "NAO": {
       "name": "North Atlantic Ocean",
@@ -2854,13 +2432,7 @@ var map1900 = {
         "IRI",
         "IRE",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          183.5,
-          364.8
-        ]
-      }
+      ]
     },
     "NET": {
       "name": "Netherlands",
@@ -2878,13 +2450,7 @@ var map1900 = {
         "NTH",
         "HEL",
         "KIE"
-      ],
-      "render": {
-        "center": [
-          553.6,
-          739.7
-        ]
-      }
+      ]
     },
     "NTH": {
       "name": "North Sea",
@@ -2902,13 +2468,7 @@ var map1900 = {
         "BEL",
         "ENG",
         "LON"
-      ],
-      "render": {
-        "center": [
-          505,
-          593.3
-        ]
-      }
+      ]
     },
     "NWG": {
       "name": "Norwegian Sea",
@@ -2922,13 +2482,7 @@ var map1900 = {
         "NTH",
         "CLY",
         "EDI"
-      ],
-      "render": {
-        "center": [
-          551.5,
-          242.7
-        ]
-      }
+      ]
     },
     "NOR": {
       "name": "Norway",
@@ -2950,13 +2504,7 @@ var map1900 = {
         "BAR",
         "STP",
         "SWE"
-      ],
-      "render": {
-        "center": [
-          659,
-          385.5
-        ]
-      }
+      ]
     },
     "PAL": {
       "name": "Palestine",
@@ -2973,13 +2521,7 @@ var map1900 = {
         "EGY",
         "EAS",
         "DAM"
-      ],
-      "render": {
-        "center": [
-          1345.1,
-          1423
-        ]
-      }
+      ]
     },
     "PAR": {
       "name": "Paris",
@@ -2991,13 +2533,7 @@ var map1900 = {
         "PIC",
         "BUR",
         "GAS"
-      ],
-      "render": {
-        "center": [
-          411.9,
-          880.2
-        ]
-      }
+      ]
     },
     "PIC": {
       "name": "Picardy",
@@ -3014,13 +2550,7 @@ var map1900 = {
         "BRE",
         "ENG",
         "BEL"
-      ],
-      "render": {
-        "center": [
-          461.7,
-          782.1
-        ]
-      }
+      ]
     },
     "PIE": {
       "name": "Piedmont",
@@ -3037,13 +2567,7 @@ var map1900 = {
         "MAR",
         "GLY",
         "ROM"
-      ],
-      "render": {
-        "center": [
-          579.4,
-          994.6
-        ]
-      }
+      ]
     },
     "POR": {
       "name": "Portugal",
@@ -3056,13 +2580,7 @@ var map1900 = {
       "fleetAdjacent": [
         "MAO",
         "SPA"
-      ],
-      "render": {
-        "center": [
-          109,
-          1126
-        ]
-      }
+      ]
     },
     "PRU": {
       "name": "Prussia",
@@ -3079,13 +2597,7 @@ var map1900 = {
         "BER",
         "BAL",
         "LVO"
-      ],
-      "render": {
-        "center": [
-          783.3,
-          705.1
-        ]
-      }
+      ]
     },
     "ROM": {
       "name": "Rome",
@@ -3106,13 +2618,7 @@ var map1900 = {
         "GLY",
         "TYS",
         "NAP"
-      ],
-      "render": {
-        "center": [
-          704.9,
-          1110.4
-        ]
-      }
+      ]
     },
     "RUM": {
       "name": "Rumania",
@@ -3131,13 +2637,7 @@ var map1900 = {
         "SEV",
         "BLA",
         "BUL"
-      ],
-      "render": {
-        "center": [
-          1014.4,
-          1003.8
-        ]
-      }
+      ]
     },
     "SER": {
       "name": "Serbia",
@@ -3150,13 +2650,7 @@ var map1900 = {
         "RUM",
         "BUL",
         "MAC"
-      ],
-      "render": {
-        "center": [
-          911.2,
-          1074.8
-        ]
-      }
+      ]
     },
     "SEV": {
       "name": "Sevastopol",
@@ -3175,13 +2669,7 @@ var map1900 = {
         "RUM",
         "BLA",
         "ARM"
-      ],
-      "render": {
-        "center": [
-          1206,
-          884.5
-        ]
-      }
+      ]
     },
     "SIB": {
       "name": "Siberia",
@@ -3191,13 +2679,7 @@ var map1900 = {
         "SEV",
         "MOS",
         "STP"
-      ],
-      "render": {
-        "center": [
-          1470,
-          430
-        ]
-      }
+      ]
     },
     "SIL": {
       "name": "Silesia",
@@ -3210,13 +2692,7 @@ var map1900 = {
         "WAR",
         "GAL",
         "BOH"
-      ],
-      "render": {
-        "center": [
-          776.2,
-          750.9
-        ]
-      }
+      ]
     },
     "SKA": {
       "name": "Skagerrak",
@@ -3227,13 +2703,7 @@ var map1900 = {
         "NOR",
         "DEN",
         "SWE"
-      ],
-      "render": {
-        "center": [
-          678.1,
-          563.6
-        ]
-      }
+      ]
     },
     "SOU": {
       "name": "Southern Algeria",
@@ -3244,13 +2714,7 @@ var map1900 = {
         "ALG",
         "TUN",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          338.5,
-          1473.3
-        ]
-      }
+      ]
     },
     "SPA": {
       "name": "Spain",
@@ -3272,13 +2736,7 @@ var map1900 = {
             "GAS",
             "MAO",
             "POR"
-          ],
-          "render": {
-            "center": [
-              226,
-              1008.7
-            ]
-          }
+          ]
         },
         "ec": {
           "name": "East Coast",
@@ -3287,13 +2745,7 @@ var map1900 = {
             "WES",
             "GLY",
             "MAR"
-          ],
-          "render": {
-            "center": [
-              300,
-              1150
-            ]
-          }
+          ]
         },
         "wc": {
           "name": "West Coast",
@@ -3301,20 +2753,8 @@ var map1900 = {
             "POR",
             "MAO",
             "GIB"
-          ],
-          "render": {
-            "center": [
-              122,
-              1160
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          247.3,
-          1059.4
-        ]
       }
     },
     "STP": {
@@ -3337,13 +2777,7 @@ var map1900 = {
           "fleetAdjacency": [
             "BAR",
             "NOR"
-          ],
-          "render": {
-            "center": [
-              1161.1,
-              211.5
-            ]
-          }
+          ]
         },
         "sc": {
           "name": "South Coast",
@@ -3351,20 +2785,8 @@ var map1900 = {
             "FIN",
             "LVO",
             "GBO"
-          ],
-          "render": {
-            "center": [
-              1032.6,
-              462.2
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          1132,
-          351.5
-        ]
       }
     },
     "SWE": {
@@ -3386,13 +2808,7 @@ var map1900 = {
         "DEN",
         "SKA",
         "NOR"
-      ],
-      "render": {
-        "center": [
-          747.3,
-          493.9
-        ]
-      }
+      ]
     },
     "SWI": {
       "name": "Switzerland",
@@ -3406,13 +2822,7 @@ var map1900 = {
         "MIL",
         "PIE",
         "MAR"
-      ],
-      "render": {
-        "center": [
-          593.8,
-          903
-        ]
-      }
+      ]
     },
     "TRI": {
       "name": "Trieste",
@@ -3432,13 +2842,7 @@ var map1900 = {
         "BOS",
         "ADR",
         "VEN"
-      ],
-      "render": {
-        "center": [
-          748,
-          971.5
-        ]
-      }
+      ]
     },
     "TRP": {
       "name": "Tripolitania",
@@ -3454,13 +2858,7 @@ var map1900 = {
         "TUN",
         "ION",
         "CYR"
-      ],
-      "render": {
-        "center": [
-          716.2,
-          1526.4
-        ]
-      }
+      ]
     },
     "TUN": {
       "name": "Tunisia",
@@ -3478,13 +2876,7 @@ var map1900 = {
         "TYS",
         "ION",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          594.2,
-          1349
-        ]
-      }
+      ]
     },
     "TYR": {
       "name": "Tyrolia",
@@ -3498,13 +2890,7 @@ var map1900 = {
         "TRI",
         "VEN",
         "MIL"
-      ],
-      "render": {
-        "center": [
-          717.4,
-          899.5
-        ]
-      }
+      ]
     },
     "TYS": {
       "name": "Tyrrhenian Sea",
@@ -3518,13 +2904,7 @@ var map1900 = {
         "ION",
         "TUN",
         "ALG"
-      ],
-      "render": {
-        "center": [
-          673.9,
-          1209.4
-        ]
-      }
+      ]
     },
     "UKR": {
       "name": "Ukraine",
@@ -3536,13 +2916,7 @@ var map1900 = {
         "WAR",
         "MOS",
         "SEV"
-      ],
-      "render": {
-        "center": [
-          1145.3,
-          803
-        ]
-      }
+      ]
     },
     "VEN": {
       "name": "Venetia",
@@ -3560,13 +2934,7 @@ var map1900 = {
         "APU",
         "ADR",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          687.3,
-          952.8
-        ]
-      }
+      ]
     },
     "VIE": {
       "name": "Vienna",
@@ -3578,13 +2946,7 @@ var map1900 = {
         "BOH",
         "BUD",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          800.6,
-          946.5
-        ]
-      }
+      ]
     },
     "WAL": {
       "name": "Wales",
@@ -3602,13 +2964,7 @@ var map1900 = {
         "IRI",
         "ENG",
         "LON"
-      ],
-      "render": {
-        "center": [
-          353,
-          660.4
-        ]
-      }
+      ]
     },
     "WAR": {
       "name": "Warsaw",
@@ -3622,13 +2978,7 @@ var map1900 = {
         "MOS",
         "UKR",
         "GAL"
-      ],
-      "render": {
-        "center": [
-          897.1,
-          721.7
-        ]
-      }
+      ]
     },
     "WES": {
       "name": "Western Mediterranean",
@@ -3641,13 +2991,7 @@ var map1900 = {
         "TYS",
         "ALG",
         "MOR"
-      ],
-      "render": {
-        "center": [
-          423.7,
-          1193.6
-        ]
-      }
+      ]
     },
     "YOR": {
       "name": "Yorkshire",
@@ -3664,13 +3008,7 @@ var map1900 = {
         "EDI",
         "NTH",
         "LON"
-      ],
-      "render": {
-        "center": [
-          414.7,
-          651.9
-        ]
-      }
+      ]
     }
   },
   "rules": {
@@ -3892,13 +3230,7 @@ var mapEra = {
         "MOM",
         "SOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          245.4,
-          1017
-        ]
-      }
+      ]
     },
     "ADE": {
       "name": "Aden",
@@ -3919,13 +3251,7 @@ var mapEra = {
         "MEC",
         "OMA",
         "RS"
-      ],
-      "render": {
-        "center": [
-          411.6,
-          868
-        ]
-      }
+      ]
     },
     "AFG": {
       "name": "Afghanistan",
@@ -3939,13 +3265,7 @@ var mapEra = {
         "PER",
         "PUN",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          790.2,
-          480
-        ]
-      }
+      ]
     },
     "AKI": {
       "name": "Akita",
@@ -3964,13 +3284,7 @@ var mapEra = {
         "SOJ",
         "SOO",
         "TOK"
-      ],
-      "render": {
-        "center": [
-          2124.6,
-          367.4
-        ]
-      }
+      ]
     },
     "ANG": {
       "name": "Angora",
@@ -3990,13 +3304,7 @@ var mapEra = {
         "CON",
         "MS",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          174.6,
-          405.2
-        ]
-      }
+      ]
     },
     "ANN": {
       "name": "Annam",
@@ -4015,13 +3323,7 @@ var mapEra = {
         "GOS",
         "SCS",
         "TON"
-      ],
-      "render": {
-        "center": [
-          1724.4,
-          859
-        ]
-      }
+      ]
     },
     "ANS": {
       "name": "Andaman Sea",
@@ -4034,13 +3336,7 @@ var mapEra = {
         "MAL",
         "RAN",
         "SUM"
-      ],
-      "render": {
-        "center": [
-          1454,
-          951.2
-        ]
-      }
+      ]
     },
     "ARA": {
       "name": "Arabia",
@@ -4058,13 +3354,7 @@ var mapEra = {
         "BAG",
         "OMA",
         "PG"
-      ],
-      "render": {
-        "center": [
-          462,
-          743.4
-        ]
-      }
+      ]
     },
     "ARM": {
       "name": "Armenia",
@@ -4082,13 +3372,7 @@ var mapEra = {
         "ANG",
         "BAK",
         "BS"
-      ],
-      "render": {
-        "center": [
-          316,
-          381.2
-        ]
-      }
+      ]
     },
     "ARS": {
       "name": "Arabian Sea",
@@ -4104,13 +3388,7 @@ var mapEra = {
         "PG",
         "RAJ",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          793,
-          788.4
-        ]
-      }
+      ]
     },
     "ASM": {
       "name": "Assam",
@@ -4123,13 +3401,7 @@ var mapEra = {
         "SIN",
         "TIB",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1392,
-          600
-        ]
-      }
+      ]
     },
     "BAG": {
       "name": "Baghdad",
@@ -4148,13 +3420,7 @@ var mapEra = {
         "ARA",
         "PG",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          388,
-          538
-        ]
-      }
+      ]
     },
     "BAK": {
       "name": "Baku",
@@ -4171,13 +3437,7 @@ var mapEra = {
         "ARM",
         "BS",
         "ODE"
-      ],
-      "render": {
-        "center": [
-          356.4,
-          306
-        ]
-      }
+      ]
     },
     "BAN": {
       "name": "Bangkok",
@@ -4195,13 +3455,7 @@ var mapEra = {
         "CAM",
         "GOS",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1567,
-          873
-        ]
-      }
+      ]
     },
     "BEN": {
       "name": "Bengal",
@@ -4220,13 +3474,7 @@ var mapEra = {
         "BOB",
         "HYD",
         "RAN"
-      ],
-      "render": {
-        "center": [
-          1272,
-          703
-        ]
-      }
+      ]
     },
     "BOB": {
       "name": "Bay of Bengal",
@@ -4241,13 +3489,7 @@ var mapEra = {
         "MAD",
         "RAN",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1292,
-          888
-        ]
-      }
+      ]
     },
     "BOK": {
       "name": "Bokhara",
@@ -4259,13 +3501,7 @@ var mapEra = {
         "ORE",
         "PER",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          594.4,
-          345
-        ]
-      }
+      ]
     },
     "BOM": {
       "name": "Bombay",
@@ -4283,13 +3519,7 @@ var mapEra = {
         "ARS",
         "MYS",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          994,
-          733
-        ]
-      }
+      ]
     },
     "BOR": {
       "name": "Borneo",
@@ -4305,13 +3535,7 @@ var mapEra = {
         "CS",
         "JS",
         "SAR"
-      ],
-      "render": {
-        "center": [
-          1772.4,
-          1164.6
-        ]
-      }
+      ]
     },
     "BS": {
       "name": "Black Sea",
@@ -4325,13 +3549,7 @@ var mapEra = {
         "MS",
         "ODE",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          228,
-          301.4
-        ]
-      }
+      ]
     },
     "CAM": {
       "name": "Cambodia",
@@ -4348,13 +3566,7 @@ var mapEra = {
         "BAN",
         "COC",
         "GOS"
-      ],
-      "render": {
-        "center": [
-          1655,
-          847.6
-        ]
-      }
+      ]
     },
     "CAN": {
       "name": "Canton",
@@ -4374,13 +3586,7 @@ var mapEra = {
         "SCS",
         "SHA",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1766,
-          657
-        ]
-      }
+      ]
     },
     "CEB": {
       "name": "Cebu",
@@ -4399,13 +3605,7 @@ var mapEra = {
         "MNA",
         "MPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1976,
-          867.6
-        ]
-      }
+      ]
     },
     "CEL": {
       "name": "Celebes",
@@ -4422,13 +3622,7 @@ var mapEra = {
         "JS",
         "LPO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1948,
-          1156
-        ]
-      }
+      ]
     },
     "CEY": {
       "name": "Ceylon",
@@ -4445,13 +3639,7 @@ var mapEra = {
         "EIO",
         "MAD",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1132.2,
-          1003.6
-        ]
-      }
+      ]
     },
     "CHU": {
       "name": "Chungking",
@@ -4464,13 +3652,7 @@ var mapEra = {
         "SHA",
         "SIN",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1540,
-          575
-        ]
-      }
+      ]
     },
     "COC": {
       "name": "Cochin",
@@ -4486,13 +3668,7 @@ var mapEra = {
         "ANN",
         "CAM",
         "GOS"
-      ],
-      "render": {
-        "center": [
-          1644,
-          943
-        ]
-      }
+      ]
     },
     "CON": {
       "name": "Constantinople",
@@ -4510,13 +3686,7 @@ var mapEra = {
         "BS",
         "MS",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          40,
-          290
-        ]
-      }
+      ]
     },
     "COR": {
       "name": "Corea",
@@ -4533,13 +3703,7 @@ var mapEra = {
         "SOJ",
         "VLA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1916,
-          382
-        ]
-      }
+      ]
     },
     "CS": {
       "name": "Celebes Sea",
@@ -4553,13 +3717,7 @@ var mapEra = {
         "LPO",
         "SAR",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1993,
-          1019
-        ]
-      }
+      ]
     },
     "DAV": {
       "name": "Davao",
@@ -4576,13 +3734,7 @@ var mapEra = {
         "CS",
         "LPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          2042.2,
-          974.4
-        ]
-      }
+      ]
     },
     "DEL": {
       "name": "Delhi",
@@ -4595,13 +3747,7 @@ var mapEra = {
         "NEP",
         "PUN",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          1026.2,
-          613
-        ]
-      }
+      ]
     },
     "ECS": {
       "name": "East China Sea",
@@ -4616,13 +3762,7 @@ var mapEra = {
         "SCS",
         "SHA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1870,
-          677
-        ]
-      }
+      ]
     },
     "EGY": {
       "name": "Egypt",
@@ -4641,13 +3781,7 @@ var mapEra = {
         "RS",
         "SUD",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          76,
-          590
-        ]
-      }
+      ]
     },
     "EIO": {
       "name": "East Indian Ocean",
@@ -4660,13 +3794,7 @@ var mapEra = {
         "SIO",
         "SUM",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1262,
-          1075
-        ]
-      }
+      ]
     },
     "ERI": {
       "name": "Eritrea",
@@ -4684,13 +3812,7 @@ var mapEra = {
         "RS",
         "SOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          244,
-          844
-        ]
-      }
+      ]
     },
     "FOR": {
       "name": "Formosa",
@@ -4707,13 +3829,7 @@ var mapEra = {
         "MPO",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1971,
-          640
-        ]
-      }
+      ]
     },
     "GOA": {
       "name": "Gulf of Aden",
@@ -4728,13 +3844,7 @@ var mapEra = {
         "SIO",
         "SOM",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          417.4,
-          1274
-        ]
-      }
+      ]
     },
     "GOS": {
       "name": "Gulf of Siam",
@@ -4750,13 +3860,7 @@ var mapEra = {
         "SAR",
         "SCS",
         "SIG"
-      ],
-      "render": {
-        "center": [
-          1728,
-          976
-        ]
-      }
+      ]
     },
     "HK": {
       "name": "Hong Kong",
@@ -4771,13 +3875,7 @@ var mapEra = {
         "CAN",
         "ECS",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1733.4,
-          742
-        ]
-      }
+      ]
     },
     "HYD": {
       "name": "Hyderabad",
@@ -4796,13 +3894,7 @@ var mapEra = {
         "BEN",
         "BOB",
         "MAD"
-      ],
-      "render": {
-        "center": [
-          1088,
-          837
-        ]
-      }
+      ]
     },
     "IRK": {
       "name": "Irkutsk",
@@ -4815,13 +3907,7 @@ var mapEra = {
         "MON",
         "OMS",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          1398,
-          28
-        ]
-      }
+      ]
     },
     "JAV": {
       "name": "Java",
@@ -4837,13 +3923,7 @@ var mapEra = {
         "JS",
         "SIO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1662,
-          1285
-        ]
-      }
+      ]
     },
     "JS": {
       "name": "Java Sea",
@@ -4862,13 +3942,7 @@ var mapEra = {
         "SIO",
         "SUM",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1718,
-          1203
-        ]
-      }
+      ]
     },
     "KAG": {
       "name": "Kashgar",
@@ -4882,13 +3956,7 @@ var mapEra = {
         "TAS",
         "TIB",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1045,
-          367
-        ]
-      }
+      ]
     },
     "KAM": {
       "name": "Kashmir",
@@ -4899,13 +3967,7 @@ var mapEra = {
         "KAG",
         "PUN",
         "TIB"
-      ],
-      "render": {
-        "center": [
-          1042,
-          501
-        ]
-      }
+      ]
     },
     "KAR": {
       "name": "Karachi",
@@ -4924,13 +3986,7 @@ var mapEra = {
         "PER",
         "PG",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          828,
-          554
-        ]
-      }
+      ]
     },
     "KIR": {
       "name": "Kirghiz",
@@ -4944,13 +4000,7 @@ var mapEra = {
         "ORE",
         "TAS",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1060,
-          143
-        ]
-      }
+      ]
     },
     "KYO": {
       "name": "Kyoto",
@@ -4972,13 +4022,7 @@ var mapEra = {
         "TOK",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2101,
-          442
-        ]
-      }
+      ]
     },
     "KYU": {
       "name": "Kyushu",
@@ -4994,13 +4038,7 @@ var mapEra = {
         "KYO",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2014,
-          490
-        ]
-      }
+      ]
     },
     "LAN": {
       "name": "Lanchow",
@@ -5012,13 +4050,7 @@ var mapEra = {
         "PEK",
         "SHA",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1475.2,
-          381
-        ]
-      }
+      ]
     },
     "LPO": {
       "name": "Lower Pacific Ocean",
@@ -5032,13 +4064,7 @@ var mapEra = {
         "MPO",
         "NG",
         "TS"
-      ],
-      "render": {
-        "center": [
-          2128,
-          971.1
-        ]
-      }
+      ]
     },
     "LUC": {
       "name": "Lucknow",
@@ -5050,13 +4076,7 @@ var mapEra = {
         "HYD",
         "NAG",
         "NEP"
-      ],
-      "render": {
-        "center": [
-          1157,
-          690
-        ]
-      }
+      ]
     },
     "MAA": {
       "name": "Maasai",
@@ -5066,13 +4086,7 @@ var mapEra = {
         "ABY",
         "MOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          78,
-          1261
-        ]
-      }
+      ]
     },
     "MAD": {
       "name": "Madras",
@@ -5092,13 +4106,7 @@ var mapEra = {
         "HYD",
         "MYS",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1098,
-          964
-        ]
-      }
+      ]
     },
     "MAL": {
       "name": "Malaya",
@@ -5119,13 +4127,7 @@ var mapEra = {
         "JS",
         "RAN",
         "SIG"
-      ],
-      "render": {
-        "center": [
-          1608,
-          1084
-        ]
-      }
+      ]
     },
     "MAN": {
       "name": "Manchuria",
@@ -5137,13 +4139,7 @@ var mapEra = {
         "PA",
         "PEK",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          1764,
-          243
-        ]
-      }
+      ]
     },
     "MAY": {
       "name": "Mandalay",
@@ -5154,13 +4150,7 @@ var mapEra = {
         "RAN",
         "TON",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1494,
-          772
-        ]
-      }
+      ]
     },
     "MEC": {
       "name": "Mecca",
@@ -5177,13 +4167,7 @@ var mapEra = {
         "ADE",
         "EGY",
         "RS"
-      ],
-      "render": {
-        "center": [
-          265,
-          643
-        ]
-      }
+      ]
     },
     "MNA": {
       "name": "Manila",
@@ -5200,13 +4184,7 @@ var mapEra = {
         "ECS",
         "MPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1942.2,
-          789
-        ]
-      }
+      ]
     },
     "MOM": {
       "name": "Mombasa",
@@ -5221,13 +4199,7 @@ var mapEra = {
       "fleetAdjacent": [
         "GOA",
         "SOM"
-      ],
-      "render": {
-        "center": [
-          232,
-          1238
-        ]
-      }
+      ]
     },
     "MON": {
       "name": "Mongolia",
@@ -5241,13 +4213,7 @@ var mapEra = {
         "PEK",
         "SIN",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1345,
-          229
-        ]
-      }
+      ]
     },
     "MOS": {
       "name": "Moscow",
@@ -5259,13 +4225,7 @@ var mapEra = {
         "BOK",
         "ODE",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          224,
-          18
-        ]
-      }
+      ]
     },
     "MPO": {
       "name": "Middle Pacific Ocean",
@@ -5278,13 +4238,7 @@ var mapEra = {
         "LPO",
         "MNA",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          2088.4,
-          702
-        ]
-      }
+      ]
     },
     "MS": {
       "name": "Mediterranean Sea",
@@ -5296,13 +4250,7 @@ var mapEra = {
         "CON",
         "EGY",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          64,
-          502
-        ]
-      }
+      ]
     },
     "MYS": {
       "name": "Mysore",
@@ -5320,13 +4268,7 @@ var mapEra = {
         "BOM",
         "MAD",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          998,
-          842
-        ]
-      }
+      ]
     },
     "NAG": {
       "name": "Nagpur",
@@ -5338,13 +4280,7 @@ var mapEra = {
         "HYD",
         "LUC",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          1089,
-          766
-        ]
-      }
+      ]
     },
     "NEP": {
       "name": "Nepal",
@@ -5355,13 +4291,7 @@ var mapEra = {
         "DEL",
         "LUC",
         "PUN"
-      ],
-      "render": {
-        "center": [
-          1201,
-          621
-        ]
-      }
+      ]
     },
     "NG": {
       "name": "New Guinea",
@@ -5374,13 +4304,7 @@ var mapEra = {
       "fleetAdjacent": [
         "LPO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          2174,
-          1252
-        ]
-      }
+      ]
     },
     "ODE": {
       "name": "Odessa",
@@ -5397,13 +4321,7 @@ var mapEra = {
         "BAK",
         "BS",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          120,
-          223
-        ]
-      }
+      ]
     },
     "OMA": {
       "name": "Oman",
@@ -5420,13 +4338,7 @@ var mapEra = {
         "ARA",
         "ARS",
         "PG"
-      ],
-      "render": {
-        "center": [
-          653,
-          723
-        ]
-      }
+      ]
     },
     "OMS": {
       "name": "Omsk",
@@ -5436,13 +4348,7 @@ var mapEra = {
         "IRK",
         "KIR",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          849.4,
-          46
-        ]
-      }
+      ]
     },
     "ORE": {
       "name": "Orenburg",
@@ -5454,13 +4360,7 @@ var mapEra = {
         "MOS",
         "OMS",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          651.4,
-          130
-        ]
-      }
+      ]
     },
     "OTA": {
       "name": "Otaru",
@@ -5477,13 +4377,7 @@ var mapEra = {
         "SAK",
         "SOJ",
         "SOO"
-      ],
-      "render": {
-        "center": [
-          2110,
-          266.4
-        ]
-      }
+      ]
     },
     "PA": {
       "name": "Port Arthur",
@@ -5500,13 +4394,7 @@ var mapEra = {
         "COR",
         "PEK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1794,
-          342
-        ]
-      }
+      ]
     },
     "PEK": {
       "name": "Peking",
@@ -5525,13 +4413,7 @@ var mapEra = {
         "PA",
         "SHA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1681,
-          340
-        ]
-      }
+      ]
     },
     "PER": {
       "name": "Persia",
@@ -5549,13 +4431,7 @@ var mapEra = {
         "KAR",
         "PG",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          542,
-          455
-        ]
-      }
+      ]
     },
     "PG": {
       "name": "Persian Gulf",
@@ -5569,13 +4445,7 @@ var mapEra = {
         "OMA",
         "PER",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          494,
-          625
-        ]
-      }
+      ]
     },
     "PUN": {
       "name": "Punjab",
@@ -5589,13 +4459,7 @@ var mapEra = {
         "NEP",
         "RAJ",
         "TIB"
-      ],
-      "render": {
-        "center": [
-          960,
-          502.4
-        ]
-      }
+      ]
     },
     "RAJ": {
       "name": "Rajputana",
@@ -5613,13 +4477,7 @@ var mapEra = {
         "ARS",
         "BOM",
         "KAR"
-      ],
-      "render": {
-        "center": [
-          949,
-          663
-        ]
-      }
+      ]
     },
     "RAN": {
       "name": "Rangoon",
@@ -5640,13 +4498,7 @@ var mapEra = {
         "BEN",
         "BOB",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1418,
-          771
-        ]
-      }
+      ]
     },
     "RS": {
       "name": "Red Sea",
@@ -5659,13 +4511,7 @@ var mapEra = {
         "GOA",
         "MEC",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          321,
-          819
-        ]
-      }
+      ]
     },
     "RUM": {
       "name": "Rumania",
@@ -5680,13 +4526,7 @@ var mapEra = {
         "BS",
         "CON",
         "ODE"
-      ],
-      "render": {
-        "center": [
-          44,
-          255
-        ]
-      }
+      ]
     },
     "SAK": {
       "name": "Sakhalin",
@@ -5703,13 +4543,7 @@ var mapEra = {
         "SOJ",
         "SOO",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          2009.8,
-          147
-        ]
-      }
+      ]
     },
     "SAR": {
       "name": "Sarawak",
@@ -5728,13 +4562,7 @@ var mapEra = {
         "GOS",
         "JS",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1844.4,
-          1020.2
-        ]
-      }
+      ]
     },
     "SCS": {
       "name": "South China Sea",
@@ -5753,13 +4581,7 @@ var mapEra = {
         "SAR",
         "TON",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1830,
-          815
-        ]
-      }
+      ]
     },
     "SHA": {
       "name": "Shanghai",
@@ -5779,13 +4601,7 @@ var mapEra = {
         "ECS",
         "PEK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1738,
-          465
-        ]
-      }
+      ]
     },
     "SHI": {
       "name": "Shiraz",
@@ -5801,13 +4617,7 @@ var mapEra = {
         "BAG",
         "PER",
         "PG"
-      ],
-      "render": {
-        "center": [
-          567,
-          575
-        ]
-      }
+      ]
     },
     "SIG": {
       "name": "Singapore",
@@ -5822,13 +4632,7 @@ var mapEra = {
         "GOS",
         "JS",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1651.2,
-          1154
-        ]
-      }
+      ]
     },
     "SIN": {
       "name": "Sinkiang",
@@ -5843,13 +4647,7 @@ var mapEra = {
         "MON",
         "TIB",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1318,
-          499
-        ]
-      }
+      ]
     },
     "SIO": {
       "name": "South Indian Ocean",
@@ -5863,13 +4661,7 @@ var mapEra = {
         "SUM",
         "TS",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          672,
-          1297
-        ]
-      }
+      ]
     },
     "SOJ": {
       "name": "Sea of Japan",
@@ -5884,13 +4676,7 @@ var mapEra = {
         "SOO",
         "VLA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1994.2,
-          309
-        ]
-      }
+      ]
     },
     "SOM": {
       "name": "Somalia",
@@ -5906,13 +4692,7 @@ var mapEra = {
         "ERI",
         "GOA",
         "MOM"
-      ],
-      "render": {
-        "center": [
-          366.2,
-          1087
-        ]
-      }
+      ]
     },
     "SOO": {
       "name": "Sea of Okhotsk",
@@ -5926,13 +4706,7 @@ var mapEra = {
         "TOK",
         "UPO",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          2111,
-          108
-        ]
-      }
+      ]
     },
     "SUD": {
       "name": "Sudan",
@@ -5949,13 +4723,7 @@ var mapEra = {
         "EGY",
         "ERI",
         "RS"
-      ],
-      "render": {
-        "center": [
-          104,
-          813
-        ]
-      }
+      ]
     },
     "SUM": {
       "name": "Sumatra",
@@ -5973,13 +4741,7 @@ var mapEra = {
         "EIO",
         "JS",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          1566,
-          1147.4
-        ]
-      }
+      ]
     },
     "SYR": {
       "name": "Syria",
@@ -5998,13 +4760,7 @@ var mapEra = {
         "ANG",
         "EGY",
         "MS"
-      ],
-      "render": {
-        "center": [
-          251,
-          509.4
-        ]
-      }
+      ]
     },
     "TAB": {
       "name": "Tabriz",
@@ -6016,13 +4772,7 @@ var mapEra = {
         "BAK",
         "PER",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          468.4,
-          471
-        ]
-      }
+      ]
     },
     "TAS": {
       "name": "Tashkent",
@@ -6034,13 +4784,7 @@ var mapEra = {
         "KAG",
         "KIR",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          944,
-          313.6
-        ]
-      }
+      ]
     },
     "TIB": {
       "name": "Tibet",
@@ -6053,13 +4797,7 @@ var mapEra = {
         "KAM",
         "PUN",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1119,
-          506
-        ]
-      }
+      ]
     },
     "TOK": {
       "name": "Tokyo",
@@ -6077,13 +4815,7 @@ var mapEra = {
         "KYO",
         "SOO",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          2146,
-          397
-        ]
-      }
+      ]
     },
     "TON": {
       "name": "Tonkin",
@@ -6102,13 +4834,7 @@ var mapEra = {
         "ANN",
         "SCS",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1618.4,
-          740
-        ]
-      }
+      ]
     },
     "TS": {
       "name": "Timor Sea",
@@ -6121,13 +4847,7 @@ var mapEra = {
         "LPO",
         "NG",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          2006,
-          1311
-        ]
-      }
+      ]
     },
     "UPO": {
       "name": "Upper Pacific Ocean",
@@ -6141,13 +4861,7 @@ var mapEra = {
         "SOO",
         "TOK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2123,
-          534
-        ]
-      }
+      ]
     },
     "URU": {
       "name": "Urumchi",
@@ -6158,13 +4872,7 @@ var mapEra = {
         "KIR",
         "MON",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1125,
-          310
-        ]
-      }
+      ]
     },
     "VLA": {
       "name": "Vladivostok",
@@ -6185,13 +4893,7 @@ var mapEra = {
         "SAK",
         "SOJ",
         "SOO"
-      ],
-      "render": {
-        "center": [
-          1812,
-          146
-        ]
-      }
+      ]
     },
     "WIO": {
       "name": "West Indian Ocean",
@@ -6206,13 +4908,7 @@ var mapEra = {
         "MAD",
         "MYS",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          796,
-          1034
-        ]
-      }
+      ]
     },
     "YS": {
       "name": "Yellow Sea",
@@ -6229,13 +4925,7 @@ var mapEra = {
         "SHA",
         "SOJ",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          1934,
-          536.2
-        ]
-      }
+      ]
     },
     "YUN": {
       "name": "Yunnan",
@@ -6254,13 +4944,7 @@ var mapEra = {
         "CAN",
         "SCS",
         "TON"
-      ],
-      "render": {
-        "center": [
-          1511,
-          653
-        ]
-      }
+      ]
     }
   },
   "startingUnits": [
@@ -6394,11 +5078,13 @@ function getMap(id) {
   return map;
 }
 export {
+  ORDER_PHASES,
   adjudicate,
   boardFromUnits,
   getMap,
   idleNations,
   initialBoard,
+  isOrderPhase,
   replayLog,
   roundRank
 };

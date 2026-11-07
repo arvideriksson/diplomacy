@@ -2,7 +2,7 @@
 // board does not draw: grouped into 1900 provinces in lon/lat, then transformed
 // onto the board.
 import { readFileSync } from 'node:fs'
-import { union, intersect } from './geom.mjs'
+import { union, intersect } from '../../lib/geom.mjs'
 
 let admin1
 const features = () => (admin1 ??= JSON.parse(readFileSync(new URL('../../../geodata/src/admin1.geojson', import.meta.url), 'utf8')).features)

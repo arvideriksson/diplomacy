@@ -23,3 +23,25 @@ export function powerColor(powers: readonly PowerDefinition[], nation: string, f
 export function powerColor(powers: readonly PowerDefinition[], nation: string, fallback?: string): string | undefined {
   return findPower(powers, nation)?.color ?? fallback
 }
+
+/** The colour shown for a nation that isn't a known power. */
+export const UNKNOWN_POWER_COLOR = '#888'
+
+export interface PowerInfo {
+  id: string
+  name: string
+  color: string
+}
+
+/**
+ * A nation's id, display name and colour, from a power list or a map. An unknown nation
+ * keeps its token as id and name, coloured `UNKNOWN_POWER_COLOR`.
+ */
+export function powerInfo(
+  source: readonly PowerDefinition[] | { powers: readonly PowerDefinition[] },
+  nation: string,
+): PowerInfo {
+  const powers = 'powers' in source ? source.powers : source
+  const p = findPower(powers, nation)
+  return { id: p?.id ?? nation, name: p?.name ?? nation, color: p?.color ?? UNKNOWN_POWER_COLOR }
+}

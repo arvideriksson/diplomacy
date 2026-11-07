@@ -3,7 +3,7 @@
 // looks up those users' subscriptions, sends, and drops the ones the push service
 // reports gone.
 
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { rejectUnauthorised, serviceClient } from '../_shared/edge.ts'
 import webpush from 'npm:web-push@3.6.7'
 
 interface SubscriptionRow {
@@ -13,10 +13,8 @@ interface SubscriptionRow {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  const expected = Deno.env.get('ADJUDICATOR_SECRET')
-  if (!expected || req.headers.get('Authorization') !== `Bearer ${expected}`) {
-    return new Response('forbidden', { status: 403 })
-  }
+  const denied = rejectUnauthorised(req)
+  if (denied) return denied
 
   const publicKey = Deno.env.get('VAPID_PUBLIC_KEY')
   const privateKey = Deno.env.get('VAPID_PRIVATE_KEY')
@@ -32,9 +30,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   if (!Array.isArray(userIds) || userIds.length === 0) return Response.json({ sent: 0 })
 
-  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
-    auth: { persistSession: false },
-  })
+  const db = serviceClient()
   const { data, error } = await db
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')

@@ -6,7 +6,7 @@
   import type { MapDefinition } from '../lib/mapDefinition'
   import { victoryThreshold } from '../lib/adjudicator/resolve'
   import { flagUrl } from '../lib/flags'
-  import { findPower, powerName } from '../lib/powers'
+  import { findPower, powerInfo } from '../lib/powers'
   import { errorMessage } from '../lib/errors'
   import { fetchFinalVotes, fetchMyVote, setDrawVote, type DrawVote } from '../lib/draw'
 
@@ -23,9 +23,9 @@
   export let complete = false
 
   $: win = victoryThreshold(map)
-  const name = (n: string) => powerName(map.powers, n)
-  const color = (n: string) => findPower(map.powers, n)?.color ?? 'var(--border-strong)'
-  const flag = (n: string) => flagUrl[findPower(map.powers, n)?.id ?? n]
+  const name = (n: string) => powerInfo(map, n).name
+  const color = (n: string) => powerInfo(map, n).color
+  const flag = (n: string) => flagUrl[powerInfo(map, n).id]
 
   // The saved vote, and the one being edited.
   let saved: DrawVote = { kind: 'solo' }

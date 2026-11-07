@@ -6,15 +6,13 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 // Values come from the pre-bundled engine (run `npm run build:edge`); the bundle
 // is self-contained so there is no cross-boundary or extensionless resolution.
-import { adjudicate, initialBoard, getMap, idleNations, replayLog, roundRank } from './_engine.mjs'
+import { adjudicate, initialBoard, getMap, idleNations, isOrderPhase, replayLog, roundRank } from './_engine.mjs'
 import { getGame, getResolvedLog, getRoundOrders, type GameRow } from './db.ts'
 
 // The engine's BoardState/AnyOrder, kept loose here — this file only threads them.
 type BoardState = { phase: string; season: string; year: number; units: unknown[] }
 type AnyOrder = unknown
 export type RoundKey = { year: number; season: string; phase: string }
-
-const ORDER_PHASES = ['movement', 'retreat', 'build']
 
 /** Board going into resolution: the stored snapshot, or the opening board for turn 1
  * (a null snapshot only occurs before the first resolution). */
@@ -31,7 +29,7 @@ export async function resolveGame(
   if (!game) return { status: 'game-not-found' }
 
   // Idempotency guard: only resolve a game actually claimed for an order phase.
-  if (!game.resolving_at || !ORDER_PHASES.includes(game.phase)) {
+  if (!game.resolving_at || !isOrderPhase(game.phase)) {
     return { status: 'skipped' }
   }
 
@@ -44,8 +42,8 @@ export async function resolveGame(
   // A row may only order its own nation's units: the `nation` inside each order is
   // client-supplied, so it is overwritten with the row's (RLS-verified) nation. An
   // order naming another power's unit then voids instead of commanding it.
-  const orders: AnyOrder[] = orderRows
-    .filter((r) => ready[r.nation] === true)
+  const honoured = orderRows.filter((r) => ready[r.nation] === true)
+  const orders: AnyOrder[] = honoured
     .flatMap((r) => ((r.orders as AnyOrder[]) ?? []).map((o) => ({ ...o, nation: r.nation })))
 
   const { newBoardState, victory } = adjudicate(map, board, orders)
@@ -67,6 +65,21 @@ export async function resolveGame(
     p_snapshot: newBoardState,
     p_next: next,
     p_ready_init: readyInit,
+    // The commit refuses to land over a claim that was reaped and re-fired, and blanks
+    // exactly the rows that weren't adjudicated (not a fresh read of games.ready).
+    p_claim: game.resolving_at,
+    p_honoured: honoured.map((r) => r.nation),
+    // A win is stamped on games.result like a tie or a concession.
+    p_result: victory
+      ? {
+          kind: 'victory',
+          nations: victory.shared ?? [victory.nation],
+          centers: victory.centers,
+          year: game.year,
+          season: game.season,
+          phase: game.phase,
+        }
+      : null,
   })
   if (error) throw error
 
@@ -91,7 +104,7 @@ export async function revertGame(
   const map = getMap(game.map_id)
   // Replay up to the live round so trailing phases that left no log rows (everyone
   // held) are reconstructed too — the client's history list includes them.
-  const until = ORDER_PHASES.includes(game.phase)
+  const until = isOrderPhase(game.phase)
     ? { year: game.year, season: game.season, phase: game.phase }
     : undefined
   const frames = replayLog(map, initialBoard(map), await getResolvedLog(db, gameId), until) as {
@@ -112,6 +125,7 @@ export async function revertGame(
     p_round: { year: target.year, season: target.season, phase: target.phase },
     p_snapshot: frame.board,
     p_ready_init: readyInit,
+    p_claim: game.resolving_at,
   })
   if (error) throw error
 

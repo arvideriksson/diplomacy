@@ -84,13 +84,7 @@ export const map1900: MapDefinition = {
         "BOS",
         "MAC",
         "ION"
-      ],
-      "render": {
-        "center": [
-          815.6,
-          1109.1
-        ]
-      }
+      ]
     },
     "AEG": {
       "name": "Aegean Sea",
@@ -103,13 +97,7 @@ export const map1900: MapDefinition = {
         "KON",
         "EAS",
         "ION"
-      ],
-      "render": {
-        "center": [
-          1028,
-          1261.9
-        ]
-      }
+      ]
     },
     "ALG": {
       "name": "Algeria",
@@ -127,13 +115,7 @@ export const map1900: MapDefinition = {
         "WES",
         "TYS",
         "TUN"
-      ],
-      "render": {
-        "center": [
-          453.9,
-          1294.4
-        ]
-      }
+      ]
     },
     "ALS": {
       "name": "Alsace",
@@ -145,13 +127,7 @@ export const map1900: MapDefinition = {
         "COL",
         "MUN",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          531.1,
-          883.7
-        ]
-      }
+      ]
     },
     "ANK": {
       "name": "Ankara",
@@ -168,13 +144,7 @@ export const map1900: MapDefinition = {
         "BLA",
         "ARM",
         "CON"
-      ],
-      "render": {
-        "center": [
-          1236.5,
-          1120.7
-        ]
-      }
+      ]
     },
     "APU": {
       "name": "Apulia",
@@ -192,13 +162,7 @@ export const map1900: MapDefinition = {
         "ADR",
         "ION",
         "NAP"
-      ],
-      "render": {
-        "center": [
-          794.8,
-          1142
-        ]
-      }
+      ]
     },
     "ARA": {
       "name": "Arabia",
@@ -208,13 +172,7 @@ export const map1900: MapDefinition = {
         "DAM",
         "PAL",
         "HEJ"
-      ],
-      "render": {
-        "center": [
-          1452.6,
-          1452.8
-        ]
-      }
+      ]
     },
     "ARM": {
       "name": "Armenia",
@@ -231,13 +189,7 @@ export const map1900: MapDefinition = {
         "ANK",
         "SEV",
         "BLA"
-      ],
-      "render": {
-        "center": [
-          1450.6,
-          1085.8
-        ]
-      }
+      ]
     },
     "BAL": {
       "name": "Baltic Sea",
@@ -251,13 +203,7 @@ export const map1900: MapDefinition = {
         "DEN",
         "SWE",
         "GBO"
-      ],
-      "render": {
-        "center": [
-          835.1,
-          615.9
-        ]
-      }
+      ]
     },
     "BAR": {
       "name": "Barents Sea",
@@ -267,13 +213,7 @@ export const map1900: MapDefinition = {
         "NWG",
         "STP",
         "NOR"
-      ],
-      "render": {
-        "center": [
-          1095.8,
-          56
-        ]
-      }
+      ]
     },
     "BEL": {
       "name": "Belgium",
@@ -293,13 +233,7 @@ export const map1900: MapDefinition = {
         "NTH",
         "NET",
         "PIC"
-      ],
-      "render": {
-        "center": [
-          529.8,
-          789
-        ]
-      }
+      ]
     },
     "BER": {
       "name": "Berlin",
@@ -317,13 +251,7 @@ export const map1900: MapDefinition = {
         "KIE",
         "BAL",
         "PRU"
-      ],
-      "render": {
-        "center": [
-          678.6,
-          751.1
-        ]
-      }
+      ]
     },
     "BLA": {
       "name": "Black Sea",
@@ -336,13 +264,7 @@ export const map1900: MapDefinition = {
         "ANK",
         "CON",
         "BUL"
-      ],
-      "render": {
-        "center": [
-          1254.2,
-          1015.6
-        ]
-      }
+      ]
     },
     "BOH": {
       "name": "Bohemia",
@@ -355,13 +277,7 @@ export const map1900: MapDefinition = {
         "BUD",
         "VIE",
         "TYR"
-      ],
-      "render": {
-        "center": [
-          743.4,
-          851
-        ]
-      }
+      ]
     },
     "BOS": {
       "name": "Bosnia",
@@ -377,13 +293,7 @@ export const map1900: MapDefinition = {
         "MAC",
         "ADR",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          856.4,
-          1042.3
-        ]
-      }
+      ]
     },
     "BRE": {
       "name": "Brest",
@@ -402,13 +312,7 @@ export const map1900: MapDefinition = {
         "ENG",
         "PIC",
         "GAS"
-      ],
-      "render": {
-        "center": [
-          350.1,
-          856.1
-        ]
-      }
+      ]
     },
     "BUD": {
       "name": "Budapest",
@@ -422,13 +326,7 @@ export const map1900: MapDefinition = {
         "RUM",
         "SER",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          915.6,
-          954
-        ]
-      }
+      ]
     },
     "BUL": {
       "name": "Bulgaria",
@@ -445,13 +343,7 @@ export const map1900: MapDefinition = {
         "CON",
         "BLA",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          984,
-          1083.3
-        ]
-      }
+      ]
     },
     "BUR": {
       "name": "Burgundy",
@@ -465,13 +357,7 @@ export const map1900: MapDefinition = {
         "BEL",
         "ALS",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          494.1,
-          913
-        ]
-      }
+      ]
     },
     "CLY": {
       "name": "Clyde",
@@ -490,13 +376,7 @@ export const map1900: MapDefinition = {
         "IRE",
         "NAO",
         "NWG"
-      ],
-      "render": {
-        "center": [
-          365.3,
-          562.1
-        ]
-      }
+      ]
     },
     "COL": {
       "name": "Cologne",
@@ -509,13 +389,7 @@ export const map1900: MapDefinition = {
         "NET",
         "KIE",
         "MUN"
-      ],
-      "render": {
-        "center": [
-          566,
-          816.9
-        ]
-      }
+      ]
     },
     "CON": {
       "name": "Constantinople",
@@ -537,13 +411,7 @@ export const map1900: MapDefinition = {
         "ANK",
         "KON",
         "AEG"
-      ],
-      "render": {
-        "center": [
-          1082.3,
-          1154.9
-        ]
-      }
+      ]
     },
     "CYR": {
       "name": "Cyrenaica",
@@ -560,13 +428,7 @@ export const map1900: MapDefinition = {
         "ION",
         "EAS",
         "EGY"
-      ],
-      "render": {
-        "center": [
-          960,
-          1490
-        ]
-      }
+      ]
     },
     "DAM": {
       "name": "Damascus",
@@ -584,13 +446,7 @@ export const map1900: MapDefinition = {
         "PAL",
         "EAS",
         "KON"
-      ],
-      "render": {
-        "center": [
-          1385.2,
-          1326
-        ]
-      }
+      ]
     },
     "DEN": {
       "name": "Denmark",
@@ -611,13 +467,7 @@ export const map1900: MapDefinition = {
         "BAL",
         "KIE",
         "SKA"
-      ],
-      "render": {
-        "center": [
-          624.1,
-          609.9
-        ]
-      }
+      ]
     },
     "EAS": {
       "name": "Eastern Mediterranean",
@@ -631,13 +481,7 @@ export const map1900: MapDefinition = {
         "EGY",
         "CYR",
         "ION"
-      ],
-      "render": {
-        "center": [
-          1198.7,
-          1295.7
-        ]
-      }
+      ]
     },
     "EDI": {
       "name": "Edinburgh",
@@ -656,13 +500,7 @@ export const map1900: MapDefinition = {
         "NWG",
         "CLY",
         "YOR"
-      ],
-      "render": {
-        "center": [
-          409.3,
-          504.2
-        ]
-      }
+      ]
     },
     "EGY": {
       "name": "Egypt",
@@ -681,13 +519,7 @@ export const map1900: MapDefinition = {
         "PAL",
         "HEJ",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          1181.8,
-          1492.7
-        ]
-      }
+      ]
     },
     "ENG": {
       "name": "English Channel",
@@ -702,13 +534,7 @@ export const map1900: MapDefinition = {
         "BEL",
         "PIC",
         "BRE"
-      ],
-      "render": {
-        "center": [
-          384.2,
-          764.9
-        ]
-      }
+      ]
     },
     "FIN": {
       "name": "Finland",
@@ -724,13 +550,7 @@ export const map1900: MapDefinition = {
         "SWE",
         "STP",
         "GBO"
-      ],
-      "render": {
-        "center": [
-          944.1,
-          335.3
-        ]
-      }
+      ]
     },
     "GAL": {
       "name": "Galicia",
@@ -743,13 +563,7 @@ export const map1900: MapDefinition = {
         "BUD",
         "BOH",
         "SIL"
-      ],
-      "render": {
-        "center": [
-          960.9,
-          816.1
-        ]
-      }
+      ]
     },
     "GAS": {
       "name": "Gascony",
@@ -767,13 +581,7 @@ export const map1900: MapDefinition = {
         "SPA",
         "MAO",
         "BRE"
-      ],
-      "render": {
-        "center": [
-          375.4,
-          945.1
-        ]
-      }
+      ]
     },
     "GBO": {
       "name": "Gulf of Bothnia",
@@ -785,13 +593,7 @@ export const map1900: MapDefinition = {
         "STP",
         "LVO",
         "BAL"
-      ],
-      "render": {
-        "center": [
-          834.1,
-          433.1
-        ]
-      }
+      ]
     },
     "GIB": {
       "name": "Gibraltar",
@@ -808,13 +610,7 @@ export const map1900: MapDefinition = {
         "WES",
         "MOR",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          158,
-          1205
-        ]
-      }
+      ]
     },
     "GLY": {
       "name": "Gulf of Lyon",
@@ -827,13 +623,7 @@ export const map1900: MapDefinition = {
         "ROM",
         "TYS",
         "WES"
-      ],
-      "render": {
-        "center": [
-          490.7,
-          1126.2
-        ]
-      }
+      ]
     },
     "GRE": {
       "name": "Greece",
@@ -848,13 +638,7 @@ export const map1900: MapDefinition = {
         "MAC",
         "AEG",
         "ION"
-      ],
-      "render": {
-        "center": [
-          928,
-          1206.6
-        ]
-      }
+      ]
     },
     "HEJ": {
       "name": "Hejaz",
@@ -869,13 +653,7 @@ export const map1900: MapDefinition = {
       "fleetAdjacent": [
         "EGY",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          1407.7,
-          1562.1
-        ]
-      }
+      ]
     },
     "HEL": {
       "name": "Helgoland Bight",
@@ -886,13 +664,7 @@ export const map1900: MapDefinition = {
         "DEN",
         "KIE",
         "NET"
-      ],
-      "render": {
-        "center": [
-          600.2,
-          651.7
-        ]
-      }
+      ]
     },
     "ICE": {
       "name": "Iceland",
@@ -906,13 +678,7 @@ export const map1900: MapDefinition = {
       "fleetAdjacent": [
         "NAO",
         "NWG"
-      ],
-      "render": {
-        "center": [
-          272.8,
-          175.4
-        ]
-      }
+      ]
     },
     "ION": {
       "name": "Ionian Sea",
@@ -930,13 +696,7 @@ export const map1900: MapDefinition = {
         "EAS",
         "CYR",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          845.7,
-          1282.6
-        ]
-      }
+      ]
     },
     "IRE": {
       "name": "Ireland",
@@ -953,13 +713,7 @@ export const map1900: MapDefinition = {
         "CLY",
         "IRI",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          274,
-          639.8
-        ]
-      }
+      ]
     },
     "IRI": {
       "name": "Irish Sea",
@@ -972,13 +726,7 @@ export const map1900: MapDefinition = {
         "ENG",
         "MAO",
         "IRE"
-      ],
-      "render": {
-        "center": [
-          284.2,
-          712.8
-        ]
-      }
+      ]
     },
     "KIE": {
       "name": "Kiel",
@@ -1000,13 +748,7 @@ export const map1900: MapDefinition = {
         "DEN",
         "BAL",
         "BER"
-      ],
-      "render": {
-        "center": [
-          636.9,
-          687.4
-        ]
-      }
+      ]
     },
     "KON": {
       "name": "Konya",
@@ -1025,13 +767,7 @@ export const map1900: MapDefinition = {
         "EAS",
         "AEG",
         "CON"
-      ],
-      "render": {
-        "center": [
-          1237,
-          1225.9
-        ]
-      }
+      ]
     },
     "LON": {
       "name": "London",
@@ -1049,13 +785,7 @@ export const map1900: MapDefinition = {
         "NTH",
         "ENG",
         "WAL"
-      ],
-      "render": {
-        "center": [
-          446.1,
-          690.6
-        ]
-      }
+      ]
     },
     "LVO": {
       "name": "Livonia",
@@ -1074,13 +804,7 @@ export const map1900: MapDefinition = {
         "BAL",
         "GBO",
         "STP"
-      ],
-      "render": {
-        "center": [
-          956.8,
-          594.6
-        ]
-      }
+      ]
     },
     "LVP": {
       "name": "Liverpool",
@@ -1100,13 +824,7 @@ export const map1900: MapDefinition = {
         "IRI",
         "NAO",
         "CLY"
-      ],
-      "render": {
-        "center": [
-          389.1,
-          617.4
-        ]
-      }
+      ]
     },
     "MAC": {
       "name": "Macedonia",
@@ -1129,13 +847,7 @@ export const map1900: MapDefinition = {
             "GRE",
             "AEG",
             "CON"
-          ],
-          "render": {
-            "center": [
-              981.2,
-              1117.2
-            ]
-          }
+          ]
         },
         "wc": {
           "name": "West Coast",
@@ -1144,20 +856,8 @@ export const map1900: MapDefinition = {
             "ADR",
             "ION",
             "GRE"
-          ],
-          "render": {
-            "center": [
-              881.3,
-              1153.2
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          925.4,
-          1149.2
-        ]
       }
     },
     "MAR": {
@@ -1177,13 +877,7 @@ export const map1900: MapDefinition = {
         "SPA",
         "GLY",
         "PIE"
-      ],
-      "render": {
-        "center": [
-          467.3,
-          1014.6
-        ]
-      }
+      ]
     },
     "MAO": {
       "name": "Mid-Atlantic Ocean",
@@ -1202,13 +896,7 @@ export const map1900: MapDefinition = {
         "MOR",
         "EGY",
         "HEJ"
-      ],
-      "render": {
-        "center": [
-          114,
-          829.4
-        ]
-      }
+      ]
     },
     "MIL": {
       "name": "Milan",
@@ -1221,13 +909,7 @@ export const map1900: MapDefinition = {
         "TYR",
         "VEN",
         "ROM"
-      ],
-      "render": {
-        "center": [
-          607.7,
-          978.5
-        ]
-      }
+      ]
     },
     "MOR": {
       "name": "Morocco",
@@ -1245,13 +927,7 @@ export const map1900: MapDefinition = {
         "GIB",
         "WES",
         "ALG"
-      ],
-      "render": {
-        "center": [
-          110,
-          1369
-        ]
-      }
+      ]
     },
     "MOS": {
       "name": "Moscow",
@@ -1265,13 +941,7 @@ export const map1900: MapDefinition = {
         "UKR",
         "SEV",
         "SIB"
-      ],
-      "render": {
-        "center": [
-          1301.4,
-          522.5
-        ]
-      }
+      ]
     },
     "MUN": {
       "name": "Munich",
@@ -1287,13 +957,7 @@ export const map1900: MapDefinition = {
         "BOH",
         "TYR",
         "SWI"
-      ],
-      "render": {
-        "center": [
-          646.9,
-          814.7
-        ]
-      }
+      ]
     },
     "NAP": {
       "name": "Naples",
@@ -1311,13 +975,7 @@ export const map1900: MapDefinition = {
         "TYS",
         "ION",
         "APU"
-      ],
-      "render": {
-        "center": [
-          780,
-          1221.6
-        ]
-      }
+      ]
     },
     "NAO": {
       "name": "North Atlantic Ocean",
@@ -1331,13 +989,7 @@ export const map1900: MapDefinition = {
         "IRI",
         "IRE",
         "MAO"
-      ],
-      "render": {
-        "center": [
-          183.5,
-          364.8
-        ]
-      }
+      ]
     },
     "NET": {
       "name": "Netherlands",
@@ -1355,13 +1007,7 @@ export const map1900: MapDefinition = {
         "NTH",
         "HEL",
         "KIE"
-      ],
-      "render": {
-        "center": [
-          553.6,
-          739.7
-        ]
-      }
+      ]
     },
     "NTH": {
       "name": "North Sea",
@@ -1379,13 +1025,7 @@ export const map1900: MapDefinition = {
         "BEL",
         "ENG",
         "LON"
-      ],
-      "render": {
-        "center": [
-          505,
-          593.3
-        ]
-      }
+      ]
     },
     "NWG": {
       "name": "Norwegian Sea",
@@ -1399,13 +1039,7 @@ export const map1900: MapDefinition = {
         "NTH",
         "CLY",
         "EDI"
-      ],
-      "render": {
-        "center": [
-          551.5,
-          242.7
-        ]
-      }
+      ]
     },
     "NOR": {
       "name": "Norway",
@@ -1427,13 +1061,7 @@ export const map1900: MapDefinition = {
         "BAR",
         "STP",
         "SWE"
-      ],
-      "render": {
-        "center": [
-          659,
-          385.5
-        ]
-      }
+      ]
     },
     "PAL": {
       "name": "Palestine",
@@ -1450,13 +1078,7 @@ export const map1900: MapDefinition = {
         "EGY",
         "EAS",
         "DAM"
-      ],
-      "render": {
-        "center": [
-          1345.1,
-          1423
-        ]
-      }
+      ]
     },
     "PAR": {
       "name": "Paris",
@@ -1468,13 +1090,7 @@ export const map1900: MapDefinition = {
         "PIC",
         "BUR",
         "GAS"
-      ],
-      "render": {
-        "center": [
-          411.9,
-          880.2
-        ]
-      }
+      ]
     },
     "PIC": {
       "name": "Picardy",
@@ -1491,13 +1107,7 @@ export const map1900: MapDefinition = {
         "BRE",
         "ENG",
         "BEL"
-      ],
-      "render": {
-        "center": [
-          461.7,
-          782.1
-        ]
-      }
+      ]
     },
     "PIE": {
       "name": "Piedmont",
@@ -1514,13 +1124,7 @@ export const map1900: MapDefinition = {
         "MAR",
         "GLY",
         "ROM"
-      ],
-      "render": {
-        "center": [
-          579.4,
-          994.6
-        ]
-      }
+      ]
     },
     "POR": {
       "name": "Portugal",
@@ -1533,13 +1137,7 @@ export const map1900: MapDefinition = {
       "fleetAdjacent": [
         "MAO",
         "SPA"
-      ],
-      "render": {
-        "center": [
-          109,
-          1126
-        ]
-      }
+      ]
     },
     "PRU": {
       "name": "Prussia",
@@ -1556,13 +1154,7 @@ export const map1900: MapDefinition = {
         "BER",
         "BAL",
         "LVO"
-      ],
-      "render": {
-        "center": [
-          783.3,
-          705.1
-        ]
-      }
+      ]
     },
     "ROM": {
       "name": "Rome",
@@ -1583,13 +1175,7 @@ export const map1900: MapDefinition = {
         "GLY",
         "TYS",
         "NAP"
-      ],
-      "render": {
-        "center": [
-          704.9,
-          1110.4
-        ]
-      }
+      ]
     },
     "RUM": {
       "name": "Rumania",
@@ -1608,13 +1194,7 @@ export const map1900: MapDefinition = {
         "SEV",
         "BLA",
         "BUL"
-      ],
-      "render": {
-        "center": [
-          1014.4,
-          1003.8
-        ]
-      }
+      ]
     },
     "SER": {
       "name": "Serbia",
@@ -1627,13 +1207,7 @@ export const map1900: MapDefinition = {
         "RUM",
         "BUL",
         "MAC"
-      ],
-      "render": {
-        "center": [
-          911.2,
-          1074.8
-        ]
-      }
+      ]
     },
     "SEV": {
       "name": "Sevastopol",
@@ -1652,13 +1226,7 @@ export const map1900: MapDefinition = {
         "RUM",
         "BLA",
         "ARM"
-      ],
-      "render": {
-        "center": [
-          1206,
-          884.5
-        ]
-      }
+      ]
     },
     "SIB": {
       "name": "Siberia",
@@ -1668,13 +1236,7 @@ export const map1900: MapDefinition = {
         "SEV",
         "MOS",
         "STP"
-      ],
-      "render": {
-        "center": [
-          1470,
-          430
-        ]
-      }
+      ]
     },
     "SIL": {
       "name": "Silesia",
@@ -1687,13 +1249,7 @@ export const map1900: MapDefinition = {
         "WAR",
         "GAL",
         "BOH"
-      ],
-      "render": {
-        "center": [
-          776.2,
-          750.9
-        ]
-      }
+      ]
     },
     "SKA": {
       "name": "Skagerrak",
@@ -1704,13 +1260,7 @@ export const map1900: MapDefinition = {
         "NOR",
         "DEN",
         "SWE"
-      ],
-      "render": {
-        "center": [
-          678.1,
-          563.6
-        ]
-      }
+      ]
     },
     "SOU": {
       "name": "Southern Algeria",
@@ -1721,13 +1271,7 @@ export const map1900: MapDefinition = {
         "ALG",
         "TUN",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          338.5,
-          1473.3
-        ]
-      }
+      ]
     },
     "SPA": {
       "name": "Spain",
@@ -1749,13 +1293,7 @@ export const map1900: MapDefinition = {
             "GAS",
             "MAO",
             "POR"
-          ],
-          "render": {
-            "center": [
-              226,
-              1008.7
-            ]
-          }
+          ]
         },
         "ec": {
           "name": "East Coast",
@@ -1764,13 +1302,7 @@ export const map1900: MapDefinition = {
             "WES",
             "GLY",
             "MAR"
-          ],
-          "render": {
-            "center": [
-              300,
-              1150
-            ]
-          }
+          ]
         },
         "wc": {
           "name": "West Coast",
@@ -1778,20 +1310,8 @@ export const map1900: MapDefinition = {
             "POR",
             "MAO",
             "GIB"
-          ],
-          "render": {
-            "center": [
-              122,
-              1160
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          247.3,
-          1059.4
-        ]
       }
     },
     "STP": {
@@ -1814,13 +1334,7 @@ export const map1900: MapDefinition = {
           "fleetAdjacency": [
             "BAR",
             "NOR"
-          ],
-          "render": {
-            "center": [
-              1161.1,
-              211.5
-            ]
-          }
+          ]
         },
         "sc": {
           "name": "South Coast",
@@ -1828,20 +1342,8 @@ export const map1900: MapDefinition = {
             "FIN",
             "LVO",
             "GBO"
-          ],
-          "render": {
-            "center": [
-              1032.6,
-              462.2
-            ]
-          }
+          ]
         }
-      },
-      "render": {
-        "center": [
-          1132,
-          351.5
-        ]
       }
     },
     "SWE": {
@@ -1863,13 +1365,7 @@ export const map1900: MapDefinition = {
         "DEN",
         "SKA",
         "NOR"
-      ],
-      "render": {
-        "center": [
-          747.3,
-          493.9
-        ]
-      }
+      ]
     },
     "SWI": {
       "name": "Switzerland",
@@ -1883,13 +1379,7 @@ export const map1900: MapDefinition = {
         "MIL",
         "PIE",
         "MAR"
-      ],
-      "render": {
-        "center": [
-          593.8,
-          903
-        ]
-      }
+      ]
     },
     "TRI": {
       "name": "Trieste",
@@ -1909,13 +1399,7 @@ export const map1900: MapDefinition = {
         "BOS",
         "ADR",
         "VEN"
-      ],
-      "render": {
-        "center": [
-          748,
-          971.5
-        ]
-      }
+      ]
     },
     "TRP": {
       "name": "Tripolitania",
@@ -1931,13 +1415,7 @@ export const map1900: MapDefinition = {
         "TUN",
         "ION",
         "CYR"
-      ],
-      "render": {
-        "center": [
-          716.2,
-          1526.4
-        ]
-      }
+      ]
     },
     "TUN": {
       "name": "Tunisia",
@@ -1955,13 +1433,7 @@ export const map1900: MapDefinition = {
         "TYS",
         "ION",
         "TRP"
-      ],
-      "render": {
-        "center": [
-          594.2,
-          1349
-        ]
-      }
+      ]
     },
     "TYR": {
       "name": "Tyrolia",
@@ -1975,13 +1447,7 @@ export const map1900: MapDefinition = {
         "TRI",
         "VEN",
         "MIL"
-      ],
-      "render": {
-        "center": [
-          717.4,
-          899.5
-        ]
-      }
+      ]
     },
     "TYS": {
       "name": "Tyrrhenian Sea",
@@ -1995,13 +1461,7 @@ export const map1900: MapDefinition = {
         "ION",
         "TUN",
         "ALG"
-      ],
-      "render": {
-        "center": [
-          673.9,
-          1209.4
-        ]
-      }
+      ]
     },
     "UKR": {
       "name": "Ukraine",
@@ -2013,13 +1473,7 @@ export const map1900: MapDefinition = {
         "WAR",
         "MOS",
         "SEV"
-      ],
-      "render": {
-        "center": [
-          1145.3,
-          803
-        ]
-      }
+      ]
     },
     "VEN": {
       "name": "Venetia",
@@ -2037,13 +1491,7 @@ export const map1900: MapDefinition = {
         "APU",
         "ADR",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          687.3,
-          952.8
-        ]
-      }
+      ]
     },
     "VIE": {
       "name": "Vienna",
@@ -2055,13 +1503,7 @@ export const map1900: MapDefinition = {
         "BOH",
         "BUD",
         "TRI"
-      ],
-      "render": {
-        "center": [
-          800.6,
-          946.5
-        ]
-      }
+      ]
     },
     "WAL": {
       "name": "Wales",
@@ -2079,13 +1521,7 @@ export const map1900: MapDefinition = {
         "IRI",
         "ENG",
         "LON"
-      ],
-      "render": {
-        "center": [
-          353,
-          660.4
-        ]
-      }
+      ]
     },
     "WAR": {
       "name": "Warsaw",
@@ -2099,13 +1535,7 @@ export const map1900: MapDefinition = {
         "MOS",
         "UKR",
         "GAL"
-      ],
-      "render": {
-        "center": [
-          897.1,
-          721.7
-        ]
-      }
+      ]
     },
     "WES": {
       "name": "Western Mediterranean",
@@ -2118,13 +1548,7 @@ export const map1900: MapDefinition = {
         "TYS",
         "ALG",
         "MOR"
-      ],
-      "render": {
-        "center": [
-          423.7,
-          1193.6
-        ]
-      }
+      ]
     },
     "YOR": {
       "name": "Yorkshire",
@@ -2141,13 +1565,7 @@ export const map1900: MapDefinition = {
         "EDI",
         "NTH",
         "LON"
-      ],
-      "render": {
-        "center": [
-          414.7,
-          651.9
-        ]
-      }
+      ]
     }
   },
   "rules": {

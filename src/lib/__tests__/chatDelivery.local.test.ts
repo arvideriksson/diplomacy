@@ -9,51 +9,22 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHmac } from 'node:crypto'
 import { get } from 'svelte/store'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { RUN, fresh, local, ok, POWERS, sleep, startedGame, until } from './localStack'
 
-const URL_ = 'http://127.0.0.1:54321'
-// The local stack's fixed demo keys (supabase status).
-const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0'
-const JWT_SECRET = 'super-secret-jwt-token-with-at-least-32-characters-long'
-const POWERS = ['austria', 'england', 'france', 'germany', 'italy', 'russia', 'turkey']
-const RUN = !!process.env.CHAT_LOCAL
-
-const fresh = () => createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } })
-
-// The store's own client (lib/supabase reads Vite env): a fresh one, signed in below.
-vi.mock('../supabase', async () => {
-  const { createClient } = await import('@supabase/supabase-js')
-  return {
-    supabase: createClient('http://127.0.0.1:54321', ANON, { auth: { persistSession: false, autoRefreshToken: false } }),
-  }
-})
+// The module's own client (lib/supabase reads Vite env): a fresh one, signed in below.
+vi.mock('../supabase', async () => ({ supabase: (await import('./localStack')).fresh() }))
 
 const { supabase } = await import('../supabase')
 const { createChatStore } = await import('../chatStore')
 const { chatOverview, markRead } = await import('../chat')
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-async function until(cond: () => boolean, ms = 6000): Promise<boolean> {
-  const end = Date.now() + ms
-  while (Date.now() < end) {
-    if (cond()) return true
-    await sleep(50)
-  }
-  return cond()
-}
 
 function mint(sub: string, secs: number) {
   const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
   const now = Math.floor(Date.now() / 1000)
   const body = b64({ sub, role: 'authenticated', aud: 'authenticated', iat: now, exp: now + secs })
   const head = b64({ alg: 'HS256', typ: 'JWT' })
-  return `${head}.${body}.${createHmac('sha256', JWT_SECRET).update(`${head}.${body}`).digest('base64url')}`
-}
-
-async function ok<T>(p: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
-  const { data, error } = await p
-  if (error) throw error
-  return data
+  return `${head}.${body}.${createHmac('sha256', local().jwtSecret!).update(`${head}.${body}`).digest('base64url')}`
 }
 
 describe.skipIf(!RUN)('press delivery (local stack)', () => {
@@ -65,24 +36,8 @@ describe.skipIf(!RUN)('press delivery (local stack)', () => {
   let store: ReturnType<typeof createChatStore>
 
   beforeAll(async () => {
-    const clients = [supabase, ...Array.from({ length: 6 }, fresh)]
-    const ids: string[] = []
-    for (const c of clients) ids.push((await ok(c.auth.signInAnonymously())).user!.id)
-    const game = await ok(
-      clients[0]
-        .from('games')
-        .insert({
-          name: 'chat delivery test', phase: 'lobby', year: 1901, season: 'Spring', map_id: 'classical',
-          players: { [ids[0]]: { role: 'host', display_name: 'T0', joined_at: new Date().toISOString() } },
-          is_private: false, created_by: ids[0],
-        })
-        .select('id')
-        .single(),
-    )
-    gameId = (game as { id: string }).id
-    for (const c of clients.slice(1)) await ok(c.rpc('join_public_game', { game_id: gameId }))
-    for (const [i, c] of clients.entries()) await ok(c.rpc('claim_nation', { p_game_id: gameId, p_nation: POWERS[i] }))
-    await ok(clients[0].rpc('start_game', { p_game_id: gameId }))
+    const { gameId: id, clients, ids } = await startedGame(supabase, 'chat delivery test')
+    gameId = id
     me = { id: ids[0], nation: POWERS[0] }
     sender = clients[1]
     bystander = clients[3]

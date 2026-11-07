@@ -3,9 +3,25 @@
 // GameBoard decides what to offer, ActionBar draws it.
 import type { OrderType } from './types'
 
+/** What picking an action does — the board's pick handler switches on `kind`. */
+export type ActionChoice =
+  /** Movement: switch the selected unit's order type. */
+  | { kind: 'order'; type: OrderType }
+  /** Retreat: route the dislodged unit (pick a destination next). */
+  | { kind: 'retreat' }
+  | { kind: 'disband' }
+  /** Build: raise this unit type at the picked center (`coast` on a multi-coast one). */
+  | { kind: 'build'; unitType: 'army' | 'fleet'; coast?: string }
+  /** Build phase: switch the picked unit's type where it stands. */
+  | { kind: 'convert'; unitType: 'army' | 'fleet'; coast?: string }
+  | { kind: 'remove' }
+  /** Build phase: cancel the placed build / removal / conversion. */
+  | { kind: 'undo' }
+
 export interface Action {
-  /** Returned to the board's pick handler. */
+  /** Unique within the menu (the bar's key; returned to its pick handler). */
   id: string
+  choice: ActionChoice
   label: string
   /** Inner markup of a 24×24 stroke icon (see ACTION_ICONS), or a unit token to draw. */
   icon?: string

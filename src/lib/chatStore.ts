@@ -5,12 +5,12 @@
 import { derived, get, writable } from 'svelte/store'
 import { errorMessage } from './errors'
 import { createDebouncer } from './debounce'
-import { flagUrl } from './flags'
-import { deviceCache } from './deviceCache'
 import { user } from './auth'
-import { findPower, powerName, powerColor } from './powers'
-import type { PowerDefinition } from './mapDefinition'
-import type { PlayerInfo } from './game'
+import { sameNation } from './powers'
+import { local } from './localStore'
+import { otherMembers, type Labelled } from './chatLabels'
+import { createThreadCache } from './chatThreadCache'
+import { createUnread } from './chatUnread'
 import {
   listChannels,
   chatOverview,
@@ -33,17 +33,17 @@ import {
   type ChatDraft,
   type ChannelOverview,
   type LiveTopic,
+  THREAD_PAGE,
+  OLDER_PAGE,
 } from './chat'
 
 // Max conversation-name length. Mirrors the cap enforced in the create/rename RPCs
-// (supabase/014_chat.sql) — keep the two in sync.
+// (create_named_channel / rename_channel, supabase/migrations/20250101000114_chat.sql;
+// redefined since, e.g. 20250101000137_chat_helpers.sql) — keep the two in sync.
 export const NAME_MAX = 60
 // Max message length. Mirrors send_chat_message / upsert_chat_draft
 // (supabase/migrations/20250101000145_chat_body_max.sql) — keep the two in sync.
 export const BODY_MAX = 5000
-
-/** Fields the label helpers read — satisfied by both a channel and a draft. */
-export type Labelled = { members: string[]; name: string | null; is_public?: boolean }
 
 /** A conversation row in the list: a real channel or an unsent draft, with its newest
  *  message (if any) and the time it was last active (for ordering). */
@@ -51,56 +51,8 @@ export type Conversation =
   | { kind: 'channel'; id: number; conv: ChatChannel; last: ChatMessage | null; at: string }
   | { kind: 'draft'; id: number; conv: ChatDraft; last: null; at: string }
 
-/** Display helpers for one viewer (`nation`) on a map's powers and the game's roster. */
-export function chatLabels(powers: PowerDefinition[], nation: string, players: Record<string, PlayerInfo> = {}) {
-  // nation → display name + color (matched by id or name, case-insensitive).
-  const display = (n: string) => powerName(powers, n)
-  const colorOf = (n: string) => powerColor(powers, n, 'var(--text-secondary, #888)')
-  // Flag roundel for a nation (keyed by power id); undefined if the map has no asset.
-  const flagOf = (n: string): string | undefined => {
-    const id = findPower(powers, n)?.id
-    return id ? flagUrl[id] : undefined
-  }
-  // nation → the player's username (null when the seat has no named player).
-  const users = new Map<string, string>()
-  for (const p of Object.values(players)) if (p?.nation && p.display_name) users.set(p.nation.toLowerCase(), p.display_name)
-  const userOf = (n: string): string | null => users.get(n.toLowerCase()) ?? null
-  /** The player's username, falling back to the nation when there is none. */
-  const who = (n: string): string => userOf(n) ?? display(n)
-  const others = (c: Labelled) => c.members.filter((n) => n !== nation)
-  /** A one-to-one conversation (titled by the other player rather than a nation list). */
-  const isDirect = (c: Labelled) => !c.is_public && others(c).length === 1
-  const channelLabel = (c: Labelled): string => {
-    if (c.name) return c.name
-    if (c.is_public) return 'Public press'
-    if (isDirect(c)) return who(others(c)[0])
-    return others(c).map(display).join(', ') || 'Notes to self'
-  }
-  // For a named channel, show the member list as a subtitle so you know who's in it.
-  const memberList = (c: Labelled): string =>
-    c.members.filter((n) => n !== nation).map(display).join(', ')
-  return { display, colorOf, flagOf, userOf, who, others, isDirect, channelLabel, memberList }
-}
-
 /** A message on its way to the server (or one that failed and can be retried). */
 export type Pending = { key: number; body: string; failed: boolean }
-
-/** Per-viewer convenience state in localStorage (unsent text, pins); never required. */
-function readLocal<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch {
-    return fallback
-  }
-}
-function writeLocal(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* private mode / storage full: the state just doesn't survive a reload */
-  }
-}
 
 const sameSet = (a: string[], b: string[]): boolean =>
   a.length === b.length && [...a].sort().join('\u0000') === [...b].sort().join('\u0000')
@@ -115,14 +67,6 @@ function mergeMsgs(a: ChatMessage[], b: ChatMessage[]): ChatMessage[] {
   for (const m of b) all.set(m.id, m)
   return [...all.values()].sort(byTime)
 }
-
-// The newest messages of each opened thread, kept on the device so reopening shows them
-// at once and fetches only what's newer. Press messages are never edited or deleted and
-// channel ids are never reused, so a cached message can't go stale.
-type CachedThread = { msgs: ChatMessage[]; hasOlder: boolean }
-const threadCache = deviceCache<CachedThread>('chatThreads', 1, 300)
-/** Messages kept per cached thread (the newest). Also the page size of a full fetch. */
-const THREAD_CACHE_MAX = 500
 
 // created_at is the sending transaction's start time, and transactions commit in any
 // order: a message can become visible after a newer one was already fetched. Delta
@@ -168,29 +112,17 @@ export function createChatStore(
     threadReady.update((r) => (r[id] ? r : { ...r, [id]: true }))
     scheduleSave(id)
   }
-  const cacheKey = (id: number) => `${get(user)?.id ?? 'anon'}:${id}`
-  // Loaded threads changed since their last save, written out together after a pause.
-  const dirtyThreads = new Set<number>()
-  const threadSave = createDebouncer(() => {
-    const all = get(messagesByCh)
-    for (const id of dirtyThreads) {
-      const msgs = all[id] ?? []
-      const kept = msgs.slice(-THREAD_CACHE_MAX)
-      threadCache.put(cacheKey(id), { msgs: kept, hasOlder: !!get(hasOlder)[id] || kept.length < msgs.length }).catch(() => {})
-    }
-    dirtyThreads.clear()
-  }, 1000)
+  // Loaded threads on the device (see chatThreadCache), keyed per signed-in user.
+  const threadCache = createThreadCache(
+    (id) => `${get(user)?.id ?? 'anon'}:${id}`,
+    (id) => ({ msgs: get(messagesByCh)[id] ?? [], hasOlder: !!get(hasOlder)[id] }),
+  )
   function scheduleSave(id: number) {
     // Only a loaded thread is a contiguous run of history; a live message stored into an
     // unopened channel isn't, and caching it would hide the gap before it.
-    if (!loaded.has(id)) return
-    dirtyThreads.add(id)
-    threadSave.schedule()
+    if (loaded.has(id)) threadCache.schedule(id)
   }
-  const unread = writable<Record<number, number>>({})
-  // What `unread` counts: per channel, the others' messages not yet seen (id → time).
-  // By id, so a message both fetched and delivered live counts once.
-  const unseen = new Map<number, Map<number, string>>()
+  const { unread, apply: applyUnread, add: addUnseen, clear: clearUnread } = createUnread()
   // Newest message per channel, for the list's previews and ordering.
   const latest = writable<Record<number, ChatMessage>>({})
   let myReads: Record<number, string> = {}
@@ -200,14 +132,16 @@ export function createChatStore(
   // across reloads (a draft conversation persists its body server-side instead; see
   // saveActiveDraft).
   const localKey = (what: string) => `press:${what}:${gameId}:${nation}`
-  const unsent = writable<Record<number, string>>(readLocal(localKey('unsent'), {}))
-  unsent.subscribe((u) => writeLocal(localKey('unsent'), u))
+  // (Per-viewer conveniences in localStorage, like the pins and failed sends below: a
+  // blocked or full store just means they don't survive a reload.)
+  const unsent = writable<Record<number, string>>(local.readJSON(localKey('unsent'), {}))
+  unsent.subscribe((u) => local.writeJSON(localKey('unsent'), u))
   // Conversations pinned to the top of the list (channel ids).
-  const pinned = writable<number[]>(readLocal(localKey('pinned'), []))
-  pinned.subscribe((p) => writeLocal(localKey('pinned'), p))
+  const pinned = writable<number[]>(local.readJSON(localKey('pinned'), []))
+  pinned.subscribe((p) => local.writeJSON(localKey('pinned'), p))
   // Messages being sent, per channel; a failed one stays (with a retry) in its thread,
   // across reloads too.
-  const failedSaved = readLocal<Record<number, Pending[]>>(localKey('failed'), {})
+  const failedSaved = local.readJSON<Record<number, Pending[]>>(localKey('failed'), {})
   let pendingSeq = Math.max(0, ...Object.values(failedSaved).flat().map((p) => p.key))
   const pending = writable<Record<number, Pending[]>>(failedSaved)
   pending.subscribe((all) => {
@@ -216,11 +150,11 @@ export function createChatStore(
         .map(([id, list]) => [id, list.filter((p) => p.failed)] as const)
         .filter(([, list]) => list.length),
     )
-    writeLocal(localKey('failed'), failed)
+    local.writeJSON(localKey('failed'), failed)
   })
   // Loading the conversation list: until the first load settles, and whether it failed.
   const status = writable<'loading' | 'ready' | 'error'>('loading')
-  // Channels with history older than what's loaded (the first fetch is the newest 500).
+  // Channels with history older than what's loaded (the first fetch is the newest THREAD_PAGE).
   const hasOlder = writable<Record<number, boolean>>({})
   // Drafts whose latest body failed to save (retried on the next flush).
   const dirtyDrafts = new Set<number>()
@@ -281,29 +215,6 @@ export function createChatStore(
   // few seconds for joins, not forever): synced once the load is done.
   let readsStarted = false
   const lateJoins = new Set<number | 'inbox'>()
-
-  function publishUnread(id: number) {
-    const n = unseen.get(id)?.size ?? 0
-    unread.update((u) => (u[id] === n ? u : { ...u, [id]: n }))
-  }
-
-  /** Take the server's view of a channel's unread messages (fetched after `cursor`),
-   *  keeping live ones it couldn't have included: newer than anything it returned and
-   *  than the cursor. Anything older it left out was read (maybe on another device). */
-  function applyUnread(id: number, rows: { id: number; created_at: string }[], cursor: string | undefined) {
-    const floor = [cursor ?? '', ...rows.map((r) => r.created_at)].reduce((a, b) => (b > a ? b : a), '')
-    const next = new Map(rows.map((r) => [r.id, r.created_at] as const))
-    for (const [mid, at] of unseen.get(id) ?? []) if (at > floor) next.set(mid, at)
-    unseen.set(id, next)
-    publishUnread(id)
-  }
-
-  function addUnseen(m: ChatMessage) {
-    let set = unseen.get(m.channel_id)
-    if (!set) unseen.set(m.channel_id, (set = new Map()))
-    set.set(m.id, m.created_at)
-    publishUnread(m.channel_id)
-  }
 
   /** Take in channel summaries from chat_overview: the read cursor (only ever moved
    *  forward — a cursor this tab advanced may not have reached the server yet), the
@@ -374,8 +285,7 @@ export function createChatStore(
     const id = get(activeId)
     if (id == null) return
     const last = get(messagesByCh)[id]?.at(-1)
-    unseen.delete(id)
-    publishUnread(id)
+    clearUnread(id)
     if (!last) return
     myReads[id] = last.created_at
     await markRead(id, last.created_at).catch(() => {})
@@ -388,10 +298,10 @@ export function createChatStore(
     // Always store: a live message belongs in the thread even if it isn't open yet.
     // openChannel still does the full history fetch on first open and dedupes by id.
     store(m)
-    if (isActive && (m.sender === nation || isWatching())) {
+    if (isActive && (sameNation(m.sender, nation) || isWatching())) {
       await scrollToBottom()
       await markSeen()
-    } else if (m.sender !== nation) {
+    } else if (!sameNation(m.sender, nation)) {
       const cursor = myReads[m.channel_id]
       if (!cursor || m.created_at > cursor) addUnseen(m)
       if (isActive && get(unreadFrom) == null) unreadFrom.set(m.id)
@@ -565,7 +475,7 @@ export function createChatStore(
     input.set(get(unsent)[id] ?? '')
     if (!loaded.has(id)) {
       // What this device saw last time shows at once; the fetch then asks only for newer.
-      const cached = await threadCache.get(cacheKey(id)).catch(() => null)
+      const cached = await threadCache.get(id)
       if (cached?.msgs.length && !loaded.has(id)) {
         messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], cached.msgs) }))
         hasOlder.update((h) => ({ ...h, [id]: cached.hasOlder }))
@@ -574,7 +484,7 @@ export function createChatStore(
       const since = cached?.msgs.at(-1)?.created_at
       try {
         const msgs = await fetchMessages(id, deltaCursor(since))
-        if (since && msgs.length >= THREAD_CACHE_MAX) {
+        if (since && msgs.length >= THREAD_PAGE) {
           // More arrived than one fetch returns: the cache no longer joins up with them.
           // Keep only this fetch and anything live that's newer.
           const from = msgs[0].created_at
@@ -583,7 +493,7 @@ export function createChatStore(
         } else {
           // Merge, don't replace: a message delivered live during the fetch stays.
           messagesByCh.update((all) => ({ ...all, [id]: mergeMsgs(all[id] ?? [], msgs) }))
-          if (!since) hasOlder.update((h) => ({ ...h, [id]: msgs.length >= THREAD_CACHE_MAX }))
+          if (!since) hasOlder.update((h) => ({ ...h, [id]: msgs.length >= THREAD_PAGE }))
         }
         markLoaded(id)
       } catch (e) {
@@ -598,7 +508,7 @@ export function createChatStore(
     // end; what's on screen then counts as read.
     const cursor = myReads[id]
     const firstNew = get(unread)[id]
-      ? (get(messagesByCh)[id] ?? []).find((m) => m.sender !== nation && (!cursor || m.created_at > cursor))
+      ? (get(messagesByCh)[id] ?? []).find((m) => !sameNation(m.sender, nation) && (!cursor || m.created_at > cursor))
       : undefined
     unreadFrom.set(firstNew?.id ?? null)
     if (focusing) return // openAt scrolls to its message; reading down marks it read
@@ -629,7 +539,7 @@ export function createChatStore(
     // Keep the edit locally first, so reopening the draft shows it even if the save fails.
     drafts.update((list) => list.map((x) => (x.id === d.id ? { ...x, body } : x)))
     try {
-      const updated = await upsertDraft(gameId, d.members.filter((n) => n !== nation), d.name, body)
+      const updated = await upsertDraft(gameId, otherMembers(d.members, nation), d.name, body)
       dirtyDrafts.delete(d.id)
       drafts.update((list) => list.map((x) => (x.id === updated.id ? updated : x)))
     } catch {
@@ -654,9 +564,9 @@ export function createChatStore(
   async function loadOlder(channelId: number): Promise<number> {
     const first = get(messagesByCh)[channelId]?.[0]
     if (!first) return 0
-    const older = await fetchOlder(channelId, first.created_at)
+    const older = await fetchOlder(channelId, first.created_at, OLDER_PAGE)
     messagesByCh.update((all) => ({ ...all, [channelId]: [...older, ...(all[channelId] ?? [])] }))
-    hasOlder.update((h) => ({ ...h, [channelId]: older.length >= 200 }))
+    hasOlder.update((h) => ({ ...h, [channelId]: older.length >= OLDER_PAGE }))
     scheduleSave(channelId)
     return older.length
   }
@@ -700,7 +610,7 @@ export function createChatStore(
       }
       draftSave.cancel()
       try {
-        const others = d.members.filter((n) => n !== nation)
+        const others = otherMembers(d.members, nation)
         const c = d.name
           ? await createNamedChannel(gameId, others, d.name)
           : await getOrCreateChannel(gameId, others)
@@ -850,7 +760,7 @@ export function createChatStore(
   /** Stop live delivery and flush the open draft (best effort). */
   function destroy() {
     saveActiveDraft() // best-effort final flush of the open draft's body (cancels the timer)
-    threadSave.flush()
+    threadCache.flush()
     rejoined.cancel()
     for (const s of subs.values()) s.stop()
     subs.clear()

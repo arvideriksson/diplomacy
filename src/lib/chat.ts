@@ -112,18 +112,24 @@ export async function renameChannel(channelId: number, name: string): Promise<vo
   await rpc('rename_channel', { p_channel_id: channelId, p_name: name })
 }
 
-/** Delta history: the newest 500 messages in a channel (oldest first), optionally only
+/** Page size of a full or delta thread fetch (fetchMessages): the newest this many. A
+ *  fetch that returns a full page may have left older messages behind. */
+export const THREAD_PAGE = 500
+/** Page size of a scroll-back fetch (fetchOlder's default). */
+export const OLDER_PAGE = 200
+
+/** Delta history: the newest THREAD_PAGE messages in a channel (oldest first), optionally only
  *  those after `sinceIso`. */
 export async function fetchMessages(channelId: number, sinceIso?: string): Promise<ChatMessage[]> {
   let q = supabase.from('chat_messages').select('*').eq('channel_id', channelId)
   if (sinceIso) q = q.gt('created_at', sinceIso)
-  const { data, error } = await q.order('created_at', { ascending: false }).limit(500)
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(THREAD_PAGE)
   if (error) throw error
   return ((data ?? []) as ChatMessage[]).reverse()
 }
 
 /** A page of history from before `beforeIso` (oldest first), for scrolling further back. */
-export async function fetchOlder(channelId: number, beforeIso: string, limit = 200): Promise<ChatMessage[]> {
+export async function fetchOlder(channelId: number, beforeIso: string, limit = OLDER_PAGE): Promise<ChatMessage[]> {
   const { data, error } = await supabase
     .from('chat_messages')
     .select('*')

@@ -1,7 +1,7 @@
 // Service-role database access for the adjudicator. The service key bypasses RLS;
 // this function is the only writer of resolved state.
 
-import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export interface GameRow {
   id: string
@@ -11,7 +11,6 @@ export interface GameRow {
   phase: string
   snapshot: unknown | null
   resolving_at: string | null
-  settings: { turn_timer?: string; phase_timers?: Record<string, number> } | null
   ready: Record<string, boolean> | null
 }
 
@@ -28,16 +27,12 @@ export interface OrderRow {
   orders: unknown[]
 }
 
-export function serviceClient(): SupabaseClient {
-  const url = Deno.env.get('SUPABASE_URL')!
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  return createClient(url, key, { auth: { persistSession: false } })
-}
-
 export async function getGame(db: SupabaseClient, gameId: string): Promise<GameRow | null> {
-  const { data, error } = await db.from('games').select('*').eq('id', gameId).single()
-  if (error) return null
-  return data as GameRow
+  const { data, error } = await db.from('games').select('*').eq('id', gameId).maybeSingle()
+  // A real database error must throw, so index.ts releases the claim and the next tick
+  // retries; only a genuinely missing row is "not found".
+  if (error) throw error
+  return (data as GameRow | null) ?? null
 }
 
 export async function getRoundOrders(

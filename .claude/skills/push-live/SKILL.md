@@ -63,17 +63,25 @@ With the user's go-ahead:
 
 ```sh
 npm run live:push                    # applies pending migrations, then unlinks
-npm run live:deploy-functions        # only if supabase/functions/ or src/lib/adjudicator/ changed
+npm run live:deploy-functions        # only if supabase/functions/, src/lib/adjudicator/ or src/lib/maps/ changed
 ```
+
+The engine bundle (`_engine.mjs`) includes the map definitions, so a regenerated board
+(`src/lib/maps/*.ts`, e.g. after `npm run map:1900` / `map:era`) needs a function redeploy too.
 
 If the CLI prompts for the database password or a login (`supabase login`), it can't be
 answered from here — ask the user to run the same command themselves as
 `! npm run live:push`.
 
-`live:push` never sends `supabase/seed.sql` or `config.toml`: live settings (auth providers,
-redirect URLs, `ADJUDICATOR_SECRET` via `supabase secrets set`, `private.engine_config`) are
-managed in the dashboard and are not part of this flow. If a change needs one of those
-updated, tell the user exactly what to set — don't attempt it.
+`live:push` never sends `supabase/seed.sql` or `config.toml`. Live settings (auth providers,
+redirect URLs, `private.engine_config`'s URLs) are managed in the dashboard and are not part of
+this flow. Edge Function secrets are set through `scripts/live.mjs`, never with a bare
+`supabase secrets set` (in the repo it would also upload `config.toml`'s dev secrets):
+`npm run live:secrets` sets those in the gitignored `.env.functions.local` (VAPID keys, …),
+`npm run live:rotate-adjudicator-secret` sets a new `ADJUDICATOR_SECRET` in both the function
+secrets and `private.engine_config`, and `npm run live:secrets-list` shows names and digests
+only. If a change needs one of those updated, tell the user exactly what is needed and ask
+before running any of them.
 
 ## 5. Verify
 

@@ -12,6 +12,7 @@ import { writable } from 'svelte/store'
 import { adjudicate, initialBoard, roundRank } from './adjudicator'
 import type { AdjudicationResult, AnyOrder, BoardState, OrderResult } from './adjudicator'
 import { getMap, maps } from './maps'
+import { local } from './localStore'
 
 export interface Frame {
   /** Board state going into this phase. */
@@ -71,17 +72,18 @@ function migrate(s: LegacySandbox): Sandbox {
 // migration 126) can't be opened, so it's dropped from storage as it loads.
 function loadAll(): Sandbox[] {
   try {
-    const stored = JSON.parse(localStorage.getItem(KEY) ?? '[]') as LegacySandbox[]
+    const stored = local.readJSON<LegacySandbox[]>(KEY, [])
     const playable = stored.filter((s) => s.mapId in maps)
-    if (playable.length < stored.length) localStorage.setItem(KEY, JSON.stringify(playable))
+    if (playable.length < stored.length) local.writeJSON(KEY, playable)
     return playable.map(migrate)
   } catch {
-    return []
+    return [] // not a list of sandboxes
   }
 }
 
+// Best effort: a full or blocked store keeps the change for this session only.
 function persist(list: Sandbox[]): void {
-  localStorage.setItem(KEY, JSON.stringify(list))
+  local.writeJSON(KEY, list)
 }
 
 export const sandboxes = writable<Sandbox[]>(loadAll())

@@ -2,9 +2,10 @@
   import { onMount, onDestroy } from 'svelte'
   import { user } from '../lib/auth'
   import {
-    fetchGame, fetchGames, updateGame, startGame, subscribeToGame, joinGame, leaveGame, kickPlayer,
+    fetchGame, fetchGames, updateGame, startGame, joinGame, leaveGame, kickPlayer,
     claimNation, deleteLobbyGame, DEFAULT_SETTINGS,
   } from '../lib/game'
+  import { subscribeToGame } from '../lib/gameLive'
   import type { GameState, GameSettings, PhaseTimers, PlayerInfo } from '../lib/game'
   import { getMap } from '../lib/maps'
   import { actionRunner } from '../lib/action'

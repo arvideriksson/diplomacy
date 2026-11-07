@@ -5,7 +5,8 @@
   // the compose box. A draft shows the same shell but creates its DB row on the first
   // send. Keyed per conversation by the panel, so local state resets on switching.
   import { tick } from 'svelte'
-  import { BODY_MAX, NAME_MAX, type ChatStore, type chatLabels } from '../lib/chatStore'
+  import { BODY_MAX, NAME_MAX, type ChatStore } from '../lib/chatStore'
+  import type { chatLabels } from '../lib/chatLabels'
   import type { ChatMessage } from '../lib/chat'
   import { clockTime, dayLabel, sameDay } from '../lib/chatTime'
   import { gifUrl } from '../lib/chatGif'

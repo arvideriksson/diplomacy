@@ -2,7 +2,7 @@
   import { updateGame, updateGameSettings, setDeadline, forceResolve, revertTo, DEFAULT_SETTINGS } from '../lib/game'
   import type { GameState, PhaseTimers } from '../lib/game'
   import { actionRunner } from '../lib/action'
-  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { isOrderPhase, roundLabel } from '../lib/phases'
   import { toLocalInput } from '../lib/time'
   import InfoTip from './InfoTip.svelte'
   import Modal from './Modal.svelte'
@@ -51,8 +51,6 @@
   // ── Turn actions ─────────────────────────────────────────────────────────────
   // Both run through the adjudicator; the new board arrives via the Realtime push, so
   // the panel closes once the request is accepted.
-  const roundLabel = (r: { year: number; season: string; phase: string }) =>
-    `${r.season} ${r.year} · ${isOrderPhase(r.phase) ? PHASE_LABEL[r.phase] : r.phase}`
 
   // Newest first: the usual revert is "undo the last phase".
   $: revertOptions = [...pastRounds].reverse()

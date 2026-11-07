@@ -5,3 +5,4 @@
 
 export { adjudicate, boardFromUnits, initialBoard, idleNations, replayLog, roundRank } from './index'
 export { getMap } from '../maps/index'
+export { ORDER_PHASES, isOrderPhase } from '../phases'

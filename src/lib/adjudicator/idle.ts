@@ -5,7 +5,7 @@
 import type { MapDefinition } from '../mapDefinition'
 import type { BoardState } from './types'
 import { unitCountByNation } from './state'
-import { buildSites, convertibleUnits, unitAllowance } from './rules'
+import { buildSites, convertibleUnits, nationsOf, unitAllowance } from './rules'
 
 type IdleBoard = Pick<BoardState, 'phase' | 'units' | 'supplyCenters' | 'dislodged'>
 
@@ -42,9 +42,5 @@ export function isIdle(map: MapDefinition, board: IdleBoard, nation: string): bo
  * readiness check ignores inactive powers — so the caller can auto-ready all of these.
  */
 export function idleNations(map: MapDefinition, board: IdleBoard): string[] {
-  const present = new Set<string>([
-    ...board.units.map((u) => u.nation),
-    ...Object.values(board.supplyCenters),
-  ])
-  return [...present].filter((n) => isIdle(map, board, n))
+  return nationsOf(board.supplyCenters, board.units).filter((n) => isIdle(map, board, n))
 }

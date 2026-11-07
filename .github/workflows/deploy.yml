@@ -30,6 +30,12 @@ jobs:
       - run: npm test
       - run: npm run sql:current -- --check
 
+      - name: Generated boards match tools/variants
+        run: |
+          npm run map:1900 && npm run map:era
+          git diff --exit-code -- public/maps src/lib/maps \
+            || { echo "::error::generated boards are stale — run npm run map:1900 && npm run map:era and commit the result"; exit 1; }
+
       - name: Edge Function engine bundle matches src/lib/adjudicator
         run: |
           npm run build:edge

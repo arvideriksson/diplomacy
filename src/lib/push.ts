@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store'
 import { rpc } from './rpc'
+import { local } from './localStore'
 
 // Web Push for this device: new press, new rounds and the one-hour deadline reminder
 // (decided server-side, see 20250101000147_push_notifications.sql). Needs the PWA
@@ -11,13 +12,9 @@ const VAPID_PUBLIC_KEY: string | undefined = import.meta.env.VITE_VAPID_PUBLIC_K
 // On by default: a device subscribes unless its user switched notifications off here.
 const OPT_OUT_KEY = 'push-opted-out'
 
-function optedOut(): boolean {
-  try { return localStorage.getItem(OPT_OUT_KEY) === '1' } catch { return false }
-}
+const optedOut = (): boolean => local.readFlag(OPT_OUT_KEY)
 
-function setOptedOut(on: boolean) {
-  try { on ? localStorage.setItem(OPT_OUT_KEY, '1') : localStorage.removeItem(OPT_OUT_KEY) } catch {}
-}
+const setOptedOut = (on: boolean) => local.writeFlag(OPT_OUT_KEY, on)
 
 // The permission prompt needs a user gesture (strictly so on iOS), so the default-on
 // subscribe waits for the first tap anywhere.

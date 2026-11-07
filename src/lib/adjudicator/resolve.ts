@@ -20,9 +20,9 @@ import {
   recomputeSupplyCenters,
   scCountByNation,
   supplyCenterProvinces,
-  unitCountByNation,
 } from './state'
-import { conversionTarget, nationsOf, unitAllowance } from './rules'
+import { nationsOf } from './rules'
+import { isIdle } from './idle'
 
 export function adjudicate(
   map: MapDefinition,
@@ -81,15 +81,12 @@ function advanceAfterRetreats(
   }
   // Fall complete — supply centers change hands now.
   const newOwners = recomputeSupplyCenters(map, units, owners)
-  const uc = unitCountByNation(units)
-  // A build phase opens when a power owes builds or removals, or (conversion) a unit could
-  // switch type.
-  const needsAdjustment =
-    nationsOf(newOwners, units).some((n) => unitAllowance(map, n, newOwners) !== (uc[n] ?? 0)) ||
-    units.some((u) => conversionTarget(map, u, newOwners))
-  if (needsAdjustment) {
-    return { phase: 'build', season: 'Fall', year, units, supplyCenters: newOwners, dislodged: [], contested: [] }
-  }
+  // A build phase opens only when some power has a choice in it (isIdle): builds owed
+  // with somewhere to build, removals owed, or (conversion) a unit that may switch type.
+  // A surplus with no free build site resolves to no change, so it is skipped like any
+  // other no-op phase.
+  const build = { phase: 'build' as const, season: 'Fall' as const, year, units, supplyCenters: newOwners, dislodged: [], contested: [] }
+  if (nationsOf(newOwners, units).some((n) => !isIdle(map, build, n))) return build
   return { phase: 'movement', season: 'Spring', year: year + 1, units, supplyCenters: newOwners, dislodged: [], contested: [] }
 }
 

@@ -9,6 +9,7 @@
   import ListHead from './ListHead.svelte'
   import OrderCard from './OrderCard.svelte'
   import OrderText from './OrderText.svelte'
+  import { UNKNOWN_POWER_COLOR } from '../lib/powers'
 
   /** History view of a past phase: just the resolved orders, no entry. */
   export let readOnly: boolean = false
@@ -45,7 +46,7 @@
   /** A caveat to show under an order (e.g. a support that won't count), or ''. */
   export let warn: (o: AnyOrder) => string = () => ''
   /** A power's display name and colour, for the per-country groups. */
-  export let powerInfo: (nation: string) => { name: string; color: string } = (n) => ({ name: n, color: '#888' })
+  export let powerInfo: (nation: string) => { name: string; color: string } = (n) => ({ name: n, color: UNKNOWN_POWER_COLOR })
   /** God mode (sandbox): group the entered orders by power. History is always grouped. */
   export let byPower: boolean = false
   /** The unit (or center) being ordered on the map right now, highlighted in the lists. */

@@ -7,6 +7,7 @@
   import { activeDevSeat, backendTarget } from '../lib/supabase'
   import { SEATS, seatUser, switchSeat, fillLobby, readyOtherSeats, seatReadiness } from '../lib/devSeats'
   import { flagUrl } from '../lib/flags'
+  import { isOrderPhase } from '../lib/phases'
 
   const location = useLocation()
   const active = activeDevSeat()
@@ -31,7 +32,7 @@
     return { seat, user: u, nation, ready: !!(nation && readyBySeat[seat]) }
   })
   $: activeNation = seats[active - 1]?.nation
-  $: inPlay = game && ['movement', 'retreat', 'build'].includes(game.phase)
+  $: inPlay = game && isOrderPhase(game.phase)
 
   async function run(label: string, fn: () => Promise<string | void>) {
     busy = label

@@ -10,6 +10,7 @@ export interface ResolvedRound extends RoundKey {
 }
 
 import { adjudicate } from './resolve'
+import { ORDER_PHASES } from '../phases'
 
 /** Replay every resolved round in order, returning the final board state. */
 export function foldGame(
@@ -39,12 +40,12 @@ export interface ReplayFrame {
 }
 
 const SEASON_ORDER: Record<string, number> = { Spring: 0, Fall: 1 }
-const PHASE_ORDER: Record<string, number> = { movement: 0, retreat: 1, build: 2 }
+const PHASE_ORDER: Record<string, number> = Object.fromEntries(ORDER_PHASES.map((p, i) => [p, i]))
 
 /** A round whose phase may also be a non-order game phase (lobby, complete, …). */
 type LooseRoundKey = Omit<RoundKey, 'phase'> & { phase: string }
 
-/** Chronological sort key for a round. Mirrors round_rank() in the host-controls migration. */
+/** Chronological sort key for a round. Mirrors SQL round_rank() (checked by sqlParity.test.ts). */
 export const roundRank = (r: LooseRoundKey): number =>
   r.year * 100 + (SEASON_ORDER[r.season] ?? 0) * 10 + (PHASE_ORDER[r.phase] ?? 0)
 
@@ -88,6 +89,9 @@ export function replayLog(
     for (let guard = 0; roundRank(state) < roundRank(round) && guard < 1000; guard++) {
       state = pushFrame(state, [])
     }
+    // A logged round the board never reaches: a build phase the engine used to open with
+    // every power idle and now skips. Nothing in it could change the board, so drop it.
+    if (roundRank(state) > roundRank(round)) continue
     state = pushFrame(state, round.orders)
   }
   for (let guard = 0; until && PHASE_ORDER[until.phase] !== undefined && roundRank(state) < roundRank(until) && guard < 1000; guard++) {

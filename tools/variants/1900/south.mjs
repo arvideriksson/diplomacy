@@ -4,7 +4,7 @@
 // bottom edge the coast is nudged sideways so it meets the classical coast exactly.
 import { readFileSync } from 'node:fs'
 import { geoConicEquidistant } from 'd3-geo'
-import { union, intersect, subtract, poly, area } from './lib/geom.mjs'
+import { union, intersect, subtract, poly, area } from '../lib/geom.mjs'
 import { region, transform, box } from './lib/natural.mjs'
 
 const SEAM = 1357

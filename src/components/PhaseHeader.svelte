@@ -1,7 +1,7 @@
 <script lang="ts">
   // Top of the order sidebar: season + year with a phase pill color-coded by phase
   // (and ←/→ phase navigation).
-  import { isOrderPhase, PHASE_LABEL, type Phase } from '../lib/phases'
+  import { isOrderPhase, PHASE_LABEL, roundSeason, type Phase } from '../lib/phases'
 
   export let phase: string
   export let season: string
@@ -18,6 +18,7 @@
   $: phaseMeta = isOrderPhase(phase)
     ? { label: PHASE_LABEL[phase], tone: PHASE_TONE[phase] }
     : { label: phase, tone: 'accent' }
+  $: shownSeason = roundSeason({ season, phase })
   $: toneStyle = `--tone: var(--${phaseMeta.tone}); --tone-subtle: var(--${phaseMeta.tone}-subtle);`
 </script>
 
@@ -25,10 +26,10 @@
   {#if onPhaseBack}
     <!-- Sandbox: step back/forward through the phase chain. -->
     <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase">←</button>
-    <span class="phase-label">{season} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
+    <span class="phase-label">{shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
     <button class="nav" on:click={onPhaseForward} disabled={!canPhaseForward} title="Next phase">→</button>
   {:else}
-    <span class="phase-label">{season} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
+    <span class="phase-label">{shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
   {/if}
 </div>
 

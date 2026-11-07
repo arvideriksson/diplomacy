@@ -2,23 +2,23 @@
  * Run: npm run map:era
  *
  * The province partition comes from source/geometry.json, traced from the published board
- * (see trace/README.md). The drawing reuses the 1900 board's artwork, so all three boards
+ * (see README.md, "Tracing"). The drawing reuses the 1900 board's artwork, so all three boards
  * share one look: parchment land and sea, blurred coast shadow with water-lining, 1px land
  * borders, dashed sea borders, supply-center points and Libre Baskerville labels; hand placements
  * from the layout editor (/editor) come from placements.json.
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { readClassical } from '../1900/lib/classical.mjs'
 import { sharedEdges } from '../1900/lib/edges.mjs'
-import { drawBoard, geomPath, label, supplyCenterLayer } from '../1900/artwork.mjs'
-import { union, intersect, subtract, poly, contains, pole, area, boundaryDistance } from '../1900/lib/geom.mjs'
+import { drawBoard, geomPath, label } from '../1900/artwork.mjs'
+import { union, intersect, subtract, poly, contains, pole, area, boundaryDistance, channel, extendEnds, rectDistance, largestPiece, bestGridPoint, despikeReversals } from '../lib/geom.mjs'
+import { root, writeBoard, writeMapDefinition, readPlacements, checkPlacements, failUnlessDraft } from '../lib/board.mjs'
 import { Placer, textBox } from './labels.mjs'
 import { LABELS, BOLD_NAMES, UNITS, IMPASSABLE_ISLETS, CENTER_AT, CEBU_WATER, LAND_PATCHES, WATER_PATCHES } from './layout.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const root = resolve(here, '../../..')
 const G = JSON.parse(readFileSync(resolve(here, 'source/geometry.json'), 'utf8'))
 const { width, height } = G
 const SEA = new Set(G.sea)
@@ -33,18 +33,7 @@ const P = { ...G.provinces }
 P.CEB = union(P.CEB, G.cebuWater, cebuSpecks)
 // The Suez Canal is cut through Egypt as narrow water, as on the 1900 board; Egypt stays one
 // province on both banks.
-const channel = (pts, w) => {
-  const side = (s) => pts.map((p, i) => {
-    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1])
-    return [p[0] - s * w / 2 * (b[1] - a[1]) / len, p[1] + s * w / 2 * (b[0] - a[0]) / len]
-  })
-  return poly([...side(1), ...side(-1).reverse()])
-}
-const extend = (pts, d) => {
-  const out = (p, q) => { const len = Math.hypot(p[0] - q[0], p[1] - q[1]); return [p[0] + (p[0] - q[0]) / len * d, p[1] + (p[1] - q[1]) / len * d] }
-  return [out(pts[0], pts[1]), ...pts, out(pts.at(-1), pts.at(-2))]
-}
-const suezCanal = intersect(channel(extend(G.suez, 14), 3), P.EGY)
+const suezCanal = intersect(channel(extendEnds(G.suez, 14), 3), P.EGY)
 P.EGY = subtract(P.EGY, suezCanal)
 // The Himalayas are impassable land: filled as land, bordered, striped, never a province.
 const HIM = '~him'
@@ -59,7 +48,7 @@ const isSea = (id) => SEA.has(id)
     const handWater = intersect(P[id], poly(pts))
     P[id] = subtract(P[id], handWater); P.CEB = union(P.CEB, handWater)
   }
-  const ring = P.CEB.reduce((a, b) => (area([b]) > area([a]) ? b : a))[0]
+  const ring = largestPiece(P.CEB)[0]
   const pts = []
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i], b = ring[(i + 1) % ring.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2))
@@ -112,7 +101,7 @@ const isSea = (id) => SEA.has(id)
   }
   // Bits of sea walled in between the ring and Manila's or Davao's coast are Cebu's water.
   for (const id of near.filter(isSea)) {
-    const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+    const main = largestPiece(P[id])
     for (const pc of P[id]) if (pc !== main && area([pc]) < 400) { P.CEB = union(P.CEB, [pc]); P[id] = P[id].filter((x) => x !== pc) }
   }
 }
@@ -120,7 +109,7 @@ const isSea = (id) => SEA.has(id)
 // the sea it touches most.
 for (const id of ids.filter(isSea)) {
   if (P[id].length < 2) continue
-  const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+  const main = largestPiece(P[id])
   for (const pc of P[id]) {
     if (pc === main || area([pc]) >= 200) continue
     let to = null, most = 0
@@ -131,7 +120,7 @@ for (const id of ids.filter(isSea)) {
 // Specks of land cut off from their province (a few square units) go to what surrounds them.
 for (const id of ids.filter((x) => !isSea(x))) {
   if (P[id].length < 2) continue
-  const main = P[id].reduce((x, y) => (area([y]) > area([x]) ? y : x))
+  const main = largestPiece(P[id])
   for (const pc of P[id]) {
     if (pc === main || area([pc]) >= 6) continue
     let to = null, most = 0
@@ -141,20 +130,8 @@ for (const id of ids.filter((x) => !isSea(x))) {
 }
 // Polygon operations can leave zero-width spikes (a ring running out to a point and straight
 // back) and zero-area holes, which draw as doubled lines and stubs: drop any vertex where the
-// ring reverses on itself, and any hole without area.
-const despike = (g) => g.map((pl) => pl.map((ring) => {
-  let r = ring.slice(), changed = true
-  while (changed && r.length > 3) {
-    changed = false
-    for (let i = 0; i < r.length && r.length > 3; i++) {
-      const a = r[(i - 1 + r.length) % r.length], v = r[i], b = r[(i + 1) % r.length]
-      const ux = v[0] - a[0], uy = v[1] - a[1], wx = b[0] - v[0], wy = b[1] - v[1], lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy)
-      if (lu < 1e-6 || lw < 1e-6 || ((ux * wx + uy * wy) / (lu * lw) < -0.995 && Math.abs(ux * wy - uy * wx) < 0.05 * Math.max(lu, lw))) { r.splice(i, 1); i--; changed = true }
-    }
-  }
-  return r
-}).filter((r, j) => j === 0 || (r.length > 3 && area([[r]]) >= 0.5))).filter((pl) => pl[0].length > 3)
-for (const id of ids) P[id] = despike(P[id])
+// ring reverses on itself, and any hole without area (despikeReversals in lib/geom.mjs).
+for (const id of ids) P[id] = despikeReversals(P[id])
 // Borders between two seas are traced from pixels and jagged: smooth each one, keeping its two
 // ends where they are, and split the two seas again along the smooth line.
 {
@@ -180,7 +157,7 @@ for (const id of ids) P[id] = despike(P[id])
   for (const a of seas) for (const b of seas) {
     if (a >= b) continue
     const bKeys = new Set(P[b].flatMap((pl) => pl.flat()).map(key))
-    const mainA = P[a].reduce((x, y) => (area([y]) > area([x]) ? y : x)), ring = mainA[0]
+    const mainA = largestPiece(P[a]), ring = mainA[0]
     const on = ring.map((v) => bKeys.has(key(v)))
     if (on.filter(Boolean).length < 3 || on.every(Boolean)) continue
     // Runs of the ring along b, starting the walk just after a point not on b.
@@ -218,7 +195,7 @@ for (const { owner, poly: pts } of LAND_PATCHES) {
   P[owner] = union(P[owner], intersect(patch, subtract(patch, ...ids.map((id) => P[id]))))
 }
 for (const { from, to, poly: pts } of WATER_PATCHES) { const t = intersect(P[from], poly(pts)); P[from] = subtract(P[from], poly(pts)); P[to] = union(P[to], t) }
-for (const id of ids) P[id] = despike(P[id])
+for (const id of ids) P[id] = despikeReversals(P[id])
 // The ring's water (Cebu's islands inside it), once the geometry is final.
 const cebuWater = subtract(P.CEB, G.provinces.CEB)
 const ISLANDS = G.islands.map((i) => [i.poly])
@@ -235,7 +212,7 @@ if (gapLength > 1) console.warn(`warning: unmatched boundary ${gapLength.toFixed
 // star, so one near a coast moves inland until it clears the coast.
 // Hand placements from the layout editor (/editor), keyed by dSVG id (lower case): unit
 // anchors, supply centers and labels. They win over everything computed here.
-const PLACEMENTS = { units: {}, centers: {}, labels: {}, ...JSON.parse(readFileSync(resolve(here, 'placements.json'), 'utf8')) }
+const PLACEMENTS = readPlacements(here)
 const fromDsvg = (d) => d.toUpperCase()
 const centers = {}
 for (const [id, c] of Object.entries(G.centers)) {
@@ -250,16 +227,16 @@ for (const [id, c] of Object.entries(G.centers)) {
   }
   centers[id] = best
 }
-for (const [d, pt] of Object.entries(PLACEMENTS.centers)) {
-  if (!centers[fromDsvg(d)]) throw new Error(`placements.json: no supply center ${d}`)
-  centers[fromDsvg(d)] = pt
-}
+const dsvgId = (id) => id.toLowerCase()
+// Unknown ids throw; a pinned unit outside its province fails the build unless LAYOUT_DRAFT is set.
+failUnlessDraft(checkPlacements(PLACEMENTS, { units: ids.map(dsvgId), centers: Object.keys(centers).map(dsvgId), labels: ids.map((id) => `name:${dsvgId(id)}`) }, (d, pt) => contains(P[fromDsvg(d)], pt)), 'Layout problems', 'LAYOUT_DRAFT')
+for (const [d, pt] of Object.entries(PLACEMENTS.centers)) centers[fromDsvg(d)] = pt
 const placer = new Placer()
 for (const c of Object.values(centers)) placer.blockCircle(c, 13)
 // Strait arrows: labels keep clear of them.
 for (const [a, b] of Object.values(G.arrows)) placer.blockLine(a, b, 5)
 const neighbours = (id) => [...lengths].filter(([k, len]) => len >= 2.5 && k.split('|').includes(id)).map(([k]) => k.split('|').find((x) => x !== id))
-const mainPiece = (g) => [g.reduce((a, b) => (area([b]) > area([a]) ? b : a))]
+const mainPiece = (g) => [largestPiece(g)]
 const notOwnIslets = (id) => G.islands.filter((i) => i.owner !== id).map((i) => [i.poly])
 const problems = [], placed = {}
 const landOrder = ids.filter((id) => !isSea(id)).sort((a, b) => area(P[a]) - area(P[b]))
@@ -334,28 +311,18 @@ for (const id of ids) {
 
 // --- Unit anchors: the most open spot of each province's largest piece, clear of its label
 // and supply center (a unit token has radius 11).
-const rectDistance = (p, { at, w, h, angle }) => {
-  const a = -angle * Math.PI / 180, dx = p[0] - at[0], dy = p[1] - at[1]
-  const u = dx * Math.cos(a) - dy * Math.sin(a), v = dx * Math.sin(a) + dy * Math.cos(a)
-  return Math.hypot(Math.max(0, Math.abs(u) - w / 2), Math.max(0, Math.abs(v) - h / 2))
-}
 const units = {}
 for (const id of ids) {
   const pin = PLACEMENTS.units[id.toLowerCase()]
   if (pin || UNITS[id]) { units[id] = pin ?? UNITS[id]; continue }
   const g = id === 'CEB' ? G.provinces.CEB : P[id]
-  const main = [g.reduce((a, b) => (area([b]) > area([a]) ? b : a))]
-  const xs = main[0][0].map((q) => q[0]), ys = main[0][0].map((q) => q[1])
+  const main = [largestPiece(g)]
   const target = centers[id] ?? pole(main).point
-  let best = null
-  for (let x = Math.min(...xs); x <= Math.max(...xs); x += 2) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 2) {
-    if (!contains(main, [x, y])) continue
-    const c = Math.min(boundaryDistance(main, [x, y]) - 2, ...labelRects.map((r) => rectDistance([x, y], r) - 2), ...Object.values(centers).map((s) => Math.hypot(x - s[0], y - s[1]) - 10))
-    const score = Math.min(c, 15) - Math.hypot(x - target[0], y - target[1]) * 0.03
-    if (!best || score > best.score) best = { score, p: [x, y], c }
-  }
+  const clearance = ([x, y]) => Math.min(boundaryDistance(main, [x, y]) - 2, ...labelRects.map((r) => rectDistance([x, y], r) - 2), ...Object.values(centers).map((s) => Math.hypot(x - s[0], y - s[1]) - 10))
+  const best = bestGridPoint(main[0], (p) => Math.min(clearance(p), 15) - Math.hypot(p[0] - target[0], p[1] - target[1]) * 0.03)
   units[id] = best.p
-  if (best.c < 9) problems.push(`tight unit spot in ${id} (${best.c.toFixed(1)})`)
+  const c = clearance(best.p)
+  if (c < 9) problems.push(`tight unit spot in ${id} (${c.toFixed(1)})`)
 }
 for (const [id, pt] of Object.entries(centers)) if (!contains(P[id], pt)) problems.push(`supply center of ${id} lies outside it`)
 if (problems.length) console.warn(`Layout notes:\n  ${problems.join('\n  ')}`)
@@ -372,25 +339,13 @@ const board = drawBoard({
   labels, waterParts: [cebuWater],
   crossings: Object.values(G.arrows),
 })
-const r1 = (n) => Math.round(n * 10) / 10
-const layer = (id, body, extra = '') => `<g id="${id}"${extra}>\n${body}\n</g>`
-const clipped = (body) => `<g clip-path="url(#board-clip)">\n${body}\n</g>`
-const defs = board.defs.replace('</defs>', `<pattern id="isletStripes" patternTransform="rotate(35)" width="5" height="5" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#000000" stroke-opacity="0.35" stroke-width="2.2"/></pattern><clipPath id="board-clip"><rect width="${width}" height="${height}"/></clipPath></defs>`)
-const dsvgId = (id) => id.toLowerCase()
-const dsvg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${width} ${height}" width="100%" height="100%">
-${defs}
-${layer('background', clipped(board.background.replace('style="fill:#f4d7b5;stroke:#f4d7b5;stroke-width:0.6"', 'style="fill:#f4d7b5;fill-rule:evenodd;stroke:#f4d7b5;stroke-width:0.6"')))}
-${layer('provinces', ids.map((id) => `<path id="${dsvgId(id)}" d="${(board.outlinePath(id) || geomPath(P[id])) + isletsOf(id).map(geomPath).join('')}"/>`).join('\n'), ' style="display:none"')}
-${layer('named-coasts', '', ' style="display:none"')}
-${supplyCenterLayer(centers, dsvgId)}
-${layer('unit-positions', Object.entries(units).map(([id, [x, y]]) => `<circle id="${dsvgId(id)}" cx="${r1(x)}" cy="${r1(y)}"/>`).join(''), ' style="display:none"')}
-${layer('province-names', board.names)}
-<g id="borders"/>
-${layer('foreground', clipped(board.foreground))}
-</svg>
-`
-writeFileSync(resolve(root, 'public/maps/era.dsvg'), dsvg)
-writeFileSync(resolve(here, 'source/units.json'), JSON.stringify(Object.fromEntries(Object.entries(units).map(([k, v]) => [k, v.map(r1)]))))
+writeBoard('era', {
+  width, height, board, centers, centerId: dsvgId,
+  background: board.background.replace('style="fill:#f4d7b5;stroke:#f4d7b5;stroke-width:0.6"', 'style="fill:#f4d7b5;fill-rule:evenodd;stroke:#f4d7b5;stroke-width:0.6"'),
+  extraDefs: '<pattern id="isletStripes" patternTransform="rotate(35)" width="5" height="5" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="#000000" stroke-opacity="0.35" stroke-width="2.2"/></pattern>',
+  provinces: ids.map((id) => [dsvgId(id), (board.outlinePath(id) || geomPath(P[id])) + isletsOf(id).map(geomPath).join('')]),
+  units: Object.entries(units).map(([id, pt]) => [dsvgId(id), pt]),
+})
 console.log(`Built Era of Empire board: ${ids.length} provinces, ${Object.keys(centers).length} supply centers`)
 
 // --- Movement graph, read off the drawn board.
@@ -447,7 +402,6 @@ for (const id of [...ids].sort()) {
     name: G.names[id], type, supplyCenter: !!centers[id], ...(homeOf[id] ? { homePower: homeOf[id] } : {}),
     adjacent: [...nb[id]].sort(),
     ...(type === 'coast' ? { fleetAdjacent: [...fleet[id]].sort() } : {}),
-    render: { center: units[id].map(r1) },
   }
 }
 for (const u of START) {
@@ -465,5 +419,5 @@ const map = {
   territories,
   startingUnits: START.map((u) => { const [t, id] = u.split(' '); return { type: t === 'A' ? 'army' : 'fleet', power: homeOf[id], territory: id } }),
 }
-writeFileSync(resolve(root, 'src/lib/maps/era.ts'), `import type { MapDefinition } from '../mapDefinition'\n\n// Generated by tools/variants/era/build.mjs. Do not edit by hand.\nexport const mapEra: MapDefinition = ${JSON.stringify(map, null, 2)}\n`)
+writeMapDefinition('era', 'mapEra', map)
 console.log(`Wrote map definition: ${Object.values(territories).filter((t) => t.type === 'sea').length} seas, ${Object.values(territories).filter((t) => t.type !== 'sea').length} land`)

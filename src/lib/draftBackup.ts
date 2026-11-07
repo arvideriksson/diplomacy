@@ -3,6 +3,7 @@
 // Written on every edit and cleared once the server has the set, so leaving abruptly
 // (phones) never silently drops orders — and the game list can say "Changes not sent".
 import type { AnyOrder } from './orders/types'
+import { local } from './localStore'
 
 export interface RoundKey {
   gameId: string
@@ -14,22 +15,14 @@ export interface RoundKey {
 
 const key = (r: RoundKey) => `diplomacy:draft:${r.gameId}:${r.nation}:${r.year}:${r.season}:${r.phase}`
 
+// Storage unavailable: nothing is backed up, and the server autosave still runs.
 export function writeDraftBackup(r: RoundKey, orders: AnyOrder[] | null): void {
-  try {
-    if (orders) localStorage.setItem(key(r), JSON.stringify(orders))
-    else localStorage.removeItem(key(r))
-  } catch {
-    // storage unavailable: the server autosave still runs
-  }
+  if (orders) local.writeJSON(key(r), orders)
+  else local.remove(key(r))
 }
 
 export function readDraftBackup(r: RoundKey): AnyOrder[] | null {
-  try {
-    const raw = localStorage.getItem(key(r))
-    return raw ? (JSON.parse(raw) as AnyOrder[]) : null
-  } catch {
-    return null
-  }
+  return local.readJSON<AnyOrder[] | null>(key(r), null)
 }
 
 /** Whether two order sets are the same orders (order of entries ignored). */

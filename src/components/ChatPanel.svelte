@@ -3,13 +3,15 @@
   import { get } from 'svelte/store'
   import type { PlayerInfo } from '../lib/game'
   import type { PowerDefinition } from '../lib/mapDefinition'
-  import { chatLabels, createChatStore } from '../lib/chatStore'
+  import { createChatStore } from '../lib/chatStore'
+  import { chatLabels } from '../lib/chatLabels'
   import ConversationList from './ConversationList.svelte'
   import NewConversationPicker from './NewConversationPicker.svelte'
   import ChatThread from './ChatThread.svelte'
   import ConversationStrip from './ConversationStrip.svelte'
   import { compact } from '../lib/layout'
   import { pressClosed } from '../lib/game'
+  import { nowStore } from '../lib/time'
 
   export let gameId: string
   /** The viewer's nation. Chat is unavailable without one (spectators get no press). */
@@ -27,10 +29,8 @@
   let scroller: HTMLDivElement | null = null
 
   // Re-checked every few seconds so press closes on its own as the deadline passes.
-  let now = Date.now()
-  const clock = setInterval(() => (now = Date.now()), 5000)
-  onDestroy(() => clearInterval(clock))
-  $: closed = pressClosed({ phase, deadline }, now)
+  const now = nowStore(5000)
+  $: closed = pressClosed({ phase, deadline }, $now)
   let scrolledUp = false
 
   // Where the reader left each thread they had scrolled back in (channel id → scrollTop),

@@ -4,6 +4,7 @@
 import { supabase } from './supabase'
 import { rpc } from './rpc'
 import type { BoardState } from './adjudicator'
+import { nationsOf } from './adjudicator/rules'
 
 /** A power's vote: play for the solo, share a tie with `members` (incl. self), or concede. */
 export type DrawVote =
@@ -51,9 +52,9 @@ export async function setDrawVote(gameId: string, vote: DrawVote): Promise<boole
   })
 }
 
-/** Played powers still on the board (a unit or a supply center). Mirrors the server's
- *  surviving_nations(). */
+/** Played powers still on the board (a unit or a supply center), as the engine's
+ *  nationsOf counts them. Mirrors the server's surviving_nations(). */
 export function survivingNations(board: BoardState, nations: string[]): string[] {
-  const owners = new Set(Object.values(board.supplyCenters ?? {}))
-  return nations.filter((n) => owners.has(n) || board.units.some((u) => u.nation === n))
+  const alive = new Set(nationsOf(board.supplyCenters ?? {}, board.units))
+  return nations.filter((n) => alive.has(n))
 }

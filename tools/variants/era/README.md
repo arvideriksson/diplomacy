@@ -4,7 +4,9 @@
 from `source/geometry.json`; neither generated file should be edited by hand.
 
 `build.mjs` reuses the 1900 board's artwork (`../1900/artwork.mjs`, shared-edge chains), so
-the board matches the classical and 1900 style. `build.mjs` also tidies the traced shapes: borders between two seas are smoothed (their ends
+the board matches the classical and 1900 style; the geometry helpers (`../lib/geom.mjs`) and the
+finishing steps — dSVG layers, `placements.json` checks, map-definition file — are shared with
+the 1900 build (`../lib/board.mjs`). `build.mjs` also tidies the traced shapes: borders between two seas are smoothed (their ends
 stay put), as is Cebu's water ring against the open seas (not along Manila's and Davao's
 coasts), and specks among Cebu's islands become water; zero-width spikes are removed; detached slivers
 of a sea go to the sea they touch most, specks of land to what surrounds them, and an islet
@@ -29,6 +31,18 @@ To re-trace, put them in `$ERA_TRACE_DIR/src/` (`p6-000.jpg`, `eoe.jpg`, `board_
 with opencv, scikit-image, scikit-learn and shapely installed:
 
     register.py; register.py photo; densereg.py; ridge.py; landsea.py; segment.py; vectorize.py
+
+The scripts work in `$ERA_TRACE_DIR/work/` (default `trace/_work/`, gitignored). Two steps are
+not in the committed code:
+
+- `vectorize.py` reads `work/stars.json`, the supply-center stars found by template matching on
+  the registered board (a list of `[x, y, score]` in board-image pixels; matches scoring above
+  0.36 are used, and Tokyo, Otaru and Bangkok are placed by hand in `vectorize.py`). No
+  committed script writes it; it has to be recreated before a re-trace.
+- `vectorize.py` writes `work/geometry.json`; copy it to `source/geometry.json` by hand, then
+  run `npm run map:era`.
+
+`straitfix.py`, `gaps.py` and `hatch.py` are helpers imported by `segment.py`.
 
 `seeds.py` holds everything hand-traced: province seeds, strait arrows, and the water/land
 polygons and boxes used where labels, arrows or photo glare hide the coast.

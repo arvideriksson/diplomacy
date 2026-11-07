@@ -2,7 +2,8 @@
   // Press list pane: a "Press" header with a compose button, then every conversation
   // (channels and unsent drafts), most recent first — each with its flag avatar, title,
   // last message preview, time and unread count, like any messenger's inbox.
-  import type { ChatStore, chatLabels } from '../lib/chatStore'
+  import type { ChatStore } from '../lib/chatStore'
+  import type { chatLabels } from '../lib/chatLabels'
   import type { ChatMessage } from '../lib/chat'
   import { createDebouncer } from '../lib/debounce'
   import { listTime } from '../lib/chatTime'

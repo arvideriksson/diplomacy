@@ -2,10 +2,9 @@
   // Phones: the one header shared by every tab — leave, the game's name over the
   // season/phase (with ‹ › history steps), the countdown, and slotted actions. A sandbox
   // tints it and names itself so it can never be mistaken for the real game.
-  import { onDestroy } from 'svelte'
   import Icon from './Icon.svelte'
-  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
-  import { formatCountdown } from '../lib/time'
+  import Countdown from './Countdown.svelte'
+  import { phaseLabel, roundSeason } from '../lib/phases'
 
   export let title: string = ''
   export let phase: string
@@ -23,17 +22,6 @@
   export let deadline: string | null = null
   export let graceEndsAt: string | null = null
   export let sandbox: boolean = false
-
-  let now = Date.now()
-  const clock = setInterval(() => (now = Date.now()), 1000)
-  onDestroy(() => clearInterval(clock))
-
-  $: phaseLabel = isOrderPhase(phase) ? PHASE_LABEL[phase] : phase
-  $: msLeft = deadline ? new Date(deadline).getTime() - now : null
-  $: graceLeft = graceEndsAt ? new Date(graceEndsAt).getTime() - now : null
-  $: inGrace = msLeft != null && msLeft <= 0 && graceLeft != null && graceLeft > 0
-  $: countdown = msLeft == null ? '' : formatCountdown(inGrace ? graceLeft! : msLeft).replace(/ left$/, '')
-  $: urgent = msLeft != null && (inGrace || msLeft <= 60 * 60 * 1000)
 </script>
 
 <header class="top" class:sandbox>
@@ -52,16 +40,14 @@
       {#if onPhaseBack}
         <button class="step" on:click={onPhaseBack} disabled={!canPhaseBack} aria-label="Previous phase">‹</button>
       {/if}
-      <span class="when-text" class:past>{phase === 'build' ? 'Winter' : season} {year} · {phaseLabel}</span>
+      <span class="when-text" class:past>{roundSeason({ season, phase })} {year} · {phaseLabel(phase)}</span>
       {#if onPhaseForward}
         <button class="step" on:click={onPhaseForward} disabled={!canPhaseForward} aria-label="Next phase">›</button>
       {/if}
     </span>
   </div>
   <div class="right">
-    {#if countdown}
-      <span class="clock" class:urgent class:grace={inGrace} title={inGrace ? 'Grace period' : 'Time left'}>{countdown}</span>
-    {/if}
+    <Countdown {deadline} {graceEndsAt} pill />
     <slot />
   </div>
 </header>
@@ -173,23 +159,5 @@
     gap: 6px;
     min-width: 40px;
     justify-content: flex-end;
-  }
-  .clock {
-    font-size: 12px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    padding: 4px 6px;
-    font-size: 11.5px;
-    border-radius: 999px;
-    background: var(--bg-hover);
-    border: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  .clock.urgent {
-    color: var(--red);
-  }
-  .clock.grace {
-    color: var(--amber);
-    border-color: var(--amber);
   }
 </style>

@@ -2,7 +2,7 @@
   // A conversation's (or a sender's) picture, built from nation flags: one roundel for a
   // single nation, two overlapping for a pair, a 2×2 cluster for larger groups, and a
   // megaphone for public press.
-  import type { chatLabels } from '../lib/chatStore'
+  import type { chatLabels } from '../lib/chatLabels'
 
   export let labels: ReturnType<typeof chatLabels>
   /** The nations to picture (the viewer is already left out). */

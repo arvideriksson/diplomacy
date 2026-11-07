@@ -1,15 +1,16 @@
 /** Rebuild the 1900 board and map definition from the classical board and the variant data.
  * Run: npm run map:1900
  */
-import { readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { readClassical } from './lib/classical.mjs'
 import { attrs, refProvince } from './lib/xml.mjs'
 import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
-import { drawBoard, geomPath, label, coastMark, offBoardNote, placed, supplyCenterLayer } from './artwork.mjs'
-import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance } from './lib/geom.mjs'
+import { drawBoard, geomPath, label, coastMark, offBoardNote, placed } from './artwork.mjs'
+import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance, channel, extendEnds, rectDistance, largestPiece, bestGridPoint, despikeReturns } from '../lib/geom.mjs'
+import { root, writeBoard, writeMapDefinition, readPlacements, checkPlacements, failUnlessDraft } from '../lib/board.mjs'
 import { LabelPlacer, labelBox } from './lib/labels.mjs'
 import { BOLD_NAMES, DROP_LABELS, DROP_COAST_MARKS, MOVE_LABELS, LABELS, COAST_MARKS, CENTERS, UNITS, CROSSING_ARROWS, RED_SEA_NOTE, MOROCCO_NOTE, LONG_ROUTE } from './layout.mjs'
 // The app's own data, loaded as TypeScript (type-only imports, stripped by Node).
@@ -17,8 +18,8 @@ import { GAME_TO_DSVG_OVERRIDES } from '../../../src/lib/map/idOverrides.ts'
 import { classicalMap } from '../../../src/lib/maps/classical.ts'
 
 const HEIGHT = 1620
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
-const src = (name) => readFileSync(resolve(root, 'tools/variants/1900/source', name), 'utf8')
+const here = dirname(fileURLToPath(import.meta.url))
+const src = (name) => readFileSync(resolve(here, 'source', name), 'utf8')
 const xml = src('1900_adjacency.xml')
 const rules = src('variants.xml')
 const provinces = [...xml.matchAll(/<PROVINCE\s+([^>]+)>([\s\S]*?)<\/PROVINCE>/g)].map((m) => {
@@ -58,7 +59,7 @@ const sourceOfOut = (dsvg) => Object.entries(OVERRIDE_BY_SOURCE).find(([, o]) =>
 const classical = readClassical(readFileSync(resolve(root, 'public/maps/classical.dsvg'), 'utf8'))
 // Hand placements from the layout editor (/editor), keyed by dSVG id: unit anchors, supply
 // centers and labels. They win over everything computed here.
-const PLACEMENTS = { units: {}, centers: {}, labels: {}, ...JSON.parse(readFileSync(resolve(root, 'tools/variants/1900/placements.json'), 'utf8')) }
+const PLACEMENTS = readPlacements(here)
 const { width } = classical
 const { provinces: edited, gibraltarStrait } = europe(classical)
 const { provinces: P, project } = extendSouth(edited, classical, HEIGHT)
@@ -71,18 +72,7 @@ classical.islands.forEach((g, i) => { if (!Object.values(PLAYABLE_ISLANDS).some(
 // leaves Kiel's as water outside every province (kept here, not filled in as a sliver), and
 // the Suez Canal (Port Said, Ismailia, Suez) is cut through Egypt the same way.
 const kielCanal = union(...subtract(poly([[612, 655], [672, 655], [672, 690], [612, 690]]), ...Object.values(P), ...islands).filter((pl) => area([pl]) > 20))
-const channel = (pts, w) => {
-  const side = (s) => pts.map((p, i) => {
-    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1])
-    return [p[0] - s * w / 2 * (b[1] - a[1]) / len, p[1] + s * w / 2 * (b[0] - a[0]) / len]
-  })
-  return poly([...side(1), ...side(-1).reverse()])
-}
-const extend = (pts, d) => {
-  const out = (p, q) => { const len = Math.hypot(p[0] - q[0], p[1] - q[1]); return [p[0] + (p[0] - q[0]) / len * d, p[1] + (p[1] - q[1]) / len * d] }
-  return [out(pts[0], pts[1]), ...pts, out(pts.at(-1), pts.at(-2))]
-}
-const suezCanal = intersect(channel(extend([[32.3, 31.26], [32.28, 30.6], [32.55, 29.97]].map(project), 12), 3), P.egy)
+const suezCanal = intersect(channel(extendEnds([[32.3, 31.26], [32.28, 30.6], [32.55, 29.97]].map(project), 12), 3), P.egy)
 P.egy = subtract(P.egy, suezCanal)
 const leftover = union(fillSlivers(P, [...islands, kielCanal, suezCanal], width, HEIGHT), kielCanal, suezCanal)
 const redSeaHead = intersect(union(...leftover.filter((pl) => pl[0].every(([x, y]) => x > 1300 && y > 1450))), poly([[1300, 1504], [1400, 1504], [1400, 1600], [1300, 1600]]))
@@ -100,15 +90,7 @@ const isSeaId = (id) => !provinces.find((p) => p.id === id)?.edges.mv?.length
 for (const id of Object.keys(P)) P[id] = P[id].filter((p) => area([p]) > 1).map((p) => [p[0], ...p.slice(1).filter((h) => area([[h]]) > (isSeaId(id) ? 1 : 60))])
 
 // Remove zero-width spikes: a vertex where the ring goes out and comes straight back.
-const despike = (ring) => {
-  const r = ring.slice()
-  for (let pass = 0; pass < 4; pass++) for (let i = 0; i < r.length && r.length > 4; i++) {
-    const a = r[(i + r.length - 1) % r.length], b = r[i], c = r[(i + 1) % r.length]
-    if (Math.hypot(a[0] - c[0], a[1] - c[1]) < 0.3 && Math.hypot(a[0] - b[0], a[1] - b[1]) > 0.5) { r.splice(i, 1); i-- }
-  }
-  return r
-}
-for (const id of Object.keys(P)) P[id] = P[id].map((p) => p.map(despike))
+for (const id of Object.keys(P)) P[id] = P[id].map((p) => p.map(despikeReturns))
 // Small stray pieces of a land province join the neighbour they share most border with.
 for (const id of Object.keys(P)) {
   if (isSeaId(id) || id === 'gib' || P[id].length < 2) continue
@@ -132,7 +114,7 @@ for (const id of Object.keys(P)) if (!sourceIds.has(id)) throw new Error(`Leftov
 const isSea = (id) => !provinces.find((p) => p.id === id)?.edges.mv?.length
 const { problems, warnings, chains } = audit(P, provinces, { frame: [0, 0, width, HEIGHT], holes: [...islands, lakes] })
 for (const w of warnings) console.warn(`warning: ${w}`)
-if (problems.length) (process.env.AUDIT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Board does not match the 1900 movement graph:\n  ${problems.join('\n  ')}`)
+failUnlessDraft(problems, 'Board does not match the 1900 movement graph', 'AUDIT_DRAFT')
 
 // --- Supply centers, unit anchors and labels. ---
 const inside = (id, pt) => contains(P[id], pt)
@@ -144,11 +126,6 @@ for (const pt of classical.centers) {
 }
 Object.assign(centers, Object.fromEntries(Object.entries(CENTERS).map(([id, c]) => [id, c === 'pole' ? pole(P[id]).point : c])))
 for (const id of Object.keys(supply)) if (id !== 'dum' && !centers[id]) throw new Error(`No supply center position for ${id}`)
-for (const [dsvgId, pt] of Object.entries(PLACEMENTS.centers)) {
-  const id = sourceOfOut(dsvgId)
-  if (!centers[id]) throw new Error(`placements.json: no supply center ${dsvgId}`)
-  centers[id] = pt
-}
 
 
 const units = {}, layoutProblems = []
@@ -176,18 +153,6 @@ for (const [id, g] of Object.entries(coastAreas)) {
   units[id] ??= UNITS[id] ?? classical.units[id] ?? pole(g).point
   if (!inside(id.split('/')[0], units[id])) layoutProblems.push(`coast anchor ${id} lies outside its province`)
 }
-// Unit anchors placed in the layout editor (/editor): they win over all of the above and are
-// never moved off labels.
-const pinned = new Set()
-for (const [id, pt] of Object.entries(PLACEMENTS.units)) {
-  const [base, coast] = id.split('/')
-  const source = sourceOfOut(base) + (coast ? `/${coast}` : '')
-  if (!units[source]) throw new Error(`placements.json: no unit anchor ${id}`)
-  units[source] = pt
-  pinned.add(source)
-  if (!inside(source.split('/')[0], pt)) layoutProblems.push(`placements.json: ${id} lies outside its province`)
-}
-
 const near = (a, b, d = 25) => Math.hypot(a[0] - b[0], a[1] - b[1]) < d
 // A classical label's id after 1900's renames, in the app's dSVG naming (name:bot~2 -> name:gbo~2).
 const labelId = (id) => {
@@ -210,6 +175,18 @@ const reweight = (l) => {
 }
 const labels = kept.map((l) => placed(l, reweight(l)))
 const coastMarks = COAST_MARKS.map((m) => { const id = `coast:${outId(m.coast.split('/')[0])}/${m.coast.split('/')[1]}`; return { ...m, id, ...pinnedAt(id, m.at, m.angle) } })
+// Hand placements (/editor) win over all of the above; pinned units are never moved off labels.
+// Labels are checked against every label the board draws: kept classical ones, new names,
+// coast marks and the off-board notes.
+const unitOut = (id) => id.includes('/') ? outId(id.split('/')[0]) + '/' + id.split('/')[1] : outId(id)
+const unitSource = (dsvg) => { const [base, coast] = dsvg.split('/'); return sourceOfOut(base) + (coast ? `/${coast}` : '') }
+layoutProblems.push(...checkPlacements(PLACEMENTS, {
+  units: Object.keys(units).map(unitOut), centers: Object.keys(centers).map(outId),
+  labels: [...kept.map((l) => l.id), ...Object.keys(LABELS).map((id) => `name:${outId(id)}`), ...coastMarks.map((m) => m.id), RED_SEA_NOTE.id, MOROCCO_NOTE.id],
+}, (id, pt) => inside(unitSource(id).split('/')[0], pt)))
+for (const [id, pt] of Object.entries(PLACEMENTS.centers)) centers[sourceOfOut(id)] = pt
+const pinned = new Set()
+for (const [id, pt] of Object.entries(PLACEMENTS.units)) { units[unitSource(id)] = pt; pinned.add(unitSource(id)) }
 // New labels are placed automatically inside their province, clear of borders,
 // supply centers, coast marks and the classical labels that are kept.
 const placer = new LabelPlacer()
@@ -238,11 +215,6 @@ for (const m of coastMarks) rect(m.at, 22, 10, m.angle)
 // Unit anchors in new or relabelled provinces stay clear of labels and supply
 // centers: a unit token has radius 11, so look for the most open spot inside the
 // province that keeps the token off every label box and bullseye.
-const rectDistance = (p, { at, w, h, angle }) => {
-  const a = -angle * Math.PI / 180, dx = p[0] - at[0], dy = p[1] - at[1]
-  const u = dx * Math.cos(a) - dy * Math.sin(a), v = dx * Math.sin(a) + dy * Math.cos(a)
-  return Math.hypot(Math.max(0, Math.abs(u) - w / 2), Math.max(0, Math.abs(v) - h / 2))
-}
 const clearance = (p, id) => Math.min(
   boundaryDistance(P[id], p),
   ...labelRects.map((r) => rectDistance(p, r) - 2),
@@ -253,14 +225,7 @@ const clearance = (p, id) => Math.min(
 for (const id of visible.map((p) => p.id)) {
   if (pinned.has(id) || clearance(units[id], id) >= (LABELS[id] ? 12 : 4)) continue
   // Search the province's main piece only (not, say, Sicily for Naples).
-  const main = [P[id].reduce((a, b) => (area([b]) > area([a]) ? b : a))]
-  const pts = main[0][0], xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1])
-  let best = null
-  for (let x = Math.min(...xs); x <= Math.max(...xs); x += 2) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 2) {
-    if (!contains(main, [x, y])) continue
-    const c = Math.min(clearance([x, y], id), 16) - Math.hypot(x - units[id][0], y - units[id][1]) * 0.02
-    if (!best || c > best.c) best = { c, p: [x, y] }
-  }
+  const best = bestGridPoint(largestPiece(P[id]), ([x, y]) => Math.min(clearance([x, y], id), 16) - Math.hypot(x - units[id][0], y - units[id][1]) * 0.02)
   if (best) units[id] = best.p
   if (LABELS[id] && (!best || clearance(units[id], id) < 10)) layoutProblems.push(`no clear unit spot in ${id}`)
   if (process.env.LABEL_DEBUG) console.log('moved unit', id, units[id].map(Math.round), clearance(units[id], id).toFixed(1))
@@ -315,48 +280,33 @@ let longRoutes
 }
 
 for (const [id, pt] of Object.entries(centers)) if (!inside(id, pt)) layoutProblems.push(`supply center of ${id} lies outside it`)
-if (layoutProblems.length) (process.env.LAYOUT_DRAFT ? console.warn : (m) => { throw new Error(m) })(`Layout problems:\n  ${layoutProblems.join('\n  ')}`)
+failUnlessDraft(layoutProblems, 'Layout problems', 'LAYOUT_DRAFT')
 
 // --- dSVG output. Province ids follow the app's dSVG naming. ---
 // Finishing: embedded label font; no frame or compass rose on the board.
 const style = { font: true }
 const board = drawBoard({ width, height: HEIGHT, style, defs: classical.defs, provinces: P, isSea, chains, islands, islandMarkup, labels, waterParts: [gibraltarStrait], crossings: CROSSING_ARROWS, extraSeaBorders: KATTEGAT_LINES.map((id) => classical.seaBorders[id]) })
-const r1 = (n) => Math.round(n * 10) / 10
-const layer = (id, body, extra = '') => `<g id="${id}"${extra}>\n${body}\n</g>`
-// The coast shading and water-lining reach past the board edge; clip the artwork to the board.
-const clipped = (body) => `<g clip-path="url(#board-clip)">\n${body}\n</g>`
-const defs = board.defs.replace('</defs>', `<clipPath id="board-clip"><rect width="${width}" height="${HEIGHT}"/></clipPath></defs>`)
-const dsvg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${width} ${HEIGHT}" width="100%" height="100%">
-${defs}
-${layer('background', clipped(board.background))}
-${layer('provinces', visible.map((p) => `<path id="${outId(p.id)}" d="${board.outlinePath(p.id) || geomPath(P[p.id])}"/>`).join('\n'), ' style="display:none"')}
-${layer('named-coasts', Object.entries(coastAreas).map(([id, g]) => `<path id="${outId(id.split('/')[0])}/${id.split('/')[1]}" d="${geomPath(g)}"/>`).join('\n'), ' style="display:none"')}
-${supplyCenterLayer(centers, outId)}
-${layer('unit-positions', Object.entries(units).map(([id, [x, y]]) => `<circle id="${id.includes('/') ? outId(id.split('/')[0]) + '/' + id.split('/')[1] : outId(id)}" cx="${r1(x)}" cy="${r1(y)}"/>`).join(''), ' style="display:none"')}
-${layer('province-names', board.names)}
-${layer('routes', [
+writeBoard('1900', {
+  width, height: HEIGHT, board, centers, centerId: outId,
+  provinces: visible.map((p) => [outId(p.id), board.outlinePath(p.id) || geomPath(P[p.id])]),
+  namedCoasts: Object.entries(coastAreas).map(([id, g]) => [unitOut(id), geomPath(g)]),
+  units: Object.entries(units).map(([id, pt]) => [unitOut(id), pt]),
   // Suez rule 2: moves between Egypt/Hejaz and the Mid-Atlantic go around Africa. Their
   // arrows leave the board down the Red Sea and come back in off Morocco (one subpath each).
-  ['egy~mid', longRoutes.egy], ['hej~mid', longRoutes.hej],
-].map(([id, legs]) => `<path id="${id}" d="${legs.map((leg) => 'M' + leg.map((p) => p.map(r1).join(' ')).join('L')).join('')}"/>`).join(''), ' style="display:none"')}
-<g id="borders"/>
-${layer('foreground', clipped(board.foreground))}
-</svg>
-`
-writeFileSync(resolve(root, 'public/maps/1900.dsvg'), dsvg)
+  routes: [['egy~mid', longRoutes.egy], ['hej~mid', longRoutes.hej]],
+})
 
 // --- Map definition. ---
 const normalize = (refs) => [...new Set((refs ?? []).map((r) => toGame(refProvince(r))))]
 // The classical palette; 1900's Britain is classical England.
 const powerColors = Object.fromEntries(classicalMap.powers.map((p) => [p.id === 'england' ? 'britain' : p.id, p.color]))
-const round = (p) => p.map(r1)
 const territories = {}
 for (const p of provinces) {
   const { id, edges } = p, sc = supply[id], xc = normalize(edges.xc)
   // DUM is jDip's stand-in for the Russian Emergency Measures rule, which the engine implements directly.
   if (id === 'dum') continue
   const coasts = {}
-  for (const c of ['nc', 'sc', 'ec', 'wc']) if (edges[c]?.length) coasts[c] = { name: { nc: 'North Coast', sc: 'South Coast', ec: 'East Coast', wc: 'West Coast' }[c], fleetAdjacency: normalize(edges[c]), render: { center: round(units[`${id}/${c}`]) } }
+  for (const c of ['nc', 'sc', 'ec', 'wc']) if (edges[c]?.length) coasts[c] = { name: { nc: 'North Coast', sc: 'South Coast', ec: 'East Coast', wc: 'West Coast' }[c], fleetAdjacency: normalize(edges[c]) }
   const sea = id !== 'dum' && !edges.mv?.length
   territories[toGame(id)] = {
     name: p.name, type: sea ? 'sea' : (xc.length || Object.keys(coasts).length ? 'coast' : 'land'), supplyCenter: !!sc,
@@ -364,7 +314,6 @@ for (const p of provinces) {
     adjacent: normalize(Object.values(edges).flat()),
     ...(!sea && xc.length && !Object.keys(coasts).length ? { fleetAdjacent: xc } : {}),
     ...(Object.keys(coasts).length ? { coasts } : {}),
-    render: { center: units[id] ? round(units[id]) : [-100, -100] },
   }
 }
 const map = {
@@ -383,5 +332,5 @@ const map = {
   },
   startingUnits: starts.map((s) => ({ type: s.unit, power: s.power, territory: toGame(s.province), ...(s.unitcoast ? { coast: s.unitcoast } : {}) })),
 }
-writeFileSync(resolve(root, 'src/lib/maps/1900.ts'), `import type { MapDefinition } from '../mapDefinition'\n\n// Generated by tools/variants/1900/build.mjs. Do not edit by hand.\nexport const map1900: MapDefinition = ${JSON.stringify(map, null, 2)}\n`)
+writeMapDefinition('1900', 'map1900', map)
 console.log(`Built 1900: ${provinces.length} territories, ${starts.length} starting units`)

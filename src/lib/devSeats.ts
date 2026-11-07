@@ -19,6 +19,8 @@ import {
 } from './supabase'
 import { getMap } from './maps'
 import type { GameState } from './game'
+import { fetchMyOrders, submitOrders } from './orders/api'
+import { errorMessage } from './errors'
 
 export const SEATS = Array.from({ length: DEV_SEAT_COUNT }, (_, i) => i + 1)
 
@@ -125,11 +127,6 @@ export async function fillLobby(game: GameState): Promise<void> {
 }
 
 /**
- * Submit every other seat's current draft (or nothing — i.e. hold) and mark it ready, so
- * the active seat is the last one out. With early resolution on, the active seat's own
- * submit then resolves the round. Returns the nations it readied.
- */
-/**
  * Each seat's own ready flag, read with that seat's session (players can only read
  * their own; see migration 154). Seats without a power in the game are left out.
  */
@@ -146,8 +143,12 @@ export async function seatReadiness(game: GameState): Promise<Record<number, boo
   return out
 }
 
+/**
+ * Submit every other seat's current draft (or nothing — i.e. hold) and mark it ready, so
+ * the active seat is the last one out. With early resolution on, the active seat's own
+ * submit then resolves the round. Returns the nations it readied.
+ */
 export async function readyOtherSeats(game: GameState): Promise<string[]> {
-  const round = { p_year: game.year, p_season: game.season, p_phase: game.phase }
   const readied: string[] = []
   for (const seat of SEATS) {
     if (seat === activeDevSeat()) continue
@@ -156,24 +157,12 @@ export async function readyOtherSeats(game: GameState): Promise<string[]> {
     if (!nation) continue
 
     const client = seatClient(seat)
-    const { data: row, error: readErr } = await client
-      .from('orders')
-      .select('orders')
-      .eq('game_id', game.id)
-      .eq('year', game.year)
-      .eq('season', game.season)
-      .eq('phase', game.phase)
-      .eq('resolved', false)
-      .maybeSingle()
-    if (readErr) throw new Error(`Seat ${seat} read: ${readErr.message}`)
-
-    const { error } = await client.rpc('submit_orders', {
-      p_game_id: game.id,
-      p_orders: row?.orders ?? [],
-      p_ready: true,
-      ...round,
-    })
-    if (error) throw new Error(`Seat ${seat} (${nation}) submit: ${error.message}`)
+    try {
+      const orders = await fetchMyOrders(game.id, game.year, game.season, game.phase, client)
+      await submitOrders(game.id, orders, game, client)
+    } catch (e) {
+      throw new Error(`Seat ${seat} (${nation}) submit: ${errorMessage(e)}`)
+    }
     readied.push(nation)
   }
   return readied

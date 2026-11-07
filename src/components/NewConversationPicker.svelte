@@ -2,7 +2,8 @@
   // New-conversation screen, like a messenger's "New message": tick one or more players
   // (flag, username, nation), optionally name the group, then start. An unnamed set that
   // already has a thread just reopens it, so the button says so.
-  import { NAME_MAX, type ChatStore, type chatLabels } from '../lib/chatStore'
+  import { NAME_MAX, type ChatStore } from '../lib/chatStore'
+  import type { chatLabels } from '../lib/chatLabels'
   import ChatAvatar from './ChatAvatar.svelte'
   import Icon from './Icon.svelte'
 

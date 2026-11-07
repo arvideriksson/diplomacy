@@ -55,55 +55,84 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
--- ── apply_resolution (re-issues 136): settle agreements an elimination completes ──
-create or replace function public.apply_resolution(
+-- ═══ public.apply_resolution(uuid, jsonb, jsonb, jsonb, jsonb, timestamptz, text[], jsonb)  — from 20250101000159_store_victory.sql
+create function public.apply_resolution(
   p_game_id    uuid,
   p_round      jsonb,        -- { year, season, phase } just resolved
   p_snapshot   jsonb,
   p_next       jsonb,        -- { phase, season, year } to advance to
-  p_ready_init jsonb default '{}'  -- nations auto-readied for the opening phase
+  p_ready_init jsonb default '{}',  -- nations auto-readied for the opening phase
+  p_claim      timestamptz default null,
+  p_honoured   text[] default null,
+  p_result     jsonb default null   -- set when this resolution ends the game
 )
-returns void as $$
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare g public.games;
 begin
+  select * into g from public.games where id = p_game_id for update;
+  if g is null then raise exception 'Game not found'; end if;
+  if (g.year, g.season, g.phase)
+     is distinct from ((p_round ->> 'year')::int, p_round ->> 'season', p_round ->> 'phase') then
+    raise exception 'Stale resolution: the game is no longer at %', p_round;
+  end if;
+  if p_claim is not null and g.resolving_at is distinct from p_claim then
+    raise exception 'Stale resolution: the claim was released or re-fired';
+  end if;
+  if p_result is not null and p_next ->> 'phase' is distinct from 'complete' then
+    raise exception 'A result is only stamped when the game completes';
+  end if;
+
   -- Unready nations held: blank their orders so the log matches the adjudication.
   update public.orders o
      set orders = '[]'::jsonb, updated_at = now()
-    from public.games g
-   where g.id = p_game_id
-     and o.game_id = p_game_id
-     and o.year   = (p_round->>'year')::int
-     and o.season =  p_round->>'season'
-     and o.phase  =  p_round->>'phase'
+   where o.game_id = p_game_id
+     and o.year   = g.year
+     and o.season = g.season
+     and o.phase  = g.phase
      and o.resolved = false
-     and not public.is_ready(g.ready, o.nation);
+     and case when p_honoured is null then not public.is_ready(g.ready, o.nation)
+              else not (o.nation = any(p_honoured)) end;
 
   update public.orders
      set resolved = true, updated_at = now()
    where game_id = p_game_id
-     and year   = (p_round->>'year')::int
-     and season =  p_round->>'season'
-     and phase  =  p_round->>'phase'
+     and year   = g.year
+     and season = g.season
+     and phase  = g.phase
      and resolved = false;
 
   perform public.commit_board(p_game_id, p_snapshot, p_next, p_ready_init);
+  -- commit_board clears result; a winning resolution stamps it straight back.
+  if p_result is not null then
+    update public.games set result = p_result where id = p_game_id;
+  end if;
   perform public.settle_draw(p_game_id);
 end;
-$$ language plpgsql security definer;
+$$;
 
--- ═══ public.apply_revert(uuid, jsonb, jsonb, jsonb)  — from 20250101000141_draw_votes.sql
--- ── apply_revert (re-issues 136): a reverted game starts its votes over ─────────
-create or replace function public.apply_revert(
+-- ═══ public.apply_revert(uuid, jsonb, jsonb, jsonb, timestamptz)  — from 20250101000157_hardening.sql
+create function public.apply_revert(
   p_game_id    uuid,
   p_round      jsonb,        -- { year, season, phase } to reopen
   p_snapshot   jsonb,        -- the board going into that round
-  p_ready_init jsonb default '{}'
+  p_ready_init jsonb default '{}',
+  p_claim      timestamptz default null
 )
 returns void as $$
 declare
+  g      public.games;
   target integer := public.round_rank(
     (p_round ->> 'year')::int, p_round ->> 'season', p_round ->> 'phase');
 begin
+  select * into g from public.games where id = p_game_id for update;
+  if g is null then raise exception 'Game not found'; end if;
+  if p_claim is not null and g.resolving_at is distinct from p_claim then
+    raise exception 'Stale revert: the claim was released or re-fired';
+  end if;
+
   delete from public.orders
    where game_id = p_game_id
      and public.round_rank(year, season, phase) > target;
@@ -219,14 +248,14 @@ language sql stable security invoker as $$
    order by c.is_public desc, c.id;
 $$;
 
--- ═══ public.claim_nation(uuid, text)  — from 20250101000113_claim_nation.sql
+-- ═══ public.claim_nation(uuid, text)  — from 20250101000157_hardening.sql
 create or replace function public.claim_nation(p_game_id uuid, p_nation text)
 returns void as $$
 declare
   g   public.games;
   uid text;
 begin
-  select * into g from public.games where id = p_game_id;
+  select * into g from public.games where id = p_game_id for update;
   if g is null then raise exception 'Game not found'; end if;
   if g.phase <> 'lobby' then raise exception 'Game has already started'; end if;
 
@@ -236,7 +265,7 @@ begin
   if p_nation is null then
     -- release the caller's current power
     update public.games
-       set players = players #- array[uid, 'nation'], updated_at = now()
+       set players = players #- array[uid, 'nation']
      where id = p_game_id;
     return;
   end if;
@@ -250,8 +279,7 @@ begin
   end if;
 
   update public.games
-     set players = jsonb_set(players, array[uid, 'nation'], to_jsonb(p_nation)),
-         updated_at = now()
+     set players = jsonb_set(players, array[uid, 'nation'], to_jsonb(p_nation))
    where id = p_game_id;
 end;
 $$ language plpgsql security definer;
@@ -506,14 +534,15 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.grace_minutes(jsonb)  — from 20250101000130_grace_period.sql
--- Mirrors graceMinutes() in src/lib/game.ts.
+-- ═══ public.grace_minutes(jsonb)  — from 20250101000158_single_sources.sql
+-- ── 2. grace_minutes ─────────────────────────────────────────────────────────────
+-- settings.grace_period when set (0 = no grace), else one movement timer as
+-- phase_timer_minutes reads it.
 create or replace function public.grace_minutes(p_settings jsonb)
 returns integer as $$
   select greatest(0, coalesce(
     (p_settings ->> 'grace_period')::int,
-    (p_settings -> 'phase_timers' ->> 'movement')::int,
-    1440));
+    public.phase_timer_minutes(p_settings, 'movement')));
 $$ language sql immutable;
 
 -- ═══ public.guard_client_game_update()  — from 20250101000128_lock_down_rpcs.sql
@@ -637,7 +666,8 @@ returns boolean as $$
   select coalesce((p_ready ->> p_nation)::boolean, false);
 $$ language sql immutable;
 
--- ═══ public.join_public_game(uuid)  — from 20250101000146_drop_avatar_url.sql
+-- ═══ public.join_public_game(uuid)  — from 20250101000157_hardening.sql
+-- ── 3. lobby writes lock the row ─────────────────────────────────────────────────
 create or replace function public.join_public_game(game_id uuid)
 returns jsonb as $$
 declare
@@ -647,7 +677,7 @@ declare
   user_meta    jsonb;
   player_info  jsonb;
 begin
-  select * into game_row from public.games where id = game_id;
+  select * into game_row from public.games where id = game_id for update;
 
   if game_row is null then
     raise exception 'Game not found';
@@ -688,12 +718,16 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.kick_player(uuid, uuid)  — from 20250101000134_sql_helpers.sql
--- kick_player (re-issues 105). Now locks the row up front via lock_owned_game.
+-- ═══ public.kick_player(uuid, uuid)  — from 20250101000157_hardening.sql
+-- ── 2. roster changes are lobby-only ─────────────────────────────────────────────
+-- Mid-game a missing player would silently drop out of game_nations(), and with it
+-- out of readiness, draw votes and unready_nations.
 create or replace function public.kick_player(game_id uuid, player_id uuid)
 returns void as $$
+declare g public.games;
 begin
-  perform public.lock_owned_game(game_id, 'Only the host can kick players');
+  g := public.lock_owned_game(game_id, 'Only the host can kick players');
+  if g.phase <> 'lobby' then raise exception 'Game has already started'; end if;
 
   if player_id = auth.uid() then
     raise exception 'Cannot kick yourself';
@@ -705,16 +739,19 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.leave_game(uuid)  — from 20250101000104_join_public_game.sql
+-- ═══ public.leave_game(uuid)  — from 20250101000157_hardening.sql
 create or replace function public.leave_game(game_id uuid)
 returns void as $$
 declare
   game_row public.games;
 begin
-  select * into game_row from public.games where id = game_id;
+  select * into game_row from public.games where id = game_id for update;
 
   if game_row is null then
     raise exception 'Game not found';
+  end if;
+  if game_row.phase <> 'lobby' then
+    raise exception 'Game has already started';
   end if;
 
   if game_row.created_by = auth.uid() then
@@ -727,19 +764,19 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.list_games()  — from 20250101000154_hide_readiness.sql
--- list_games (153) read g.ready directly; it runs as the caller, so it now asks
--- my_ready for the caller's own flag.
-create or replace function public.list_games()
+-- ═══ public.list_games()  — from 20250101000158_single_sources.sql
+create function public.list_games()
 returns table (
   id uuid, name text, phase text, year integer, season text, map_id text,
   is_private boolean, created_by uuid, updated_at timestamptz, deadline timestamptz,
+  grace_ends_at timestamptz,
   ready jsonb, player_count integer, me jsonb,
   result jsonb, final_centers jsonb
 )
 language sql stable security invoker as $$
   select g.id, g.name, g.phase, g.year, g.season, g.map_id,
          g.is_private, g.created_by, g.updated_at, g.deadline,
+         g.grace_ends_at,
          case when g.players -> (auth.uid()::text) ? 'nation'
               then jsonb_build_object(g.players -> (auth.uid()::text) ->> 'nation',
                                       coalesce(public.my_ready(g.id), false))
@@ -1188,12 +1225,14 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.set_deadline(uuid, timestamptz)  — from 20250101000134_sql_helpers.sql
--- set_deadline (re-issues 129).
+-- ═══ public.set_deadline(uuid, timestamptz)  — from 20250101000157_hardening.sql
+-- ── 6. set_deadline needs a deadline ─────────────────────────────────────────────
+-- A null deadline with early resolution off would never resolve.
 create or replace function public.set_deadline(p_game_id uuid, p_deadline timestamptz)
 returns void as $$
 declare g public.games;
 begin
+  if p_deadline is null then raise exception 'A deadline is required'; end if;
   g := public.lock_hosted_game(p_game_id);
   if not public.is_order_phase(g.phase) then
     raise exception 'Game is not in an order-taking phase';
@@ -1201,7 +1240,7 @@ begin
   if g.resolving_at is not null then
     raise exception 'Round is resolving; the deadline is locked';
   end if;
-  update public.games set deadline = p_deadline, updated_at = now() where id = p_game_id;
+  update public.games set deadline = p_deadline where id = p_game_id;
 end;
 $$ language plpgsql security definer;
 
@@ -1383,37 +1422,40 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.submit_orders(uuid, jsonb, boolean, integer, text, text)  — from 20250101000135_order_write_helpers.sql
--- ── submit_orders (re-issues 119) ──────────────────────────────────────────────
--- Upsert the caller's orders for the current round and set (or clear) ready.
+-- ═══ public.submit_orders(uuid, jsonb, boolean, integer, text, text)  — from 20250101000158_single_sources.sql
+-- ── 1. submit_orders ─────────────────────────────────────────────────────────────
 create or replace function public.submit_orders(
   p_game_id uuid,
   p_orders  jsonb,
-  p_ready   boolean default false,
+  p_ready   boolean default true,
   p_year    integer default null,
   p_season  text    default null,
   p_phase   text    default null
 )
-returns void as $$
+returns void
+language plpgsql security definer
+set search_path = public, extensions, pg_temp
+as $$
 declare
   g         public.games;
   my_nation text;
 begin
+  if p_ready is distinct from true then
+    raise exception 'Orders are submitted ready; save a draft with save_draft_orders';
+  end if;
   g := public.order_write_guard(p_game_id, p_year, p_season, p_phase, true);
   my_nation := public.player_nation(g.players);
 
   perform public.upsert_own_orders(g, my_nation, p_orders);
 
   update public.games
-     set ready = case when p_ready then ready || jsonb_build_object(my_nation, true)
-                      else ready - my_nation end,
-         updated_at = now()
+     set ready = ready || jsonb_build_object(my_nation, true)
    where id = p_game_id;
 
   -- Last power in? Resolve immediately rather than waiting for the cron tick.
-  if p_ready then perform public.maybe_resolve_now(p_game_id); end if;
+  perform public.maybe_resolve_now(p_game_id);
 end;
-$$ language plpgsql security definer;
+$$;
 
 -- ═══ public.surviving_nations(games)  — from 20250101000141_draw_votes.sql
 -- ── Survivors ─────────────────────────────────────────────────────────────────
@@ -1579,4 +1621,39 @@ $$ language plpgsql;
 create or replace function public.user_display_name(p_meta jsonb)
 returns text as $$
   select coalesce(p_meta ->> 'display_name', p_meta ->> 'full_name', p_meta ->> 'name');
+$$ language sql immutable;
+
+-- ═══ public.valid_minutes(jsonb)  — from 20250101000157_hardening.sql
+-- ── 4. settings shape ────────────────────────────────────────────────────────────
+-- Absent, null, or a non-negative integer that fits an int.
+create or replace function public.valid_minutes(v jsonb)
+returns boolean as $$
+  select v is null
+      or jsonb_typeof(v) = 'null'
+      or (jsonb_typeof(v) = 'number'
+          and (v #>> '{}')::numeric >= 0
+          and (v #>> '{}')::numeric = trunc((v #>> '{}')::numeric)
+          and (v #>> '{}')::numeric <= 2147483647);
+$$ language sql immutable;
+
+-- ═══ public.valid_settings(jsonb)  — from 20250101000157_hardening.sql
+-- Every key the SQL casts must have the type it is cast to; unknown keys pass. Minute
+-- values are non-negative whole numbers (or null where "absent" has a meaning).
+create or replace function public.valid_settings(s jsonb)
+returns boolean as $$
+  select s is null or (
+    jsonb_typeof(s) = 'object'
+    and coalesce(jsonb_typeof(s -> 'gunboat')          in ('boolean', 'null'), true)
+    and coalesce(jsonb_typeof(s -> 'random_nations')   in ('boolean', 'null'), true)
+    and coalesce(jsonb_typeof(s -> 'early_resolution') in ('boolean', 'null'), true)
+    and coalesce(jsonb_typeof(s -> 'host_controls')    in ('boolean', 'null'), true)
+    and public.valid_minutes(s -> 'grace_period')
+    and public.valid_minutes(s -> 'first_turn')
+    and coalesce(jsonb_typeof(s -> 'turn_timer') in ('string', 'null'), true)
+    and (s -> 'phase_timers' is null
+         or jsonb_typeof(s -> 'phase_timers') = 'null'
+         or (jsonb_typeof(s -> 'phase_timers') = 'object'
+             and not exists (select 1 from jsonb_each(s -> 'phase_timers') t
+                              where not public.valid_minutes(t.value))))
+  );
 $$ language sql immutable;

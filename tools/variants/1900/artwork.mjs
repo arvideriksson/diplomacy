@@ -4,7 +4,7 @@
 // and supply centers a data layer the app draws.
 import { ringsPath } from './lib/svgpath.mjs'
 import { readFileSync } from 'node:fs'
-import { simplify, boundaryDistance, subtract, intersect, union, area } from './lib/geom.mjs'
+import { simplify, boundaryDistance, subtract, intersect, union, area } from '../lib/geom.mjs'
 
 const SEA = '#d4d0ad', LAND = '#f4d7b5'
 const FONT = "font-family:LibreBaskerville-Bold, 'Libre Baskerville', Georgia, serif"
@@ -54,9 +54,10 @@ export const supplyCenterLayer = (centers, idOf = (id) => id) =>
   `<g id="supply-centers" style="display:none">\n${Object.entries(centers).map(([id, [x, y]]) => `<circle id="${idOf(id)}" cx="${r2(x)}" cy="${r2(y)}"/>`).join('')}\n</g>`
 
 // chains: shared-edge polylines; isSea(id) classifies provinces; ids starting '#' are drawn holes.
-// Libre Baskerville (OFL), embedded so labels render the same everywhere.
+// Libre Baskerville (OFL), embedded so labels render the same everywhere; the same files the
+// app ships (src/assets/fonts/).
 const fontFace = () => {
-  const data = (f) => readFileSync(new URL(`fonts/${f}`, import.meta.url)).toString('base64')
+  const data = (f) => readFileSync(new URL(`../../../src/assets/fonts/${f}`, import.meta.url)).toString('base64')
   return `<style>@font-face{font-family:'Libre Baskerville';font-style:normal;font-weight:400 700;src:url(data:font/woff2;base64,${data('LibreBaskerville-latin.woff2')}) format('woff2')}@font-face{font-family:'Libre Baskerville';font-style:italic;font-weight:400;src:url(data:font/woff2;base64,${data('LibreBaskerville-Italic-latin.woff2')}) format('woff2')}</style>`
 }
 

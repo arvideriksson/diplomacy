@@ -1,54 +1,60 @@
 # Supabase functions
 
+Two Edge Functions, both reached only from Postgres via `pg_net` with
+`Authorization: Bearer <ADJUDICATOR_SECRET>` (a dedicated shared secret; `verify_jwt` is
+off). Postgres holds the URL and secret in `private.engine_config` (`function_url`, and
+`service_key` — which, despite its name, holds `ADJUDICATOR_SECRET`, not the service-role
+key). `_shared/edge.ts` has the secret gate and the service-role client both use.
+
 ## `adjudicate`
 
-The single authoritative turn resolver. Invoked by `pg_cron` (see the cron
-migration in `supabase/migrations/`) via `pg_net` with a service-role bearer token and a
-`{ "game_id": "..." }` body. It loads the game, runs the **pure engine** in
-`src/lib/adjudicator`, and atomically commits the result via the
-`apply_resolution` RPC. It is the only writer of resolved state.
+The single authoritative turn resolver and the only writer of resolved state. Every call
+goes through `public.fire_adjudicator`, which claims the game (`games.resolving_at`) and
+posts:
 
-### Apply order (run migrations first)
+- `{ game_id }` — resolve the current round (from `tick_due_games`, `maybe_resolve_now`
+  or `host_force_resolve`). It loads the game, runs the **pure engine** in
+  `src/lib/adjudicator`, and commits through `apply_resolution`, passing the claim it read
+  (`p_claim`) and the nations whose orders it honoured (`p_honoured`); the commit refuses
+  to land over a claim that was reaped and re-fired.
+- `{ game_id, action: 'revert', target }` — replay the resolved log to an earlier round
+  and commit it through `apply_revert` (from `host_revert_to`).
 
-1. `008_turn_engine_schema.sql` … `012_cron.sql` in the SQL editor (in order).
-2. Enable the `pg_cron` and `pg_net` extensions (Database → Extensions).
-3. **Bundle the engine, then deploy:**
-   ```sh
-   npm run live:deploy-functions      # build:edge, then supabase functions deploy adjudicate
-   ```
-4. Insert the engine config (out of band — never commit the key):
-   ```sql
-   insert into private.engine_config (function_url, service_key)
-   values ('https://<ref>.supabase.co/functions/v1/adjudicate', '<service-role-key>');
-   ```
-   Prefer Supabase Vault for the key if available.
+A failure releases the claim (500), so the next cron tick retries.
 
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected into the Edge runtime
-automatically; the function verifies the incoming bearer token against the latter.
+## `notify`
 
-### How the engine reaches the function (the import boundary)
+Web Push sender. SQL (`public.push_notify`) picks the recipients and builds the payload;
+this function only looks up their `push_subscriptions`, sends, and drops the ones the push
+service reports gone. Its URL is the adjudicator's with the last segment swapped to
+`notify`. Needs the `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` secrets.
 
-The function does **not** import the engine across the `src ↔ functions` boundary
-directly — Supabase's Deno bundler can't reach outside `supabase/functions/`, and
-the engine uses extensionless imports Deno won't resolve. Instead, `npm run
-build:edge` esbuild-bundles `src/lib/adjudicator/edge-entry.ts` into a single
-self-contained `adjudicate/_engine.mjs` (all relative imports + extensions
-resolved), which `resolve.ts` imports locally. `db.ts` pulls the Supabase client
-via an `npm:` specifier, so **no import map / `deno.json` is needed**.
+## Deploying (live)
 
-`_engine.mjs` is a generated artifact — **rerun `npm run build:edge` after any
-change to the engine** (and before deploying). It is committed so a fresh checkout
-can deploy without a build, but it must stay in sync with `src/lib/adjudicator/`.
+Migrations first (`npm run live:push`), then `npm run live:deploy-functions` (runs
+`build:edge`, then deploys both functions). Secrets: `npm run live:secrets` (from the
+gitignored `.env.functions.local`) and `npm run live:rotate-adjudicator-secret`. See the
+`push-live` skill.
 
-### Local development
+## How the engine reaches the function (the import boundary)
 
-`npm run db:start` (Docker) bundles the engine and starts the local stack, which serves
-this function with `ADJUDICATOR_SECRET` from `[edge_runtime.secrets]` in
-`supabase/config.toml`; `supabase/seed.sql` points `private.engine_config` at it
-(`http://kong:8000/…`, the gateway's address inside Docker). So the local cron and
-`maybe_resolve_now` drive real resolutions — `npm run test:7p` exercises the whole loop.
-After an engine change, `npm run db:reset` (rebuilds `_engine.mjs`, reapplies migrations +
-seed); the function hot-reloads on edits to its own files.
+The function does **not** import the engine across the `src ↔ functions` boundary —
+Supabase's Deno bundler can't reach outside `supabase/functions/`, and the engine uses
+extensionless imports Deno won't resolve. Instead `npm run build:edge` esbuild-bundles
+`src/lib/adjudicator/edge-entry.ts` (the engine, the map definitions and the phase list)
+into a single self-contained `adjudicate/_engine.mjs`, which `resolve.ts` imports.
 
-Engine correctness is covered by `npm test` (the DATC suite) — run that, not the
-function, to validate rules changes.
+`_engine.mjs` is generated and committed; CI fails when it is stale. **Rerun
+`npm run build:edge` after any change to `src/lib/adjudicator/`, `src/lib/maps/` or
+`src/lib/phases.ts`.**
+
+## Local development
+
+`npm run db:start` bundles the engine and starts the local stack, which serves both
+functions with the dev secrets from `[edge_runtime.secrets]` in `supabase/config.toml`;
+`supabase/seed.sql` points `private.engine_config` at `http://kong:8000/…`. So the local
+cron and `maybe_resolve_now` drive real resolutions — `npm run test:7p` exercises the
+whole loop. After an engine change run `npm run build:edge` (the function hot-reloads its
+own files) or `npm run db:reset`.
+
+Engine correctness is covered by `npm test` (the DATC suite).

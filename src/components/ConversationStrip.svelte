@@ -2,7 +2,8 @@
   // A narrow column of conversation avatars beside the open thread (single-pane layout on
   // a desktop rail), so the player can hop between negotiations without going back to
   // the list. Unread conversations carry a badge; the open one is ringed.
-  import type { ChatStore, chatLabels } from '../lib/chatStore'
+  import type { ChatStore } from '../lib/chatStore'
+  import type { chatLabels } from '../lib/chatLabels'
   import ChatAvatar from './ChatAvatar.svelte'
 
   export let chat: ChatStore

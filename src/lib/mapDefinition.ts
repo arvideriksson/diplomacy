@@ -9,9 +9,6 @@ export interface MapDefinition {
   initialOwnership?: Record<string, string>
   /** Supply centers needed to win; defaults to a majority of the map's centers. */
   victoryCenters?: number
-  /** Legacy inline-SVG fields — unused now that maps render from the layered dSVG. */
-  viewBox?: string
-  svgContent?: string
   powers: PowerDefinition[]
   territories: Record<string, TerritoryDefinition>
   startingUnits: StartingUnit[]
@@ -81,19 +78,11 @@ export interface TerritoryDefinition {
    * Seas omit it: their `adjacent` is already all sea-reachable.
    */
   fleetAdjacent?: string[]
-  render: TerritoryRender
 }
 
 export interface CoastDefinition {
   name: string
   fleetAdjacency: string[]
-  render: { center: [number, number] }
-}
-
-export interface TerritoryRender {
-  center: [number, number]
-  path?: string
-  labelOffset?: [number, number]
 }
 
 export interface StartingUnit {

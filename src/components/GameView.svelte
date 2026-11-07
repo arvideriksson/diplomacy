@@ -10,14 +10,15 @@
   import { survivingNations } from '../lib/draw'
   import Icon from './Icon.svelte'
   import { user } from '../lib/auth'
-  import { fetchResolvedLog, subscribeToGame } from '../lib/game'
+  import { fetchResolvedLog } from '../lib/orders/api'
+  import { subscribeToGame } from '../lib/gameLive'
   import type { GameState } from '../lib/game'
   import { replayFrames, mergeLog, newestStamp, type HistoryFrame, type StampedOrderRow } from '../lib/history'
   import { loadLog, saveLog, logKey } from '../lib/logCache'
   import { getMap } from '../lib/maps'
   import { initialBoard, roundRank, victoryFor } from '../lib/adjudicator'
   import type { BoardState } from '../lib/adjudicator'
-  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { isOrderPhase, phaseLabel, roundSeason } from '../lib/phases'
   import { powerName } from '../lib/powers'
   import { sandboxes, sandboxesOf, createSandboxFromGame, deleteSandbox, prependHistory, purgeTemporarySandboxes } from '../lib/sandbox'
   import type { AnyOrder } from '../lib/orders/types'
@@ -36,9 +37,23 @@
   $: isActive = isOrderPhase(game.phase)
   // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
   $: isComplete = game.phase === 'complete'
-  // A solo by supply centers is read off the board; a tie or a win by concession is
-  // stamped on the game (game.result) when the players' votes agree.
-  $: winner = isComplete && !game.result ? victoryFor(map, liveBoard().supplyCenters) : undefined
+  // Every ending is stamped on the game (game.result): a win on centers by the
+  // adjudicator, a tie or a concession when the votes agree. Games finished before wins
+  // were stamped have none, and their winner is read off the final board.
+  $: agreed = game.result?.kind === 'draw' || game.result?.kind === 'concession'
+    ? { kind: game.result.kind, nations: game.result.nations }
+    : null
+  $: winner = !isComplete
+    ? undefined
+    : game.result?.kind === 'victory'
+      ? {
+          nation: game.result.nations[0],
+          centers: game.result.centers ?? 0,
+          shared: game.result.nations.length > 1 ? game.result.nations : undefined,
+        }
+      : game.result
+        ? undefined
+        : victoryFor(map, liveBoard().supplyCenters)
   $: playedNations = [...new Set(Object.values(game.players).map((p) => p.nation).filter((n): n is string => !!n))]
   // Only games created with host controls get the in-game admin menu. A finished game
   // keeps it so the host can still revert out of the ending.
@@ -218,8 +233,7 @@
   }
   function createKeptSandbox(history: HistoryFrame[]) {
     const board = liveBoard()
-    const phaseLabel = isOrderPhase(board.phase) ? PHASE_LABEL[board.phase] : board.phase
-    const round = `${board.season} ${board.year} ${phaseLabel}`
+    const round = `${roundSeason(board)} ${board.year} ${phaseLabel(board.phase)}`
     const n = mySandboxes.filter((s) => s.name.startsWith(round)).length
     const sb = createSandboxFromGame({
       name: n ? `${round} #${n + 1}` : round,
@@ -278,7 +292,7 @@
     dislodged={frame.board.dislodged}
     contested={frame.board.contested}
     supplyCenters={frame.board.supplyCenters}
-    readOnly={!isFrontier || isComplete}
+    mode={isFrontier && !isComplete ? 'live' : 'history'}
     deadline={isFrontier && !isComplete ? game.deadline ?? null : null}
     {awaiting}
     graceEndsAt={isFrontier && !isComplete ? game.grace_ends_at ?? null : null}
@@ -312,7 +326,7 @@
       {#if isComplete}
         <VictoryBanner
           winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers, names: winner.shared?.map((n) => powerName(map.powers, n)) }}
-          result={game.result && { kind: game.result.kind, names: game.result.nations.map((n) => powerName(map.powers, n)) }}
+          result={agreed && { kind: agreed.kind, names: agreed.nations.map((n) => powerName(map.powers, n)) }}
         />
       {/if}
     </svelte:fragment>
@@ -331,7 +345,7 @@
             <svg class="chev" class:open={sandboxOpen} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
           </button>
           {#if sandboxOpen}
-          <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {frame.board.season} {frame.board.year}</button>
+          <button class="btn sb-new" on:click={newSandbox}>＋ New sandbox from {roundSeason(frame.board)} {frame.board.year}</button>
           {/if}
           {#if sandboxOpen && mySandboxes.length}
             <ul>
@@ -339,7 +353,7 @@
                 <li>
                   <button class="sb-open" on:click={() => enterSandbox(sb.id)}>
                     <span class="sb-name">From {sb.name}</span>
-                    <span class="sb-at">{sb.frames[sb.cursor].board.season} {sb.frames[sb.cursor].board.year} ›</span>
+                    <span class="sb-at">{roundSeason(sb.frames[sb.cursor].board)} {sb.frames[sb.cursor].board.year} ›</span>
                   </button>
                   <button class="sb-del" on:click={() => deleteSandbox(sb.id)} aria-label="Delete sandbox {sb.name}" title="Delete sandbox">
                     <Icon name="trash" size={16} round />

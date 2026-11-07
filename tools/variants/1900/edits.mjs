@@ -1,7 +1,7 @@
 // Turn the classical partition into the 1900 partition. Unchanged provinces keep
 // their classical outlines exactly; each 1900 change is an explicit edit below.
 // Coordinates are classical board units.
-import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle, curve, contains, area, boundaryDistance } from './lib/geom.mjs'
+import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle, curve, contains, area, boundaryDistance } from '../lib/geom.mjs'
 import { sharedEdges } from './lib/edges.mjs'
 import { southernLand, southernProvinces } from './south.mjs'
 import { transform, box, region, affine } from './lib/natural.mjs'

@@ -23,6 +23,7 @@ A web application for playing the board game **Diplomacy** online.
 - `npm run check` — type-check Svelte + TypeScript
 - `npm run db:start` / `db:stop` / `db:reset` / `db:status` — local Supabase stack in Docker (migrations + `supabase/seed.sql`, adjudicator served locally)
 - `npm run test:7p` — seven-player end-to-end game against the local stack (`test:7p:live` for the cloud)
+- `npm run test:local` — the `*.local.test.ts` suites (game pushes/readiness, press delivery) against the local stack; shared fixture in `src/lib/__tests__/localStack.ts`
 - `npm run live:push` (`-- --dry-run`) / `live:deploy-functions` — ship migrations / the Edge Functions (adjudicator + notify) to the cloud project (the only way to reach it; see below)
 
 ## Local vs live backend
@@ -41,10 +42,10 @@ Develop and test against the **local** stack first; promote to **live** only onc
 - `src/components/` — Svelte UI (game map, board, lobby, game list, auth)
 - `src/lib/` — application logic
   - `supabase.ts` — Supabase client (configured via `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`)
-  - `auth.ts`, `game.ts` — auth and game state
+  - `auth.ts`, `game.ts` — auth and game state (types, reads, lobby/host RPCs); `gameLive.ts` — a game's live subscription; `settings.ts` — `GameSettings` + `DEFAULT_SETTINGS`
   - `map/` — map rendering (SVG parsing, geometry, render state). Every board (`public/maps/*.dsvg`) stores its layout the same way: hidden `unit-positions` and `supply-centers` point layers (the app draws the bullseyes), and each name / coast mark / note as one group `<g id="name:<province>|coast:<province>/<coast>|note:…" transform="translate(x y) rotate(a)">` in `province-names`. The layout editor (`/editor`, local dev server only) moves all three; generated boards keep those edits in `tools/variants/<map>/placements.json`
   - `maps/` — board definitions (standard map), parameterizing both the order wizard and the adjudicator
-  - `orders/` — order types, legal-move *options*, and the order-entry wizard (legality candidates for entry — **not** an adjudicator)
+  - `orders/` — order types, legal-move *options*, the order-entry wizard (legality candidates for entry — **not** an adjudicator) and `api.ts` (the caller's order RPCs). It imports graph primitives from the engine, never the reverse
   - `adjudicator/` — pure, dependency-free TS adjudication engine, parameterized by a `MapDefinition`. Imported by the Edge Function; avoids browser/Node-specific APIs so Deno can run it.
 - `supabase/` — backend.
   - `migrations/` — timestamp-prefixed SQL migrations (`20250101000101_schema.sql`, …), applied in filename order. RLS policies and RPC functions live here. Apply with **`supabase db push`** (it runs any migration not yet in the remote's history); add new ones with `supabase migration new <name>`. Never hand-edit an applied migration — write a new one.
@@ -114,6 +115,8 @@ The design is sized to fit Supabase's free tier for ~100 games/month. Two constr
 - Supabase env vars are injected at build time via Vite (`import.meta.env.VITE_*`); production secrets come from GitHub Actions secrets.
 - Board-advancing logic lives only in the adjudicator Edge Function (service role); player writes go through RLS-guarded, own-nation order submissions. Never trust the client to mutate game state.
 - Functions in `public` are **not executable by default** (`20250101000128_lock_down_rpcs.sql`). A new client-facing RPC needs an explicit `grant execute … to authenticated` in its migration; internal/service-only functions get no grant.
+- Every `security definer` function pins `set search_path = public, extensions, pg_temp` (`20250101000157_hardening.sql` did the existing ones; `definerSearchPath.test.ts` checks new ones).
+- Rules the SQL restates from TS (order phases, `round_rank`, settings defaults) are checked by `src/lib/__tests__/sqlParity.test.ts` against the generated `supabase/current-functions.sql` (`npm run sql:current`); change both sides together.
 - Diplomacy province notation: **seas in ALL CAPS**, **land in Title Case**, **coasts as `Stp(sc)`**.
 
 ## References

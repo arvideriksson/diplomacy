@@ -1,11 +1,10 @@
 <script lang="ts">
   import type { Unit } from '../lib/game'
-  import { submitOrders, fetchMyOrders, saveDraftOrders } from '../lib/game'
   import { onDestroy, tick } from 'svelte'
-  import { errorMessage } from '../lib/errors'
-  import { createDebouncer } from '../lib/debounce'
-  import { readDraftBackup, writeDraftBackup, sameOrders } from '../lib/draftBackup'
-  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { sameOrders } from '../lib/draftBackup'
+  import { createOrderSession } from '../lib/orders/session'
+  import { readHiddenPanels, writeHiddenPanels } from '../lib/mapPrefs'
+  import { isOrderPhase, PHASE_LABEL, roundSeason } from '../lib/phases'
   import Icon from './Icon.svelte'
   import { sameNation } from '../lib/powers'
   import type { MapDefinition } from '../lib/mapDefinition'
@@ -18,9 +17,10 @@
   import { supportAux } from '../lib/orders/options'
   import { canConvoyFrom } from '../lib/adjudicator/rules'
   import type { OrderResult } from '../lib/adjudicator/types'
-  import { ACTION_ICONS, ORDER_ACTIONS, type Action, type ActionMenu } from '../lib/orders/actions'
+  import { ACTION_ICONS, ORDER_ACTIONS, type Action, type ActionChoice, type ActionMenu } from '../lib/orders/actions'
   import { compact, wideLayout, type GameTab } from '../lib/layout'
-  import { powerColor, powerName } from '../lib/powers'
+  import { powerInfo, powerName } from '../lib/powers'
+  import { submitState } from '../lib/submitState'
   import {
     orderSource, withImplicitHolds, toRenderOrders, orderFailed, supportCut, applyChoice, commitMove, unorderedUnitIds,
     retreatChoices as retreatChoicesFor, retreatMapInputs,
@@ -39,6 +39,7 @@
   import GameTopBar from './GameTopBar.svelte'
   import GameTabs from './GameTabs.svelte'
   import Countdown from './Countdown.svelte'
+  import MapStrip from './MapStrip.svelte'
 
   export let mapDef: MapDefinition
   export let gameId: string = ''
@@ -61,7 +62,10 @@
   export let supplyCenters: Record<string, string> = {}
   /** Sandbox/god mode: control every power's units, not just `nation`. */
   export let controlAll: boolean = false
-  /** When set (sandbox), the footer resolves locally via this instead of the RPC. */
+  /** A live game's current round (orders load, autosave and submit), a sandbox (orders
+   *  stay local and the footer resolves through `onResolve`), or a past phase of a game. */
+  export let mode: 'live' | 'sandbox' | 'history' = 'live'
+  /** Sandbox: resolve the phase locally with these orders (the footer's Resolve). */
   export let onResolve: ((orders: AnyOrder[]) => void) | null = null
   /** Sandbox: orders already entered for this phase, to preset the panel. */
   export let initialOrders: AnyOrder[] = []
@@ -72,7 +76,7 @@
   export let onPhaseForward: (() => void) | null = null
   export let canPhaseBack: boolean = false
   export let canPhaseForward: boolean = false
-  /** Read-only history view of a past phase: no order entry, just the resolved orders. */
+  /** No order entry, just the resolved orders (always so in history mode). */
   export let readOnly: boolean = false
   /** The resolved orders to display in read-only history mode. */
   export let historyOrders: AnyOrder[] = []
@@ -111,7 +115,9 @@
   /** Notified with the current order set whenever it changes (including on load). */
   export let onOrdersChange: ((orders: AnyOrder[]) => void) | null = null
 
-  let orders: AnyOrder[] = []
+  $: sandbox = mode === 'sandbox'
+  $: viewOnly = readOnly || mode === 'history'
+
   let spotlightNation = '' // nation whose SCs are spotlit (hovering the SC card)
   let draft: Draft | null = null // movement wizard
   let currentStep: Step | null = null
@@ -119,32 +125,20 @@
   let retreatRouting = false // …and Retreat selected (the default): destinations highlighted
   let buildSel: { province: string; nation: string } | null = null // center awaiting unit type (build)
   let removeSel: { territory: string; nation: string } | null = null // unit offered for removal (build)
-  let saving = false
-  let saveError = ''
-  // Optimistic ready state: submit flips the UI immediately instead of waiting
-  // for `ready` to round-trip back through the parent's realtime subscription. Cleared
-  // once the prop catches up (or on round change).
-  let readyOverride: boolean | null = null
-  $: effectiveReady = readyOverride ?? ready
-  // The same, read immediately — handlers run before reactive statements re-derive it.
-  const isReady = () => readyOverride ?? ready
-  $: if (readyOverride !== null && ready === readyOverride) readyOverride = null
-  // Edits made after submitting (Phase 2) are ephemeral until Resubmit — flag them.
-  let dirtySinceSubmit = false
-  // Snapshot of the orders actually locked in on the server (the submitted set). Drives
-  // the read-only "locked in" box; survives Phase 2 edits so it shows the committed
-  // truth, not the live draft. Empty until this nation has readied.
-  let submittedOrders: AnyOrder[] = []
-  // True only after the user clicks Resubmit *in this view* (drives Submitted vs
-  // Resubmitted). Reset on every load — on entry we can't tell submit from resubmit,
-  // so an already-submitted game always reads as the calm "Submitted".
-  let hasResubmitted = false
-  // (The Submit/Submitted/Resubmit/Resubmitted labels derive from these in SubmitControls.)
-  const DRAFT_DEBOUNCE_MS = 750
-  // Live autosave of the unsubmitted draft (Phase 1, !ready); silent, no status UI.
-  // A pending save is dropped (not flushed) on round change and submit, but flushed when
-  // the view goes away or the page is hidden — phones leave fast (back, app switch).
-  const draftSave = createDebouncer(() => saveDraftNow(), DRAFT_DEBOUNCE_MS)
+
+  // The order set and its persistence (load, device backup, draft autosave, submit).
+  const session = createOrderSession({
+    round: () => ({ gameId, nation, year, season, phase }),
+    ready: () => ready,
+    ownUnits: () => ownUnits,
+    persist: () => mode !== 'sandbox',
+    onChange: (o) => onOrdersChange?.(o),
+  })
+  const { orders, submittedOrders, dirtySinceSubmit, readyOverride, hasResubmitted, saving, saveError, loadFailed } = session
+  onDestroy(session.destroy)
+  $: effectiveReady = $readyOverride ?? ready
+  $: $readyOverride, session.syncReady(ready)
+  // (The Submit/Submitted/Resubmit/Resubmitted labels derive from these via submitState.)
 
   let mapRef: { reveal: (dsvgId: string) => void } | undefined
 
@@ -154,21 +148,8 @@
   // Desktop: either sidebar can be hidden to give the map the room; remembered per
   // browser. Hidden, the left rail stays mounted (chat keeps its state) and its Leave
   // button moves onto the map, so leaving is always one click away.
-  const PANELS_KEY = 'game:hidden-panels'
-  let leftHidden = false
-  let rightHidden = false
-  try {
-    const saved = JSON.parse(localStorage.getItem(PANELS_KEY) ?? '{}')
-    leftHidden = saved.left === true
-    rightHidden = saved.right === true
-  } catch {
-    /* no storage: both sidebars start shown */
-  }
-  $: try {
-    localStorage.setItem(PANELS_KEY, JSON.stringify({ left: leftHidden, right: rightHidden }))
-  } catch {
-    /* not remembered */
-  }
+  let { left: leftHidden, right: rightHidden } = readHiddenPanels()
+  $: writeHiddenPanels({ left: leftHidden, right: rightHidden })
   // The left rail is on screen: docked and not hidden (desktop), or the drawer is open.
   $: leftShown = hasRail && ($wideLayout ? !leftHidden : leftOpen)
   function toggleLeft() {
@@ -179,7 +160,7 @@
   // The left rail shows when there's a title, a Leave action or slotted rail content.
   $: hasRail = Boolean(title || onExit || $$slots.left)
 
-  $: canAct = !readOnly && (controlAll || Boolean(nation)) && isOrderPhase(phase)
+  $: canAct = !viewOnly && (controlAll || Boolean(nation)) && isOrderPhase(phase)
 
   // Reset order entry whenever the ROUND changes — identified by (year, season,
   // phase), which changes on every phase transition even when no unit moved (e.g.
@@ -196,119 +177,7 @@
       retreatRouting = false
       buildSel = null
       removeSel = null
-      dirtySinceSubmit = false
-      readyOverride = null
-      hasResubmitted = false
-      submittedOrders = [] // loadOrders() repopulates it for an already-ready nation
-      saveError = '' // clear any "catching up…" notice once the new round arrives
-      draftSave.cancel()
-      if (onResolve) orders = initialOrders ?? [] // sandbox: preset
-      else if (gameId && nation && isOrderPhase(phase)) loadOrders() // live: reload saved
-      else orders = []
-      if (!onResolve) onOrdersChange?.(orders)
-    }
-  }
-
-  // Notify the parent of a user edit (sandbox stores it / forks the timeline) and,
-  // in live play, persist the change: autosave the draft while unsubmitted, or just
-  // flag unsaved edits once submitted (Phase 2 edits don't persist until Resubmit).
-  const notifyOrders = () => {
-    onOrdersChange?.(orders)
-    if (onResolve) return // sandbox: no server persistence
-    if (isReady()) {
-      // Unsent edits to a submitted set live only here until Resubmit — back them up so
-      // leaving doesn't silently drop them; they come back flagged on the next load.
-      // Only a real difference counts: putting the submitted order back is no change.
-      dirtySinceSubmit = !sameOrders(orders, submittedOrders)
-      if (gameId && nation) writeBackup(dirtySinceSubmit ? orders : null)
-    } else scheduleDraftSave()
-  }
-
-  // One row per round holds the orders whether drafted or submitted (readiness is the
-  // `ready` prop, from games.ready) — so load it directly; no draft/submitted branching.
-  // Device backup of unsent orders (see draftBackup.ts): an unsaved draft, or edits to a
-  // submitted set. Restored on the next load instead of being lost.
-  const round = () => ({ gameId, nation, year, season, phase })
-  const writeBackup = (set: AnyOrder[] | null) => writeDraftBackup(round(), set)
-  const readBackup = () => readDraftBackup(round())
-
-  async function loadOrders() {
-    hasResubmitted = false
-    try {
-      orders = await fetchMyOrders(gameId, year, season, phase)
-    } catch {
-      orders = []
-    }
-    // If the nation is already ready, the loaded set IS the locked-in set; otherwise
-    // it's an unsubmitted draft and nothing is locked in yet.
-    submittedOrders = isReady() ? [...orders] : []
-    const backup = readBackup()
-    if (backup && isReady() && !sameOrders(backup, submittedOrders)) {
-      orders = backup // unsent edits to the submitted set
-      dirtySinceSubmit = true
-    } else if (backup) {
-      orders = backup
-      draftSave.schedule()
-    } else writeBackup(null)
-    onOrdersChange?.(orders)
-  }
-
-  // Debounced autosave of the unsubmitted draft. No-op in sandbox, once ready, or
-  // outside an order phase — those never write a draft.
-  function scheduleDraftSave() {
-    if (onResolve || isReady() || !gameId || !nation || !isOrderPhase(phase)) return
-    writeBackup(orders)
-    draftSave.schedule()
-  }
-
-  async function saveDraftNow() {
-    if (isReady()) return
-    const sent = orders
-    try {
-      await saveDraftOrders(gameId, sent, { year, season, phase })
-      if (sent === orders) writeBackup(null)
-    } catch {
-      // silent: a dropped autosave just retries on the next edit
-    }
-  }
-
-  const flushDraft = () => draftSave.flush()
-  const onHidden = () => document.visibilityState === 'hidden' && flushDraft()
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', flushDraft)
-    document.addEventListener('visibilitychange', onHidden)
-  }
-  onDestroy(() => {
-    flushDraft()
-    window.removeEventListener('pagehide', flushDraft)
-    document.removeEventListener('visibilitychange', onHidden)
-  })
-
-  // Submit (or resubmit): the orders row becomes the only persisted truth and the
-  // draft is dropped server-side. Cancels any pending autosave and clears dirty.
-  async function submit() {
-    if (!gameId || !nation) return
-    saving = true
-    saveError = ''
-    draftSave.cancel()
-    const wasReady = effectiveReady // a commit while already submitted is a *re*submit
-    const committed = withImplicitHolds(orders, phase, ownUnits) // un-ordered units become explicit Holds
-    try {
-      await submitOrders(gameId, committed, true, { year, season, phase })
-      readyOverride = true
-      submittedOrders = [...committed] // the just-committed set is now locked in
-      orders = committed // reflect the filled-in holds in the live, editable list too
-      notifyOrders() // ready + identical to the locked-in set: clears the backup
-      dirtySinceSubmit = false
-      hasResubmitted = wasReady
-    } catch (e) {
-      const msg = errorMessage(e)
-      // The round resolved between load and submit (instant early resolution + the brief
-      // realtime-propagation lag). The incoming snapshot will advance us in a moment, so
-      // show a soft "catching up" notice rather than a hard error; it clears on round change.
-      saveError = msg.includes('Round has advanced') ? 'That round just resolved — catching up…' : msg
-    } finally {
-      saving = false
+      session.enterRound(initialOrders)
     }
   }
 
@@ -347,10 +216,10 @@
     // A move's picked convoy route also orders the fleets this player controls to convoy
     // it; a support's route only chose the supported destination.
     const route = draft.type === 'Move' ? draft.convoyPath : undefined
-    orders = commitMove(orders, finalize(draft, ctx), route, units, (n) => controlAll || n === nation)
+    const next = commitMove($orders, finalize(draft, ctx), route, units, (n) => controlAll || n === nation)
     draft = null
     currentStep = null
-    notifyOrders()
+    session.edit(next)
   }
 
   // Selecting a unit opens its action bar (an untyped draft, which routes a Move); an
@@ -405,7 +274,7 @@
     const action = actionMenu?.items.find((a) => a.key?.toLowerCase() === e.key.toLowerCase() && !a.disabled)
     if (action) {
       e.preventDefault()
-      onAction(action.id)
+      onAction(action.choice)
     }
   }
 
@@ -490,18 +359,16 @@
 
   // After submitting: put one unit's submitted order back into the draft.
   function revertOrder(source: string) {
-    const was = submittedOrders.find((o) => orderSource(o) === source)
+    const was = $submittedOrders.find((o) => orderSource(o) === source)
     if (was) setOrder(source, was)
   }
 
   function deleteOrder(source: string) {
-    orders = orders.filter((o) => (o as { source: string }).source !== source)
-    notifyOrders()
+    session.edit($orders.filter((o) => (o as { source: string }).source !== source))
   }
 
   const setOrder = (source: string, order: AnyOrder) => {
-    orders = [...orders.filter((o) => orderSource(o) !== source), order]
-    notifyOrders()
+    session.edit([...$orders.filter((o) => orderSource(o) !== source), order])
   }
 
   // ── retreat phase ─────────────────────────────────────────────────────────
@@ -559,10 +426,10 @@
       : []
   $: buildSituations = buildNations.map((n) => ({ nation: n, ...buildSituation(mapDef, n, supplyCenters, units) }))
   // Open home centers still buildable, and units still removable.
-  $: buildSpots = openBuildSpots(buildSituations, orders)
-  $: removeChoices = openRemovals(buildSituations, orders)
+  $: buildSpots = openBuildSpots(buildSituations, $orders)
+  $: removeChoices = openRemovals(buildSituations, $orders)
   // Units that may switch type where they stand (conversion), not yet ordered.
-  $: convertChoices = openConversions(buildSituations, orders)
+  $: convertChoices = openConversions(buildSituations, $orders)
   $: convertibleAt = (p: string) =>
     buildSituations.flatMap((s) => (s.convertible ?? []).map((c) => ({ ...c, nation: s.nation }))).find((c) => c.territory === p)
   $: owesRemoval = (n: string) => (buildSituations.find((s) => s.nation === n)?.delta ?? 0) < 0
@@ -575,7 +442,7 @@
   // the panel shows a calm "Waiting…" rather than a Submit button. Live play only —
   // sandbox/god-mode always lets you act.
   $: amIdle =
-    !onResolve &&
+    !sandbox &&
     !controlAll &&
     Boolean(nation) &&
     isOrderPhase(phase) &&
@@ -584,7 +451,7 @@
   function handleBuildClick(dsvgId: string) {
     const gid = toGameId(dsvgId)
     // clicking an already-placed build/remove undoes it
-    const existing = orders.find(
+    const existing = $orders.find(
       (o) => (o.type === 'Build' || o.type === 'Remove' || o.type === 'Convert') && (o as BuildOrder).source === gid,
     )
     const same = buildSel?.province === gid || removeSel?.territory === gid
@@ -618,46 +485,46 @@
   function confirmRemove() {
     if (!removeSel) return
     const at = removeSel.territory
-    orders = [...orders.filter((o) => orderSource(o) !== at), { type: 'Remove', nation: removeSel.nation, source: at } as BuildOrder]
+    const next = [...$orders.filter((o) => orderSource(o) !== at), { type: 'Remove', nation: removeSel.nation, source: at } as BuildOrder]
     removeSel = null
-    notifyOrders()
+    session.edit(next)
   }
 
   // Cancel the placed build/removal whose actions are open.
   function undoAdjustment() {
     const at = buildSel?.province ?? removeSel?.territory
-    orders = orders.filter((o) => orderSource(o) !== at)
+    const next = $orders.filter((o) => orderSource(o) !== at)
     cancel()
-    notifyOrders()
+    session.edit(next)
   }
 
   function placeConvert(unitType: 'army' | 'fleet', coast?: string) {
     if (!removeSel) return
     const at = removeSel.territory
-    orders = [
-      ...orders.filter((o) => orderSource(o) !== at),
+    const next = [
+      ...$orders.filter((o) => orderSource(o) !== at),
       { type: 'Convert', nation: removeSel.nation, source: at, unitType, sourceCoast: coast } as BuildOrder,
     ]
     removeSel = null
-    notifyOrders()
+    session.edit(next)
   }
 
   function placeBuild(unitType: 'army' | 'fleet', coast?: string) {
     if (!buildSel) return
     const at = buildSel.province
-    orders = [
-      ...orders.filter((o) => orderSource(o) !== at),
+    const next = [
+      ...$orders.filter((o) => orderSource(o) !== at),
       { type: 'Build', nation: buildSel.nation, source: buildSel.province, unitType, sourceCoast: coast } as BuildOrder,
     ]
     buildSel = null
-    notifyOrders()
+    session.edit(next)
   }
 
   // ── action bar ────────────────────────────────────────────────────────────
   // Movement: the selected unit's order types, Move selected until another is picked.
   // Retreat: retreat (selected) / disband. Build: the unit types a center can raise, or
   // Remove for a unit owed as a removal.
-  const currentOrderType = (source: string): string | undefined => orders.find((o) => orderSource(o) === source)?.type
+  const currentOrderType = (source: string): string | undefined => $orders.find((o) => orderSource(o) === source)?.type
 
   $: actionMenu = ((): ActionMenu | null => {
     if (!canAct) return null
@@ -668,6 +535,7 @@
         ({ type }) => type === 'Hold' || draftTypes.includes(type) || (type === 'Convoy' && convoySpot),
       ).map(({ type, key }) => ({
         id: type,
+        choice: { kind: 'order', type },
         label: type,
         icon: ACTION_ICONS[type],
         key,
@@ -683,67 +551,75 @@
         anchor: toDsvgId(retreatSel, d.unit.coast),
         dislodged: true,
         items: [
-          { id: 'Retreat', label: 'Retreat', icon: ACTION_ICONS.Retreat, key: 'R', active: retreatRouting, disabled: retreatChoices(retreatSel).length === 0 },
-          { id: 'Disband', label: 'Disband', icon: ACTION_ICONS.Disband, key: 'D', active: currentOrderType(retreatSel) === 'Disband', tone: 'danger' },
+          { id: 'Retreat', choice: { kind: 'retreat' }, label: 'Retreat', icon: ACTION_ICONS.Retreat, key: 'R', active: retreatRouting, disabled: retreatChoices(retreatSel).length === 0 },
+          { id: 'Disband', choice: { kind: 'disband' }, label: 'Disband', icon: ACTION_ICONS.Disband, key: 'D', active: currentOrderType(retreatSel) === 'Disband', tone: 'danger' },
         ],
       }
     }
     if (phase === 'build' && buildSel && buildSpotChoice) {
-      const color = powerColor(mapDef.powers, buildSel.nation, '#888')
-      const placed = orders.find((o) => o.type === 'Build' && orderSource(o) === buildSel!.province) as BuildOrder | undefined
+      const color = powerInfo(mapDef, buildSel.nation).color
+      const placed = $orders.find((o) => o.type === 'Build' && orderSource(o) === buildSel!.province) as BuildOrder | undefined
       const is = (t: string, c?: string) => placed?.unitType === t && (c === undefined || placed?.sourceCoast === c)
       const items: Action[] = []
-      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', label: 'Army', token: { type: 'Army', color }, key: 'A', active: is('army') })
+      if (buildSpotChoice.types.includes('army')) items.push({ id: 'army', choice: { kind: 'build', unitType: 'army' }, label: 'Army', token: { type: 'Army', color }, key: 'A', active: is('army') })
       if (buildSpotChoice.types.includes('fleet')) {
         const coasts = buildSpotChoice.coasts ?? []
         if (coasts.length > 1) {
           for (const c of coasts)
-            items.push({ id: `fleet:${c}`, label: `Fleet ${coastName(mapDef, buildSel.province, c)}`, token: { type: 'Fleet', color }, active: is('fleet', c) })
-        } else items.push({ id: 'fleet', label: 'Fleet', token: { type: 'Fleet', color }, key: 'F', active: is('fleet') })
+            items.push({ id: `fleet:${c}`, choice: { kind: 'build', unitType: 'fleet', coast: c }, label: `Fleet ${coastName(mapDef, buildSel.province, c)}`, token: { type: 'Fleet', color }, active: is('fleet', c) })
+        } else items.push({ id: 'fleet', choice: { kind: 'build', unitType: 'fleet' }, label: 'Fleet', token: { type: 'Fleet', color }, key: 'F', active: is('fleet') })
       }
-      if (placed) items.push({ id: 'undo', label: 'No build', icon: ACTION_ICONS.Disband, key: 'N', tone: 'danger' })
+      if (placed) items.push({ id: 'undo', choice: { kind: 'undo' }, label: 'No build', icon: ACTION_ICONS.Disband, key: 'N', tone: 'danger' })
       return { anchor: toDsvgId(buildSel.province), items }
     }
     if (phase === 'build' && removeSel) {
       const at = removeSel.territory
       const u = units.find((x) => x.territory === at)
       const placedType = currentOrderType(at)
-      const placed = orders.find((o) => orderSource(o) === at) as BuildOrder | undefined
+      const placed = $orders.find((o) => orderSource(o) === at) as BuildOrder | undefined
       const conv = convertibleAt(at)
-      const color = powerColor(mapDef.powers, removeSel.nation, '#888')
+      const color = powerInfo(mapDef, removeSel.nation).color
       const items: Action[] = []
       if (owesRemoval(removeSel.nation) || placedType === 'Remove')
-        items.push({ id: 'remove', label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: placedType === 'Remove' })
+        items.push({ id: 'remove', choice: { kind: 'remove' }, label: 'Remove', icon: ACTION_ICONS.Remove, key: 'R', tone: 'danger', active: placedType === 'Remove' })
       if (conv) {
         const kind = conv.to === 'fleet' ? 'Fleet' : 'Army'
         const coasts = conv.coasts ?? []
         const active = (c?: string) => placedType === 'Convert' && (c === undefined || placed?.sourceCoast === c)
         if (coasts.length > 1)
           for (const c of coasts)
-            items.push({ id: `convert:${conv.to}:${c}`, label: `To ${kind} ${coastName(mapDef, at, c)}`, token: { type: kind, color }, active: active(c) })
-        else items.push({ id: `convert:${conv.to}`, label: `To ${kind}`, token: { type: kind, color }, key: 'C', active: active() })
+            items.push({ id: `convert:${conv.to}:${c}`, choice: { kind: 'convert', unitType: conv.to, coast: c }, label: `To ${kind} ${coastName(mapDef, at, c)}`, token: { type: kind, color }, active: active(c) })
+        else items.push({ id: `convert:${conv.to}`, choice: { kind: 'convert', unitType: conv.to }, label: `To ${kind}`, token: { type: kind, color }, key: 'C', active: active() })
       }
-      if (placedType) items.push({ id: 'undo', label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' })
+      if (placedType) items.push({ id: 'undo', choice: { kind: 'undo' }, label: 'Keep', icon: ACTION_ICONS.Hold, key: 'K' })
       return { anchor: toDsvgId(at, u?.coast), items }
     }
     return null
   })()
 
-  function onAction(id: string) {
-    if (phase === 'movement') return setType(id as OrderType)
-    if (phase === 'retreat') {
-      if (id === 'Disband') disbandSelected()
-      else retreatRouting = true
-      return
+  function onAction(choice: ActionChoice) {
+    switch (choice.kind) {
+      case 'order':
+        return setType(choice.type)
+      case 'retreat':
+        retreatRouting = true
+        return
+      case 'disband':
+        return disbandSelected()
+      case 'remove':
+        return confirmRemove()
+      case 'undo':
+        return undoAdjustment()
+      case 'convert':
+        return placeConvert(choice.unitType, choice.coast)
+      case 'build':
+        return placeBuild(choice.unitType, choice.coast)
     }
-    if (id === 'remove') return confirmRemove()
-    if (id === 'undo') return undoAdjustment()
-    if (id.startsWith('convert:')) {
-      const [, to, coast] = id.split(':') as [string, 'army' | 'fleet', string | undefined]
-      return placeConvert(to, coast)
-    }
-    const [unitType, coast] = id.split(':') as ['army' | 'fleet', string | undefined]
-    placeBuild(unitType, coast)
+  }
+  // The bar hands back the picked item's id.
+  const onPick = (id: string) => {
+    const action = actionMenu?.items.find((a) => a.id === id)
+    if (action) onAction(action.choice)
   }
 
   // The floating map hint above the action bar while a unit or center is picked.
@@ -769,18 +645,18 @@
   // The orders list in a stable order (power, then province) so edited rows don't jump.
   const byNationThenProvince = (a: AnyOrder, b: AnyOrder) =>
     a.nation.localeCompare(b.nation) || provinceName(orderSource(a)).localeCompare(provinceName(orderSource(b)))
-  $: listedOrders = [...orders].sort(byNationThenProvince)
+  $: listedOrders = [...$orders].sort(byNationThenProvince)
   // What the panel lists. A sandbox phase you've stepped back to reads as history: every
   // unit, an un-ordered one as the Hold it resolved as. The latest phase is entry: just the
   // entered orders, with un-ordered units under "No order yet". History lists every unit.
   $: sandboxPast = controlAll && canPhaseForward
-  $: shownOrders = sandboxPast ? withImplicitHolds(orders, phase, ownUnits).sort(byNationThenProvince) : listedOrders
+  $: shownOrders = sandboxPast ? withImplicitHolds($orders, phase, ownUnits).sort(byNationThenProvince) : listedOrders
   $: shownHistory = withImplicitHolds(historyOrders, phase, units).sort(byNationThenProvince)
-  const isEntered = (o: AnyOrder) => orders.some((x) => orderSource(x) === orderSource(o))
+  const isEntered = (o: AnyOrder) => $orders.some((x) => orderSource(x) === orderSource(o))
   // The order set as notation for the clipboard: un-ordered units hold in a game; a
   // sandbox (one board commanding every power) copies only the entered orders, by power.
   $: copyText = (() => {
-    if (!controlAll) return withImplicitHolds(orders, phase, ownUnits).sort(byNationThenProvince).map(formatOrder).join('\n')
+    if (!controlAll) return withImplicitHolds($orders, phase, ownUnits).sort(byNationThenProvince).map(formatOrder).join('\n')
     const nations = [...new Set(listedOrders.map((o) => o.nation))]
     return nations
       .map((n) => [powerName(mapDef.powers, n), ...listedOrders.filter((o) => o.nation === n).map(formatOrder)].join('\n'))
@@ -788,12 +664,18 @@
   })()
 
   $: unorderedUnits = canAct && phase === 'movement' && !controlAll
-    ? ownUnits.filter((u) => !orders.some((o) => orderSource(o) === u.territory))
+    ? ownUnits.filter((u) => !$orders.some((o) => orderSource(o) === u.territory))
     : []
   // Retreats and builds still to order, for the strip's "Next ›" (all phases, sandbox too).
-  $: pendingRetreats = phase === 'retreat' ? myDislodged.filter((d) => !orders.some((o) => orderSource(o) === d.unit.territory)) : []
-  $: pendingBuilds = phase === 'build' ? buildSituations.reduce((a, s) => a + Math.max(0, s.delta - orders.filter((o) => o.type === 'Build' && (o as BuildOrder).nation === s.nation).length), 0) : 0
-  $: pendingRemovals = phase === 'build' ? buildSituations.reduce((a, s) => a + Math.max(0, -s.delta - orders.filter((o) => o.type === 'Remove' && (o as BuildOrder).nation === s.nation).length), 0) : 0
+  $: pendingRetreats = phase === 'retreat' ? myDislodged.filter((d) => !$orders.some((o) => orderSource(o) === d.unit.territory)) : []
+  // Per power: builds still to place and removals still owed (negative once over-placed).
+  $: adjustLeft = buildSituations.map((s) => ({
+    situation: s,
+    builds: s.delta - $orders.filter((o) => o.type === 'Build' && o.nation === s.nation).length,
+    removes: -s.delta - $orders.filter((o) => o.type === 'Remove' && o.nation === s.nation).length,
+  }))
+  $: pendingBuilds = phase === 'build' ? adjustLeft.reduce((a, l) => a + Math.max(0, l.builds), 0) : 0
+  $: pendingRemovals = phase === 'build' ? adjustLeft.reduce((a, l) => a + Math.max(0, l.removes), 0) : 0
   $: pendingAdjust = !canAct
     ? null
     : pendingRetreats.length
@@ -829,21 +711,28 @@
     const u = unorderedUnits[0]
     if (u) pickUnit(u.territory)
   }
-  $: submitDone = !onResolve && effectiveReady && !dirtySinceSubmit
+  $: submitDone = !sandbox && effectiveReady && !$dirtySinceSubmit
   // After editing a submitted set: how many units' orders differ from it.
-  $: changedCount = [...new Set([...orders, ...submittedOrders].map(orderSource))].filter((src) => {
-    const a = orders.find((o) => orderSource(o) === src)
-    const b = submittedOrders.find((o) => orderSource(o) === src)
+  $: changedCount = [...new Set([...$orders, ...$submittedOrders].map(orderSource))].filter((src) => {
+    const a = $orders.find((o) => orderSource(o) === src)
+    const b = $submittedOrders.find((o) => orderSource(o) === src)
     return !a || !b || !sameOrders([a], [b])
   }).length
-  $: submitLabel = onResolve ? 'Resolve' : !effectiveReady ? 'Submit' : dirtySinceSubmit ? 'Resubmit' : 'Submitted'
-  const doSubmit = () => (onResolve ? onResolve(withImplicitHolds(orders, phase, ownUnits)) : submit())
+  $: submitUi = submitState({
+    sandbox,
+    idle: amIdle,
+    saving: $saving,
+    ready: effectiveReady,
+    dirty: $dirtySinceSubmit,
+    resubmitted: $hasResubmitted,
+  })
+  const doSubmit = () => (sandbox ? onResolve?.(withImplicitHolds($orders, phase, ownUnits)) : session.submit())
 
   // Submitting with something left to do asks first, spelling out what the engine will do
   // in its place. Live play only — a sandbox resolves whatever is on the board.
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
   const names = (list: string[]) => list.join(', ')
-  $: submitWarnings = onResolve || !canAct
+  $: submitWarnings = sandbox || !canAct
     ? []
     : [
         unorderedUnits.length
@@ -861,9 +750,9 @@
   // The mobile strip with nothing to say (every unit ordered, builds all placed): just the
   // Submit button, its backdrop shrunk to fit and pinned right, rather than a status bar.
   $: stripBare =
-    !onResolve &&
+    !sandbox &&
     !pendingAdjust &&
-    !(effectiveReady && dirtySinceSubmit) &&
+    !(effectiveReady && $dirtySinceSubmit) &&
     !amIdle &&
     !submitDone &&
     ((phase === 'movement' && !unorderedUnits.length) || (phase === 'build' && !buildPrompt))
@@ -904,18 +793,18 @@
   $: convoyChain = (draft?.convoyPath ?? []).map((p) => toDsvgId(p))
 
   // Retreat: the dislodged units awaiting an order, or the picked one's destinations.
-  $: retreatMap = retreatMapInputs(mapDef, myDislodged, orders, units, contested, retreatRouting ? retreatSel : null)
+  $: retreatMap = retreatMapInputs(mapDef, myDislodged, $orders, units, contested, retreatRouting ? retreatSel : null)
   // Build: open slots as dashed "+" rings; placed builds/removes stay clickable to undo.
-  $: buildMap = buildMapInputs(buildSpots, removeChoices, orders, convertChoices)
+  $: buildMap = buildMapInputs(buildSpots, removeChoices, $orders, convertChoices)
 
-  $: highlighted = readOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : movementHighlighted
-  $: selectable = readOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : movementSelectable
-  $: mapBuildSlots = !readOnly && phase === 'build' ? buildMap.buildIds : []
-  $: mapRemoveSlots = !readOnly && phase === 'build' ? buildMap.removeIds : []
+  $: highlighted = viewOnly ? [] : phase === 'retreat' ? retreatMap.highlighted : phase === 'build' ? [] : movementHighlighted
+  $: selectable = viewOnly ? [] : phase === 'retreat' ? retreatMap.selectable : phase === 'build' ? buildMap.selectable : movementSelectable
+  $: mapBuildSlots = !viewOnly && phase === 'build' ? buildMap.buildIds : []
+  $: mapRemoveSlots = !viewOnly && phase === 'build' ? buildMap.removeIds : []
 
   // Movement: amber-flag own units that still have no order so none get forgotten.
   // Build: the same soft cue on units that may convert (optional, so no dashed ring).
-  $: unorderedSlots = !canAct ? [] : phase === 'movement' ? unorderedUnitIds(ownUnits, orders, draft?.source) : phase === 'build' ? convertMapIds(convertChoices, removeChoices) : []
+  $: unorderedSlots = !canAct ? [] : phase === 'movement' ? unorderedUnitIds(ownUnits, $orders, draft?.source) : phase === 'build' ? convertMapIds(convertChoices, removeChoices) : []
   // Phones open zoomed in on the viewer's own units.
   $: focusUnits = controlAll ? units.filter((u) => focusNation && sameNation(u.nation, focusNation)) : ownUnits
   // A retreat opens on the dislodged units instead — that's where the decisions are.
@@ -933,8 +822,8 @@
   $: cutSources = new Set(historyResults.filter(supportCut).map((r) => orderSource(r.order)))
   const withResults = (src: AnyOrder[]) =>
     toRenderOrders(src, (o) => failedSources.has(orderSource(o)), (o) => cutSources.has(orderSource(o)))
-  $: renderOrders = !readOnly
-    ? withResults(orders)
+  $: renderOrders = !viewOnly
+    ? withResults($orders)
     : historyResults.length
       ? withResults(shownHistory)
       : toRenderOrders(historyOrders)
@@ -952,22 +841,19 @@
   })()
 
   // The to-do lists cover what's left to place; the prompt only speaks when they're empty.
-  $: buildPrompt = phase !== 'build' || todos.length || orders.length ? '' : buildPromptFor(buildSituations, Boolean(mapDef.rules?.buildAnyCenter))
+  $: buildPrompt = phase !== 'build' || todos.length || $orders.length ? '' : buildPromptFor(buildSituations, Boolean(mapDef.rules?.buildAnyCenter))
 
   const unitLabel = (u: Unit) => `${u.type === 'fleet' ? 'Fleet' : 'Army'} ${provinceName(u.territory)}`
   const unitLabelAt = (p: string) => {
     const u = units.find((x) => x.territory === p)
     return u ? unitLabel(u) : provinceName(p)
   }
-  const placedFor = (type: 'Build' | 'Remove', n: string) => orders.filter((o) => o.type === type && o.nation === n).length
   // Build-phase to-dos, one group per power (several in a sandbox), each tagged with
   // the power when one board commands them all.
   $: adjustTodos = !canAct || phase !== 'build'
     ? []
-    : buildSituations.flatMap((s) => {
-        const power = controlAll ? { name: powerName(mapDef.powers, s.nation), color: powerColor(mapDef.powers, s.nation, '#888') } : undefined
-        const builds = s.delta - placedFor('Build', s.nation)
-        const removes = -s.delta - placedFor('Remove', s.nation)
+    : adjustLeft.flatMap(({ situation: s, builds, removes }) => {
+        const power = controlAll ? powerInfo(mapDef, s.nation) : undefined
         const spots = buildSpots.filter((sp) => sp.nation === s.nation)
         const removable = removeChoices.filter((r) => r.nation === s.nation)
         return [
@@ -987,12 +873,12 @@
       .sort((a, b) => (a.power?.name ?? '').localeCompare(b.power?.name ?? ''))
   // Sandbox, latest phase: each power's un-ordered units as its own "No order yet" group.
   $: sandboxUnordered = controlAll && canAct && phase === 'movement' && !sandboxPast
-    ? ownUnits.filter((u) => !orders.some((o) => orderSource(o) === u.territory))
+    ? ownUnits.filter((u) => !$orders.some((o) => orderSource(o) === u.territory))
     : []
   $: sandboxTodos = [...new Set(sandboxUnordered.map((u) => u.nation))]
     .map((n) => {
       const list = sandboxUnordered.filter((u) => u.nation === n).sort((a, b) => provinceName(a.territory).localeCompare(provinceName(b.territory)))
-      const power = { name: powerName(mapDef.powers, n), color: powerColor(mapDef.powers, n, '#888') }
+      const power = powerInfo(mapDef, n)
       return { key: `unordered:${n}`, title: 'No order yet', count: list.length, go: 'Order', power, items: list.map((u) => ({ id: u.territory, label: unitLabel(u) })) }
     })
     .sort((a, b) => a.power.name.localeCompare(b.power.name))
@@ -1003,14 +889,14 @@
     : [...new Set(pendingRetreats.map((d) => d.unit.nation))]
         .map((n) => {
           const list = pendingRetreats.filter((d) => d.unit.nation === n).sort((a, b) => provinceName(a.unit.territory).localeCompare(provinceName(b.unit.territory)))
-          const power = controlAll ? { name: powerName(mapDef.powers, n), color: powerColor(mapDef.powers, n, '#888') } : undefined
+          const power = controlAll ? powerInfo(mapDef, n) : undefined
           return { key: `retreat:${n}`, title: 'No order yet', count: list.length, go: 'Retreat', power, items: list.map((d) => ({ id: d.unit.territory, label: unitLabel(d.unit) })) }
         })
         .sort((a, b) => (a.power?.name ?? '').localeCompare(b.power?.name ?? ''))
   $: todos = phase === 'retreat'
     ? retreatTodos
     : phase === 'movement' && unorderedUnits.length
-    ? [{ key: 'unordered', title: effectiveReady && dirtySinceSubmit ? 'Missing from draft' : 'No order yet', count: unorderedUnits.length, go: 'Order', items: unorderedUnits.map((u) => ({ id: u.territory, label: unitLabel(u) })) }]
+    ? [{ key: 'unordered', title: effectiveReady && $dirtySinceSubmit ? 'Missing from draft' : 'No order yet', count: unorderedUnits.length, go: 'Order', items: unorderedUnits.map((u) => ({ id: u.territory, label: unitLabel(u) })) }]
     : phase === 'movement' && controlAll
       ? sandboxTodos
       : adjustTodos
@@ -1026,7 +912,7 @@
   // or support-move that doesn't match the move you gave it.
   function supportWarning(o: AnyOrder): string {
     if (o.type !== 'Support') return ''
-    const aux = orders.find((x) => orderSource(x) === o.aux)
+    const aux = $orders.find((x) => orderSource(x) === o.aux)
     if (!aux) return ''
     const holding = !o.target || o.target === o.aux
     if (holding && aux.type === 'Move') return `Won't count — ${provinceName(o.aux ?? '')} is moving`
@@ -1048,7 +934,7 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="game" class:compact={$compact} class:sandbox={Boolean(onResolve)} data-tab={tab}>
+<div class="game" class:compact={$compact} class:sandbox data-tab={tab}>
   {#if $compact}
     <GameTopBar
       {title}
@@ -1061,10 +947,10 @@
       {onPhaseForward}
       {canPhaseBack}
       {canPhaseForward}
-      past={readOnly && Boolean(onPhaseLatest)}
+      past={viewOnly && Boolean(onPhaseLatest)}
       {deadline}
       {graceEndsAt}
-      sandbox={Boolean(onResolve)}
+      {sandbox}
     >
       <slot name="map-action" />
     </GameTopBar>
@@ -1076,7 +962,7 @@
         {#if $$slots.left}
           <slot name="left" />
         {:else}
-          <p class="pane-empty">{onResolve ? 'Press stays with the real game.' : nation ? 'Press is off in this game.' : 'Spectators can’t send press.'}</p>
+          <p class="pane-empty">{sandbox ? 'Press stays with the real game.' : nation ? 'Press is off in this game.' : 'Spectators can’t send press.'}</p>
         {/if}
       </section>
     {:else if hasRail}
@@ -1116,7 +1002,7 @@
             class="edge-handle left"
             class:closed={!leftShown}
             on:click={toggleLeft}
-            title={leftShown ? 'Hide sidebar ([)' : `Show ${onResolve ? 'sidebar' : 'press'} ([)`}
+            title={leftShown ? 'Hide sidebar ([)' : `Show ${sandbox ? 'sidebar' : 'press'} ([)`}
             aria-label={leftShown ? 'Hide left sidebar' : 'Show left sidebar'}
             aria-expanded={leftShown}
           >
@@ -1161,7 +1047,7 @@
       <div class="map-action">
         {#if !$compact && rightHidden}
           <button class="glass orders-chip" on:click={() => (rightHidden = false)} title="Show orders (])" aria-label="Show orders sidebar">
-            <span>{season} {year}</span>
+            <span>{roundSeason({ season, phase })} {year}</span>
             {#if isOrderPhase(phase)}<span class="chip-phase">{PHASE_LABEL[phase]}</span>{/if}
             {#if deadline}<span class="chip-sep">·</span><Countdown {deadline} {graceEndsAt} />{/if}
             {#if canAct && unorderedUnits.length}<span class="chip-todo">{ownUnits.length - unorderedUnits.length}/{ownUnits.length} ordered</span>{:else if submitDone}<span class="chip-done">✓ Submitted</span>{/if}
@@ -1182,7 +1068,7 @@
           </div>
         {/if}
         {#if mapHint && !sidebarHint}
-          {#if actionMenu}<ActionBar items={actionMenu.items} onPick={onAction} />{/if}
+          {#if actionMenu}<ActionBar items={actionMenu.items} {onPick} />{/if}
           <div class="glass hint" role="status">
             <div class="hint-text">
               <strong>{mapHint.title}</strong>
@@ -1196,59 +1082,29 @@
             <button class="hint-btn" on:click={cancel} aria-label="Cancel">✕</button>
           </div>
         {:else if actionMenu}
-          <ActionBar items={actionMenu.items} onPick={onAction} />
+          <ActionBar items={actionMenu.items} {onPick} />
         {:else if mapStrip && canAct && isOrderPhase(phase) && !submitDone}
           <!-- Submitted: no strip (the Orders tab / chip carry the state). -->
-          <div class="glass strip" class:bare={stripBare} class:done-strip={amIdle}>
-            {#if !stripBare}
-            <div class="strip-info">
-              {#if pendingAdjust?.next}
-                <button class="strip-next" on:click={nextPending}>
-                  <span class="dot"></span>{pendingAdjust.text}
-                  <span class="next">Next ›</span>
-                </button>
-              {:else if pendingAdjust}
-                <span class="strip-next"><span class="dot"></span>{pendingAdjust.text}</span>
-              {:else if onResolve}
-                <span class="strip-count">{phase === 'movement' ? `${Math.min(orders.length, units.length)}/${units.length} ordered` : phase === 'retreat' ? '✓ Retreats ordered' : '✓ Adjustments done'}</span>
-              {:else if effectiveReady && dirtySinceSubmit}
-                <span class="unsent">Unsent changes</span>
-              {:else if amIdle}
-                <span class="strip-done">
-                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-                  <strong>Nothing to order</strong>
-                </span>
-              {:else if unorderedUnits.length}
-                <button class="strip-go" on:click={nextUnit}>
-                  <span class="dot"></span>
-                  Order {provinceName(unorderedUnits[0].territory)}
-                  {#if unorderedUnits.length > 1}<span class="more">+{unorderedUnits.length - 1}</span>{/if}
-                  <span class="next">›</span>
-                </button>
-              {:else}
-                <span>{phase === 'retreat' ? (myDislodged.length ? 'Tap a flagged unit to retreat it' : 'No retreats') : buildPrompt}</span>
-              {/if}
-            </div>
-            {/if}
-            {#if amIdle}
-              <!-- Nothing to order: the status alone, no button. -->
-            {:else}
-            <button
-                class="strip-submit"
-                class:resubmit={!onResolve && effectiveReady && dirtySinceSubmit}
-                class:incomplete={submitWarnings.length > 0 && !submitDone}
-                disabled={saving}
-                on:click={requestSubmit}
-              >
-                {submitLabel}
-              </button>
-            {/if}
-          </div>
-        {:else if mapStrip && readOnly && onPhaseLatest}
-          <div class="glass strip">
-            <div class="strip-info"><span>Viewing a past phase</span></div>
-            <button class="strip-submit plain" on:click={onPhaseLatest}>Back to now ›</button>
-          </div>
+          <MapStrip
+            bare={stripBare}
+            idle={amIdle}
+            adjust={pendingAdjust}
+            onNextAdjust={nextPending}
+            {sandbox}
+            count={phase === 'movement' ? `${Math.min($orders.length, units.length)}/${units.length} ordered` : phase === 'retreat' ? '✓ Retreats ordered' : '✓ Adjustments done'}
+            unsent={effectiveReady && $dirtySinceSubmit}
+            nextUnit={unorderedUnits.length ? provinceName(unorderedUnits[0].territory) : ''}
+            moreUnits={unorderedUnits.length - 1}
+            onNextUnit={nextUnit}
+            message={phase === 'retreat' ? (myDislodged.length ? 'Tap a flagged unit to retreat it' : 'No retreats') : buildPrompt}
+            label={submitUi.label}
+            resubmit={submitUi.tone === 'resubmit'}
+            incomplete={submitWarnings.length > 0 && !submitDone}
+            disabled={$saving || $loadFailed}
+            onSubmit={requestSubmit}
+          />
+        {:else if mapStrip && viewOnly && onPhaseLatest}
+          <MapStrip onLatest={onPhaseLatest} />
         {/if}
       </div>
     </div>
@@ -1274,11 +1130,11 @@
       {/if}
 
       <div class="side-body">
-        {#if readOnly && onPhaseLatest}
+        {#if viewOnly && onPhaseLatest}
           <button class="btn latest" on:click={onPhaseLatest}>Back to the current phase ›</button>
         {/if}
         <OrderPanel
-          {readOnly}
+          readOnly={viewOnly}
           {canAct}
           {phase}
           historyOrders={shownHistory}
@@ -1288,7 +1144,7 @@
           format={formatOrder}
           describe={describeOrder}
           warn={supportWarning}
-          powerInfo={(n) => ({ name: powerName(mapDef.powers, n), color: powerColor(mapDef.powers, n, '#888') })}
+          powerInfo={(n) => (powerInfo(mapDef, n))}
           byPower={controlAll}
           hasDislodged={myDislodged.length > 0}
           {buildPrompt}
@@ -1296,17 +1152,17 @@
           onPickTodo={pickTodo}
           onEdit={editOrder}
           activeHint={sidebarHint ? mapHint?.text ?? '' : ''}
-          submittedView={!onResolve && effectiveReady}
-          ordersTitle={onResolve ? 'Your orders' : effectiveReady ? (dirtySinceSubmit ? 'Draft orders' : 'Submitted orders') : 'Draft orders'}
-          ordersCount={!onResolve && !effectiveReady && phase === 'movement' ? `${ownUnits.length - unorderedUnits.length}/${ownUnits.length}` : null}
-          changed={(o) => effectiveReady && dirtySinceSubmit && !submittedOrders.some((x) => sameOrders([x], [o]))}
+          submittedView={!sandbox && effectiveReady}
+          ordersTitle={sandbox ? 'Your orders' : effectiveReady ? ($dirtySinceSubmit ? 'Draft orders' : 'Submitted orders') : 'Draft orders'}
+          ordersCount={!sandbox && !effectiveReady && phase === 'movement' ? `${ownUnits.length - unorderedUnits.length}/${ownUnits.length}` : null}
+          changed={(o) => effectiveReady && $dirtySinceSubmit && !$submittedOrders.some((x) => sameOrders([x], [o]))}
           was={(id) => {
-            const o = effectiveReady && dirtySinceSubmit ? submittedOrders.find((x) => orderSource(x) === id) : undefined
-            const now = orders.find((x) => orderSource(x) === id)
+            const o = effectiveReady && $dirtySinceSubmit ? $submittedOrders.find((x) => orderSource(x) === id) : undefined
+            const now = $orders.find((x) => orderSource(x) === id)
             return o && !(now && sameOrders([o], [now])) ? describeAnyOrder(mapDef, o) : ''
           }}
           activeSource={draft?.source ?? retreatSel ?? buildSel?.province ?? removeSel?.territory ?? ''}
-          locked={!onResolve && effectiveReady && dirtySinceSubmit ? submittedOrders : []}
+          locked={!sandbox && effectiveReady && $dirtySinceSubmit ? $submittedOrders : []}
           onCancel={cancel}
           onDelete={deleteOrder}
           onRevert={revertOrder}
@@ -1328,13 +1184,14 @@
         <!-- Pinned to the sidebar's foot so Submit never scrolls away. -->
         <div class="side-foot">
           <SubmitControls
-            sandbox={Boolean(onResolve)}
+            {sandbox}
             idle={amIdle}
-            {saving}
+            saving={$saving}
+            disabled={$loadFailed}
             ready={effectiveReady}
-            dirty={dirtySinceSubmit}
-            resubmitted={hasResubmitted}
-            error={saveError}
+            dirty={$dirtySinceSubmit}
+            resubmitted={$hasResubmitted}
+            error={$saveError}
             incomplete={submitWarnings.length > 0}
             onSubmit={requestSubmit}
           />
@@ -1350,7 +1207,7 @@
       {pressBadge}
       ordersBadge={unorderedUnits.length}
       ordersDone={submitDone && !amIdle}
-      ordersDirty={!onResolve && effectiveReady && dirtySinceSubmit ? changedCount : 0}
+      ordersDirty={!sandbox && effectiveReady && $dirtySinceSubmit ? changedCount : 0}
     />
   {/if}
 </div>
@@ -1696,48 +1553,6 @@
     background: var(--accent-subtle);
     color: var(--accent);
   }
-  /* A slim floater sized to its content and centred: status / next unit as text, one
-     button (Submit, Resubmit, …) on the right. */
-  .strip {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    max-width: 100%;
-    padding: 6px 6px 6px 16px;
-    border-radius: 16px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-  }
-  /* Nothing to press (nothing to order): just the status. */
-  .strip.done-strip:not(:has(button)) {
-    min-height: 52px;
-    padding: 6px 18px;
-  }
-  .strip.bare {
-    padding: 6px;
-  }
-  .strip-info {
-    flex: 0 1 auto;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-  .strip-info .unsent {
-    color: var(--accent);
-  }
-  .strip-next {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    min-height: 40px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--text);
-    font: 600 13px var(--font);
-    cursor: pointer;
-  }
   .submit-warnings {
     margin: 0 0 16px;
     padding-left: 18px;
@@ -1761,104 +1576,5 @@
   .submit-confirm .btn {
     min-height: 46px;
     font-size: 15px;
-  }
-  span.strip-next {
-    cursor: default;
-  }
-  .strip-next .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--amber);
-    flex: none;
-  }
-  .strip-go {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    max-width: 100%;
-    height: 40px;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--text);
-    font: 700 15px var(--font);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .strip-go:hover .next {
-    color: var(--accent);
-  }
-  .strip-go .dot {
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--amber);
-  }
-  .strip-go .more {
-    color: var(--text-secondary);
-    font-weight: 600;
-  }
-  .strip-go .next {
-    color: inherit;
-    font-size: 16px;
-  }
-  .strip-count {
-    color: var(--text);
-    font-size: 15px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .strip-done {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--green);
-  }
-  .strip-done svg {
-    flex: none;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .strip-done strong {
-    color: var(--text);
-    font-size: 14px;
-  }
-  .strip-next .next {
-    color: var(--accent);
-    font-weight: 700;
-  }
-  .strip-submit {
-    flex: none;
-    height: 40px;
-    padding: 0 18px;
-    border: 2px solid transparent;
-    border-radius: 12px;
-    background: var(--green);
-    color: #fff;
-    font: 700 15px var(--font);
-    cursor: pointer;
-  }
-  .sandbox .strip-submit {
-    background: var(--amber);
-  }
-  .strip-submit.resubmit {
-    background: var(--accent);
-  }
-  /* Something still to order: yellow until it's all in (submitting asks first). */
-  .strip-submit.incomplete {
-    background: var(--amber);
-  }
-  .strip-submit.plain {
-    background: var(--accent);
-  }
-  .strip-submit:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 </style>

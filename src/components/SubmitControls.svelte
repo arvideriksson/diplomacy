@@ -1,6 +1,7 @@
 <script lang="ts">
   // Footer of the order panel: the Submit button and its committed states.
   // Presentational — the parent owns the submit/load logic and passes its state in.
+  import { submitState } from '../lib/submitState'
 
   /** Sandbox: a plain Submit that resolves locally; none of the live states apply. */
   export let sandbox: boolean = false
@@ -8,6 +9,8 @@
   export let idle: boolean = false
   /** A submit is in flight. */
   export let saving: boolean = false
+  /** Submitting is blocked (e.g. the saved orders haven't loaded yet). */
+  export let disabled: boolean = false
   /** This nation is ready (optimistically, while a submit is in flight). */
   export let ready: boolean = false
   /** Edits made since submitting, not yet resubmitted. */
@@ -19,37 +22,18 @@
   export let incomplete: boolean = false
   export let onSubmit: () => void
 
-  // Submit-button state machine:
-  //   not submitted        → green  "Submit" button
-  //   submitted, no edits   → green  "✓ Submitted" status
-  //   submitted, edited     → blue   "Resubmit" button
-  //   resubmitted, no edits → blue   "✓ Resubmitted" status
-  $: pressed = saving || (ready && !dirty)
-  $: tone = !ready || (!dirty && !resubmitted) ? 'submit' : 'resubmit'
-  // No transient "Submitting…": clicking jumps straight to the committed label.
-  // While the save is in flight, optimistically show the target committed state.
-  $: label = saving
-    ? ready
-      ? 'Resubmitted'
-      : 'Submitted'
-    : !ready
-      ? 'Submit'
-      : dirty
-        ? 'Resubmit'
-        : resubmitted
-          ? 'Resubmitted'
-          : 'Submitted'
+  $: ({ label, tone, pressed } = submitState({ ready, dirty, resubmitted, saving, idle }))
 </script>
 
 <div class="actions">
   {#if sandbox}
     <button class="primary resolve" on:click={onSubmit}>Resolve</button>
-  {:else if idle || pressed}
+  {:else if pressed}
     <!-- Nothing to press: committed (shown at once while the save is in flight), or nothing
          to order this phase (auto-readied server-side). A calm confirmation, not a button. -->
-    <div class="done-bar" class:resubmit={!idle && tone === 'resubmit'} role="status">
+    <div class="done-bar" class:resubmit={tone === 'resubmit'} role="status">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-      <strong>{idle ? 'Nothing to order' : label}</strong>
+      <strong>{label}</strong>
     </div>
   {:else}
     <!-- Submit (green, amber while units are unordered) or Resubmit (blue). -->
@@ -58,6 +42,7 @@
       class:submit={tone === 'submit'}
       class:resubmit={tone === 'resubmit'}
       class:incomplete
+      {disabled}
       on:click={onSubmit}
     >
       {label}

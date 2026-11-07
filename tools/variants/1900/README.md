@@ -23,6 +23,11 @@ hand-placed hints, supply centers, unit anchors, coast marks and crossing arrows
 dev server): unit anchors, supply centers and labels by dSVG id. The build applies it last,
 so a rebuild keeps those edits.
 
+Shared with the Era of Empire build (`../era/`): polygon helpers in `../lib/geom.mjs`, and the
+finishing steps in `../lib/board.mjs` (dSVG layer order, the `placements.json` checks — an id
+the board doesn't have fails the build, as does a pinned unit outside its province unless
+`LAYOUT_DRAFT` is set — and writing the map definition).
+
 `source/variants.xml` provides powers, centers, ownership, opening units, the starting
 year and the 18-center victory target. Labels use Libre Baskerville (OFL), embedded
-from `fonts/`. Source attribution is in `source/NOTICE.md`.
+from the app's own `src/assets/fonts/`. Source attribution is in `source/NOTICE.md`.

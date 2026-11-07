@@ -2,16 +2,16 @@
   // Home: your games (most urgent first), open lobbies to join, games to watch, your
   // finished games and your sandboxes — flat rows split by hairlines, like the in-game
   // sidebar.
-  import { onDestroy } from 'svelte'
   import { games, gamesLoaded } from '../lib/game'
   import type { GameListItem } from '../lib/game'
   import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import type { Sandbox } from '../lib/sandbox'
   import { maps, getMap } from '../lib/maps'
   import { flagUrl } from '../lib/flags'
-  import { findPower, powerName } from '../lib/powers'
+  import { powerInfo } from '../lib/powers'
   import { victoryFor } from '../lib/adjudicator'
-  import { isOrderPhase, PHASE_LABEL } from '../lib/phases'
+  import { isOrderPhase, roundLabel } from '../lib/phases'
+  import { deadlineState, formatCountdown, nowStore } from '../lib/time'
   import { readDraftBackup } from '../lib/draftBackup'
   import Modal from './Modal.svelte'
   import Icon from './Icon.svelte'
@@ -24,9 +24,7 @@
   const WATCH_PREVIEW = 5
 
   // Countdowns re-render twice a minute.
-  let now = Date.now()
-  const tick = setInterval(() => (now = Date.now()), 30_000)
-  onDestroy(() => clearInterval(tick))
+  const now = nowStore(30_000)
 
   // The viewer's order state in an active game: 'todo', 'done', 'unsent' (submitted, but
   // edited on this device since), or null.
@@ -38,35 +36,29 @@
     return edits ? 'unsent' : 'done'
   }
 
-  /** "5h 12m", "3d 4h", "40m": time to the deadline, or null without one. */
+  /** "5h 12m", "3d 4h", "40m": time to the deadline (the grace period's end once it has
+   *  passed), or null without one. */
   function left(game: GameListItem, at: number): string | null {
-    if (!game.deadline) return null
-    const ms = Date.parse(game.deadline) - at
-    if (ms <= 0) return 'Resolving'
-    const m = Math.floor(ms / 60_000)
-    const d = Math.floor(m / 1440)
-    const h = Math.floor((m % 1440) / 60)
-    if (d > 0) return `${d}d ${h}h`
-    if (h > 0) return `${h}h ${m % 60}m`
-    return `${Math.max(1, m)}m`
+    const { msLeft } = deadlineState(game.deadline, game.grace_ends_at ?? null, at)
+    return msLeft == null ? null : formatCountdown(msLeft, { suffix: false, seconds: false })
   }
 
   const seats = (g: GameListItem) => getMap(g.map_id).powers.length
-  const color = (g: GameListItem, nation: string) => findPower(getMap(g.map_id).powers, nation)?.color ?? 'transparent'
-  const name = (g: GameListItem, nation: string) => powerName(getMap(g.map_id).powers, nation)
+  const color = (g: GameListItem, nation: string) => powerInfo(getMap(g.map_id), nation).color
+  const name = (g: GameListItem, nation: string) => powerInfo(getMap(g.map_id), nation).name
 
   /** "Fall 1903 · Movement", with the map named when it isn't the classical one. */
   function when(g: GameListItem): string {
     const map = g.map_id && g.map_id !== 'classical' ? ` · ${maps[g.map_id]?.name ?? g.map_id}` : ''
     if (g.phase === 'lobby') return `Lobby${map}`
-    if (g.phase === 'complete') return `${g.season} ${g.year} · Ended${map}`
-    return `${g.season} ${g.year} · ${isOrderPhase(g.phase) ? PHASE_LABEL[g.phase] : 'Resolving'}${map}`
+    if (g.phase === 'complete') return `${roundLabel(g, 'Ended')}${map}`
+    return `${isOrderPhase(g.phase) ? roundLabel(g) : roundLabel(g, 'Resolving')}${map}`
   }
 
   /** How a finished game ended: a tie, a concession, or a solo (or shared win) from the final board. */
   function outcome(g: GameListItem): { kind: 'won' | 'tie'; nations: string[] } | null {
     if (g.result?.kind === 'draw') return { kind: 'tie', nations: g.result.nations }
-    if (g.result?.kind === 'concession') return { kind: 'won', nations: g.result.nations }
+    if (g.result?.kind === 'concession' || g.result?.kind === 'victory') return { kind: 'won', nations: g.result.nations }
     if (g.final_centers) {
       const v = victoryFor(getMap(g.map_id), g.final_centers)
       if (v) return { kind: 'won', nations: v.shared ?? [v.nation] }
@@ -99,9 +91,7 @@
 
   const sandboxName = (s: Sandbox) => (s.origin ? `${s.origin.gameName} · ${s.name}` : s.name)
   function sandboxWhen(s: Sandbox): string {
-    const b = s.frames[s.cursor].board
-    const phase = isOrderPhase(b.phase) ? PHASE_LABEL[b.phase] : b.phase
-    return `${b.season} ${b.year} · ${phase}`
+    return roundLabel(s.frames[s.cursor].board)
   }
 
   // Maps available for sandboxes, e.g. [['classical', 'Classical'], ['1900', '1900']].
@@ -176,10 +166,10 @@
           <span class="main quiet">Ended</span>
         {/if}
       {:else if status === 'todo' || status === 'unsent'}
-        <span class="main due">{left(g, now) ?? 'Now'}</span>
+        <span class="main due">{left(g, $now) ?? 'Now'}</span>
         <span class="sub">{status === 'todo' ? 'Orders due' : 'Changes not sent'}</span>
       {:else if isOrderPhase(g.phase)}
-        {#if left(g, now)}<span class="main quiet">{left(g, now)}</span>{/if}
+        {#if left(g, $now)}<span class="main quiet">{left(g, $now)}</span>{/if}
         <span class="sub">Submitted</span>
       {/if}
     </span>

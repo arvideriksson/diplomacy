@@ -3,7 +3,7 @@
 // segments with the same neighbour become one polyline. Segments with no
 // neighbour lie on the board frame or reveal a gap in the partition. Each chain records
 // its ring (`ring`, with `poly` and `hole` locating it in its province), in ring order.
-import { segDist } from './geom.mjs'
+import { segDist } from '../../lib/geom.mjs'
 
 const CELL = 8
 

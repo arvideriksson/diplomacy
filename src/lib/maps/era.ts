@@ -61,13 +61,7 @@ export const mapEra: MapDefinition = {
         "MOM",
         "SOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          245.4,
-          1017
-        ]
-      }
+      ]
     },
     "ADE": {
       "name": "Aden",
@@ -88,13 +82,7 @@ export const mapEra: MapDefinition = {
         "MEC",
         "OMA",
         "RS"
-      ],
-      "render": {
-        "center": [
-          411.6,
-          868
-        ]
-      }
+      ]
     },
     "AFG": {
       "name": "Afghanistan",
@@ -108,13 +96,7 @@ export const mapEra: MapDefinition = {
         "PER",
         "PUN",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          790.2,
-          480
-        ]
-      }
+      ]
     },
     "AKI": {
       "name": "Akita",
@@ -133,13 +115,7 @@ export const mapEra: MapDefinition = {
         "SOJ",
         "SOO",
         "TOK"
-      ],
-      "render": {
-        "center": [
-          2124.6,
-          367.4
-        ]
-      }
+      ]
     },
     "ANG": {
       "name": "Angora",
@@ -159,13 +135,7 @@ export const mapEra: MapDefinition = {
         "CON",
         "MS",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          174.6,
-          405.2
-        ]
-      }
+      ]
     },
     "ANN": {
       "name": "Annam",
@@ -184,13 +154,7 @@ export const mapEra: MapDefinition = {
         "GOS",
         "SCS",
         "TON"
-      ],
-      "render": {
-        "center": [
-          1724.4,
-          859
-        ]
-      }
+      ]
     },
     "ANS": {
       "name": "Andaman Sea",
@@ -203,13 +167,7 @@ export const mapEra: MapDefinition = {
         "MAL",
         "RAN",
         "SUM"
-      ],
-      "render": {
-        "center": [
-          1454,
-          951.2
-        ]
-      }
+      ]
     },
     "ARA": {
       "name": "Arabia",
@@ -227,13 +185,7 @@ export const mapEra: MapDefinition = {
         "BAG",
         "OMA",
         "PG"
-      ],
-      "render": {
-        "center": [
-          462,
-          743.4
-        ]
-      }
+      ]
     },
     "ARM": {
       "name": "Armenia",
@@ -251,13 +203,7 @@ export const mapEra: MapDefinition = {
         "ANG",
         "BAK",
         "BS"
-      ],
-      "render": {
-        "center": [
-          316,
-          381.2
-        ]
-      }
+      ]
     },
     "ARS": {
       "name": "Arabian Sea",
@@ -273,13 +219,7 @@ export const mapEra: MapDefinition = {
         "PG",
         "RAJ",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          793,
-          788.4
-        ]
-      }
+      ]
     },
     "ASM": {
       "name": "Assam",
@@ -292,13 +232,7 @@ export const mapEra: MapDefinition = {
         "SIN",
         "TIB",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1392,
-          600
-        ]
-      }
+      ]
     },
     "BAG": {
       "name": "Baghdad",
@@ -317,13 +251,7 @@ export const mapEra: MapDefinition = {
         "ARA",
         "PG",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          388,
-          538
-        ]
-      }
+      ]
     },
     "BAK": {
       "name": "Baku",
@@ -340,13 +268,7 @@ export const mapEra: MapDefinition = {
         "ARM",
         "BS",
         "ODE"
-      ],
-      "render": {
-        "center": [
-          356.4,
-          306
-        ]
-      }
+      ]
     },
     "BAN": {
       "name": "Bangkok",
@@ -364,13 +286,7 @@ export const mapEra: MapDefinition = {
         "CAM",
         "GOS",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1567,
-          873
-        ]
-      }
+      ]
     },
     "BEN": {
       "name": "Bengal",
@@ -389,13 +305,7 @@ export const mapEra: MapDefinition = {
         "BOB",
         "HYD",
         "RAN"
-      ],
-      "render": {
-        "center": [
-          1272,
-          703
-        ]
-      }
+      ]
     },
     "BOB": {
       "name": "Bay of Bengal",
@@ -410,13 +320,7 @@ export const mapEra: MapDefinition = {
         "MAD",
         "RAN",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1292,
-          888
-        ]
-      }
+      ]
     },
     "BOK": {
       "name": "Bokhara",
@@ -428,13 +332,7 @@ export const mapEra: MapDefinition = {
         "ORE",
         "PER",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          594.4,
-          345
-        ]
-      }
+      ]
     },
     "BOM": {
       "name": "Bombay",
@@ -452,13 +350,7 @@ export const mapEra: MapDefinition = {
         "ARS",
         "MYS",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          994,
-          733
-        ]
-      }
+      ]
     },
     "BOR": {
       "name": "Borneo",
@@ -474,13 +366,7 @@ export const mapEra: MapDefinition = {
         "CS",
         "JS",
         "SAR"
-      ],
-      "render": {
-        "center": [
-          1772.4,
-          1164.6
-        ]
-      }
+      ]
     },
     "BS": {
       "name": "Black Sea",
@@ -494,13 +380,7 @@ export const mapEra: MapDefinition = {
         "MS",
         "ODE",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          228,
-          301.4
-        ]
-      }
+      ]
     },
     "CAM": {
       "name": "Cambodia",
@@ -517,13 +397,7 @@ export const mapEra: MapDefinition = {
         "BAN",
         "COC",
         "GOS"
-      ],
-      "render": {
-        "center": [
-          1655,
-          847.6
-        ]
-      }
+      ]
     },
     "CAN": {
       "name": "Canton",
@@ -543,13 +417,7 @@ export const mapEra: MapDefinition = {
         "SCS",
         "SHA",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1766,
-          657
-        ]
-      }
+      ]
     },
     "CEB": {
       "name": "Cebu",
@@ -568,13 +436,7 @@ export const mapEra: MapDefinition = {
         "MNA",
         "MPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1976,
-          867.6
-        ]
-      }
+      ]
     },
     "CEL": {
       "name": "Celebes",
@@ -591,13 +453,7 @@ export const mapEra: MapDefinition = {
         "JS",
         "LPO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1948,
-          1156
-        ]
-      }
+      ]
     },
     "CEY": {
       "name": "Ceylon",
@@ -614,13 +470,7 @@ export const mapEra: MapDefinition = {
         "EIO",
         "MAD",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1132.2,
-          1003.6
-        ]
-      }
+      ]
     },
     "CHU": {
       "name": "Chungking",
@@ -633,13 +483,7 @@ export const mapEra: MapDefinition = {
         "SHA",
         "SIN",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1540,
-          575
-        ]
-      }
+      ]
     },
     "COC": {
       "name": "Cochin",
@@ -655,13 +499,7 @@ export const mapEra: MapDefinition = {
         "ANN",
         "CAM",
         "GOS"
-      ],
-      "render": {
-        "center": [
-          1644,
-          943
-        ]
-      }
+      ]
     },
     "CON": {
       "name": "Constantinople",
@@ -679,13 +517,7 @@ export const mapEra: MapDefinition = {
         "BS",
         "MS",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          40,
-          290
-        ]
-      }
+      ]
     },
     "COR": {
       "name": "Corea",
@@ -702,13 +534,7 @@ export const mapEra: MapDefinition = {
         "SOJ",
         "VLA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1916,
-          382
-        ]
-      }
+      ]
     },
     "CS": {
       "name": "Celebes Sea",
@@ -722,13 +548,7 @@ export const mapEra: MapDefinition = {
         "LPO",
         "SAR",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1993,
-          1019
-        ]
-      }
+      ]
     },
     "DAV": {
       "name": "Davao",
@@ -745,13 +565,7 @@ export const mapEra: MapDefinition = {
         "CS",
         "LPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          2042.2,
-          974.4
-        ]
-      }
+      ]
     },
     "DEL": {
       "name": "Delhi",
@@ -764,13 +578,7 @@ export const mapEra: MapDefinition = {
         "NEP",
         "PUN",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          1026.2,
-          613
-        ]
-      }
+      ]
     },
     "ECS": {
       "name": "East China Sea",
@@ -785,13 +593,7 @@ export const mapEra: MapDefinition = {
         "SCS",
         "SHA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1870,
-          677
-        ]
-      }
+      ]
     },
     "EGY": {
       "name": "Egypt",
@@ -810,13 +612,7 @@ export const mapEra: MapDefinition = {
         "RS",
         "SUD",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          76,
-          590
-        ]
-      }
+      ]
     },
     "EIO": {
       "name": "East Indian Ocean",
@@ -829,13 +625,7 @@ export const mapEra: MapDefinition = {
         "SIO",
         "SUM",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1262,
-          1075
-        ]
-      }
+      ]
     },
     "ERI": {
       "name": "Eritrea",
@@ -853,13 +643,7 @@ export const mapEra: MapDefinition = {
         "RS",
         "SOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          244,
-          844
-        ]
-      }
+      ]
     },
     "FOR": {
       "name": "Formosa",
@@ -876,13 +660,7 @@ export const mapEra: MapDefinition = {
         "MPO",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1971,
-          640
-        ]
-      }
+      ]
     },
     "GOA": {
       "name": "Gulf of Aden",
@@ -897,13 +675,7 @@ export const mapEra: MapDefinition = {
         "SIO",
         "SOM",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          417.4,
-          1274
-        ]
-      }
+      ]
     },
     "GOS": {
       "name": "Gulf of Siam",
@@ -919,13 +691,7 @@ export const mapEra: MapDefinition = {
         "SAR",
         "SCS",
         "SIG"
-      ],
-      "render": {
-        "center": [
-          1728,
-          976
-        ]
-      }
+      ]
     },
     "HK": {
       "name": "Hong Kong",
@@ -940,13 +706,7 @@ export const mapEra: MapDefinition = {
         "CAN",
         "ECS",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1733.4,
-          742
-        ]
-      }
+      ]
     },
     "HYD": {
       "name": "Hyderabad",
@@ -965,13 +725,7 @@ export const mapEra: MapDefinition = {
         "BEN",
         "BOB",
         "MAD"
-      ],
-      "render": {
-        "center": [
-          1088,
-          837
-        ]
-      }
+      ]
     },
     "IRK": {
       "name": "Irkutsk",
@@ -984,13 +738,7 @@ export const mapEra: MapDefinition = {
         "MON",
         "OMS",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          1398,
-          28
-        ]
-      }
+      ]
     },
     "JAV": {
       "name": "Java",
@@ -1006,13 +754,7 @@ export const mapEra: MapDefinition = {
         "JS",
         "SIO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1662,
-          1285
-        ]
-      }
+      ]
     },
     "JS": {
       "name": "Java Sea",
@@ -1031,13 +773,7 @@ export const mapEra: MapDefinition = {
         "SIO",
         "SUM",
         "TS"
-      ],
-      "render": {
-        "center": [
-          1718,
-          1203
-        ]
-      }
+      ]
     },
     "KAG": {
       "name": "Kashgar",
@@ -1051,13 +787,7 @@ export const mapEra: MapDefinition = {
         "TAS",
         "TIB",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1045,
-          367
-        ]
-      }
+      ]
     },
     "KAM": {
       "name": "Kashmir",
@@ -1068,13 +798,7 @@ export const mapEra: MapDefinition = {
         "KAG",
         "PUN",
         "TIB"
-      ],
-      "render": {
-        "center": [
-          1042,
-          501
-        ]
-      }
+      ]
     },
     "KAR": {
       "name": "Karachi",
@@ -1093,13 +817,7 @@ export const mapEra: MapDefinition = {
         "PER",
         "PG",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          828,
-          554
-        ]
-      }
+      ]
     },
     "KIR": {
       "name": "Kirghiz",
@@ -1113,13 +831,7 @@ export const mapEra: MapDefinition = {
         "ORE",
         "TAS",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1060,
-          143
-        ]
-      }
+      ]
     },
     "KYO": {
       "name": "Kyoto",
@@ -1141,13 +853,7 @@ export const mapEra: MapDefinition = {
         "TOK",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2101,
-          442
-        ]
-      }
+      ]
     },
     "KYU": {
       "name": "Kyushu",
@@ -1163,13 +869,7 @@ export const mapEra: MapDefinition = {
         "KYO",
         "UPO",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2014,
-          490
-        ]
-      }
+      ]
     },
     "LAN": {
       "name": "Lanchow",
@@ -1181,13 +881,7 @@ export const mapEra: MapDefinition = {
         "PEK",
         "SHA",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1475.2,
-          381
-        ]
-      }
+      ]
     },
     "LPO": {
       "name": "Lower Pacific Ocean",
@@ -1201,13 +895,7 @@ export const mapEra: MapDefinition = {
         "MPO",
         "NG",
         "TS"
-      ],
-      "render": {
-        "center": [
-          2128,
-          971.1
-        ]
-      }
+      ]
     },
     "LUC": {
       "name": "Lucknow",
@@ -1219,13 +907,7 @@ export const mapEra: MapDefinition = {
         "HYD",
         "NAG",
         "NEP"
-      ],
-      "render": {
-        "center": [
-          1157,
-          690
-        ]
-      }
+      ]
     },
     "MAA": {
       "name": "Maasai",
@@ -1235,13 +917,7 @@ export const mapEra: MapDefinition = {
         "ABY",
         "MOM",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          78,
-          1261
-        ]
-      }
+      ]
     },
     "MAD": {
       "name": "Madras",
@@ -1261,13 +937,7 @@ export const mapEra: MapDefinition = {
         "HYD",
         "MYS",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          1098,
-          964
-        ]
-      }
+      ]
     },
     "MAL": {
       "name": "Malaya",
@@ -1288,13 +958,7 @@ export const mapEra: MapDefinition = {
         "JS",
         "RAN",
         "SIG"
-      ],
-      "render": {
-        "center": [
-          1608,
-          1084
-        ]
-      }
+      ]
     },
     "MAN": {
       "name": "Manchuria",
@@ -1306,13 +970,7 @@ export const mapEra: MapDefinition = {
         "PA",
         "PEK",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          1764,
-          243
-        ]
-      }
+      ]
     },
     "MAY": {
       "name": "Mandalay",
@@ -1323,13 +981,7 @@ export const mapEra: MapDefinition = {
         "RAN",
         "TON",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1494,
-          772
-        ]
-      }
+      ]
     },
     "MEC": {
       "name": "Mecca",
@@ -1346,13 +998,7 @@ export const mapEra: MapDefinition = {
         "ADE",
         "EGY",
         "RS"
-      ],
-      "render": {
-        "center": [
-          265,
-          643
-        ]
-      }
+      ]
     },
     "MNA": {
       "name": "Manila",
@@ -1369,13 +1015,7 @@ export const mapEra: MapDefinition = {
         "ECS",
         "MPO",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1942.2,
-          789
-        ]
-      }
+      ]
     },
     "MOM": {
       "name": "Mombasa",
@@ -1390,13 +1030,7 @@ export const mapEra: MapDefinition = {
       "fleetAdjacent": [
         "GOA",
         "SOM"
-      ],
-      "render": {
-        "center": [
-          232,
-          1238
-        ]
-      }
+      ]
     },
     "MON": {
       "name": "Mongolia",
@@ -1410,13 +1044,7 @@ export const mapEra: MapDefinition = {
         "PEK",
         "SIN",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1345,
-          229
-        ]
-      }
+      ]
     },
     "MOS": {
       "name": "Moscow",
@@ -1428,13 +1056,7 @@ export const mapEra: MapDefinition = {
         "BOK",
         "ODE",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          224,
-          18
-        ]
-      }
+      ]
     },
     "MPO": {
       "name": "Middle Pacific Ocean",
@@ -1447,13 +1069,7 @@ export const mapEra: MapDefinition = {
         "LPO",
         "MNA",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          2088.4,
-          702
-        ]
-      }
+      ]
     },
     "MS": {
       "name": "Mediterranean Sea",
@@ -1465,13 +1081,7 @@ export const mapEra: MapDefinition = {
         "CON",
         "EGY",
         "SYR"
-      ],
-      "render": {
-        "center": [
-          64,
-          502
-        ]
-      }
+      ]
     },
     "MYS": {
       "name": "Mysore",
@@ -1489,13 +1099,7 @@ export const mapEra: MapDefinition = {
         "BOM",
         "MAD",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          998,
-          842
-        ]
-      }
+      ]
     },
     "NAG": {
       "name": "Nagpur",
@@ -1507,13 +1111,7 @@ export const mapEra: MapDefinition = {
         "HYD",
         "LUC",
         "RAJ"
-      ],
-      "render": {
-        "center": [
-          1089,
-          766
-        ]
-      }
+      ]
     },
     "NEP": {
       "name": "Nepal",
@@ -1524,13 +1122,7 @@ export const mapEra: MapDefinition = {
         "DEL",
         "LUC",
         "PUN"
-      ],
-      "render": {
-        "center": [
-          1201,
-          621
-        ]
-      }
+      ]
     },
     "NG": {
       "name": "New Guinea",
@@ -1543,13 +1135,7 @@ export const mapEra: MapDefinition = {
       "fleetAdjacent": [
         "LPO",
         "TS"
-      ],
-      "render": {
-        "center": [
-          2174,
-          1252
-        ]
-      }
+      ]
     },
     "ODE": {
       "name": "Odessa",
@@ -1566,13 +1152,7 @@ export const mapEra: MapDefinition = {
         "BAK",
         "BS",
         "RUM"
-      ],
-      "render": {
-        "center": [
-          120,
-          223
-        ]
-      }
+      ]
     },
     "OMA": {
       "name": "Oman",
@@ -1589,13 +1169,7 @@ export const mapEra: MapDefinition = {
         "ARA",
         "ARS",
         "PG"
-      ],
-      "render": {
-        "center": [
-          653,
-          723
-        ]
-      }
+      ]
     },
     "OMS": {
       "name": "Omsk",
@@ -1605,13 +1179,7 @@ export const mapEra: MapDefinition = {
         "IRK",
         "KIR",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          849.4,
-          46
-        ]
-      }
+      ]
     },
     "ORE": {
       "name": "Orenburg",
@@ -1623,13 +1191,7 @@ export const mapEra: MapDefinition = {
         "MOS",
         "OMS",
         "TAS"
-      ],
-      "render": {
-        "center": [
-          651.4,
-          130
-        ]
-      }
+      ]
     },
     "OTA": {
       "name": "Otaru",
@@ -1646,13 +1208,7 @@ export const mapEra: MapDefinition = {
         "SAK",
         "SOJ",
         "SOO"
-      ],
-      "render": {
-        "center": [
-          2110,
-          266.4
-        ]
-      }
+      ]
     },
     "PA": {
       "name": "Port Arthur",
@@ -1669,13 +1225,7 @@ export const mapEra: MapDefinition = {
         "COR",
         "PEK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1794,
-          342
-        ]
-      }
+      ]
     },
     "PEK": {
       "name": "Peking",
@@ -1694,13 +1244,7 @@ export const mapEra: MapDefinition = {
         "PA",
         "SHA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1681,
-          340
-        ]
-      }
+      ]
     },
     "PER": {
       "name": "Persia",
@@ -1718,13 +1262,7 @@ export const mapEra: MapDefinition = {
         "KAR",
         "PG",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          542,
-          455
-        ]
-      }
+      ]
     },
     "PG": {
       "name": "Persian Gulf",
@@ -1738,13 +1276,7 @@ export const mapEra: MapDefinition = {
         "OMA",
         "PER",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          494,
-          625
-        ]
-      }
+      ]
     },
     "PUN": {
       "name": "Punjab",
@@ -1758,13 +1290,7 @@ export const mapEra: MapDefinition = {
         "NEP",
         "RAJ",
         "TIB"
-      ],
-      "render": {
-        "center": [
-          960,
-          502.4
-        ]
-      }
+      ]
     },
     "RAJ": {
       "name": "Rajputana",
@@ -1782,13 +1308,7 @@ export const mapEra: MapDefinition = {
         "ARS",
         "BOM",
         "KAR"
-      ],
-      "render": {
-        "center": [
-          949,
-          663
-        ]
-      }
+      ]
     },
     "RAN": {
       "name": "Rangoon",
@@ -1809,13 +1329,7 @@ export const mapEra: MapDefinition = {
         "BEN",
         "BOB",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1418,
-          771
-        ]
-      }
+      ]
     },
     "RS": {
       "name": "Red Sea",
@@ -1828,13 +1342,7 @@ export const mapEra: MapDefinition = {
         "GOA",
         "MEC",
         "SUD"
-      ],
-      "render": {
-        "center": [
-          321,
-          819
-        ]
-      }
+      ]
     },
     "RUM": {
       "name": "Rumania",
@@ -1849,13 +1357,7 @@ export const mapEra: MapDefinition = {
         "BS",
         "CON",
         "ODE"
-      ],
-      "render": {
-        "center": [
-          44,
-          255
-        ]
-      }
+      ]
     },
     "SAK": {
       "name": "Sakhalin",
@@ -1872,13 +1374,7 @@ export const mapEra: MapDefinition = {
         "SOJ",
         "SOO",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          2009.8,
-          147
-        ]
-      }
+      ]
     },
     "SAR": {
       "name": "Sarawak",
@@ -1897,13 +1393,7 @@ export const mapEra: MapDefinition = {
         "GOS",
         "JS",
         "SCS"
-      ],
-      "render": {
-        "center": [
-          1844.4,
-          1020.2
-        ]
-      }
+      ]
     },
     "SCS": {
       "name": "South China Sea",
@@ -1922,13 +1412,7 @@ export const mapEra: MapDefinition = {
         "SAR",
         "TON",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1830,
-          815
-        ]
-      }
+      ]
     },
     "SHA": {
       "name": "Shanghai",
@@ -1948,13 +1432,7 @@ export const mapEra: MapDefinition = {
         "ECS",
         "PEK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1738,
-          465
-        ]
-      }
+      ]
     },
     "SHI": {
       "name": "Shiraz",
@@ -1970,13 +1448,7 @@ export const mapEra: MapDefinition = {
         "BAG",
         "PER",
         "PG"
-      ],
-      "render": {
-        "center": [
-          567,
-          575
-        ]
-      }
+      ]
     },
     "SIG": {
       "name": "Singapore",
@@ -1991,13 +1463,7 @@ export const mapEra: MapDefinition = {
         "GOS",
         "JS",
         "MAL"
-      ],
-      "render": {
-        "center": [
-          1651.2,
-          1154
-        ]
-      }
+      ]
     },
     "SIN": {
       "name": "Sinkiang",
@@ -2012,13 +1478,7 @@ export const mapEra: MapDefinition = {
         "MON",
         "TIB",
         "URU"
-      ],
-      "render": {
-        "center": [
-          1318,
-          499
-        ]
-      }
+      ]
     },
     "SIO": {
       "name": "South Indian Ocean",
@@ -2032,13 +1492,7 @@ export const mapEra: MapDefinition = {
         "SUM",
         "TS",
         "WIO"
-      ],
-      "render": {
-        "center": [
-          672,
-          1297
-        ]
-      }
+      ]
     },
     "SOJ": {
       "name": "Sea of Japan",
@@ -2053,13 +1507,7 @@ export const mapEra: MapDefinition = {
         "SOO",
         "VLA",
         "YS"
-      ],
-      "render": {
-        "center": [
-          1994.2,
-          309
-        ]
-      }
+      ]
     },
     "SOM": {
       "name": "Somalia",
@@ -2075,13 +1523,7 @@ export const mapEra: MapDefinition = {
         "ERI",
         "GOA",
         "MOM"
-      ],
-      "render": {
-        "center": [
-          366.2,
-          1087
-        ]
-      }
+      ]
     },
     "SOO": {
       "name": "Sea of Okhotsk",
@@ -2095,13 +1537,7 @@ export const mapEra: MapDefinition = {
         "TOK",
         "UPO",
         "VLA"
-      ],
-      "render": {
-        "center": [
-          2111,
-          108
-        ]
-      }
+      ]
     },
     "SUD": {
       "name": "Sudan",
@@ -2118,13 +1554,7 @@ export const mapEra: MapDefinition = {
         "EGY",
         "ERI",
         "RS"
-      ],
-      "render": {
-        "center": [
-          104,
-          813
-        ]
-      }
+      ]
     },
     "SUM": {
       "name": "Sumatra",
@@ -2142,13 +1572,7 @@ export const mapEra: MapDefinition = {
         "EIO",
         "JS",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          1566,
-          1147.4
-        ]
-      }
+      ]
     },
     "SYR": {
       "name": "Syria",
@@ -2167,13 +1591,7 @@ export const mapEra: MapDefinition = {
         "ANG",
         "EGY",
         "MS"
-      ],
-      "render": {
-        "center": [
-          251,
-          509.4
-        ]
-      }
+      ]
     },
     "TAB": {
       "name": "Tabriz",
@@ -2185,13 +1603,7 @@ export const mapEra: MapDefinition = {
         "BAK",
         "PER",
         "SHI"
-      ],
-      "render": {
-        "center": [
-          468.4,
-          471
-        ]
-      }
+      ]
     },
     "TAS": {
       "name": "Tashkent",
@@ -2203,13 +1615,7 @@ export const mapEra: MapDefinition = {
         "KAG",
         "KIR",
         "ORE"
-      ],
-      "render": {
-        "center": [
-          944,
-          313.6
-        ]
-      }
+      ]
     },
     "TIB": {
       "name": "Tibet",
@@ -2222,13 +1628,7 @@ export const mapEra: MapDefinition = {
         "KAM",
         "PUN",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1119,
-          506
-        ]
-      }
+      ]
     },
     "TOK": {
       "name": "Tokyo",
@@ -2246,13 +1646,7 @@ export const mapEra: MapDefinition = {
         "KYO",
         "SOO",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          2146,
-          397
-        ]
-      }
+      ]
     },
     "TON": {
       "name": "Tonkin",
@@ -2271,13 +1665,7 @@ export const mapEra: MapDefinition = {
         "ANN",
         "SCS",
         "YUN"
-      ],
-      "render": {
-        "center": [
-          1618.4,
-          740
-        ]
-      }
+      ]
     },
     "TS": {
       "name": "Timor Sea",
@@ -2290,13 +1678,7 @@ export const mapEra: MapDefinition = {
         "LPO",
         "NG",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          2006,
-          1311
-        ]
-      }
+      ]
     },
     "UPO": {
       "name": "Upper Pacific Ocean",
@@ -2310,13 +1692,7 @@ export const mapEra: MapDefinition = {
         "SOO",
         "TOK",
         "YS"
-      ],
-      "render": {
-        "center": [
-          2123,
-          534
-        ]
-      }
+      ]
     },
     "URU": {
       "name": "Urumchi",
@@ -2327,13 +1703,7 @@ export const mapEra: MapDefinition = {
         "KIR",
         "MON",
         "SIN"
-      ],
-      "render": {
-        "center": [
-          1125,
-          310
-        ]
-      }
+      ]
     },
     "VLA": {
       "name": "Vladivostok",
@@ -2354,13 +1724,7 @@ export const mapEra: MapDefinition = {
         "SAK",
         "SOJ",
         "SOO"
-      ],
-      "render": {
-        "center": [
-          1812,
-          146
-        ]
-      }
+      ]
     },
     "WIO": {
       "name": "West Indian Ocean",
@@ -2375,13 +1739,7 @@ export const mapEra: MapDefinition = {
         "MAD",
         "MYS",
         "SIO"
-      ],
-      "render": {
-        "center": [
-          796,
-          1034
-        ]
-      }
+      ]
     },
     "YS": {
       "name": "Yellow Sea",
@@ -2398,13 +1756,7 @@ export const mapEra: MapDefinition = {
         "SHA",
         "SOJ",
         "UPO"
-      ],
-      "render": {
-        "center": [
-          1934,
-          536.2
-        ]
-      }
+      ]
     },
     "YUN": {
       "name": "Yunnan",
@@ -2423,13 +1775,7 @@ export const mapEra: MapDefinition = {
         "CAN",
         "SCS",
         "TON"
-      ],
-      "render": {
-        "center": [
-          1511,
-          653
-        ]
-      }
+      ]
     }
   },
   "startingUnits": [

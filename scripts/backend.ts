@@ -19,6 +19,9 @@ export interface Backend {
   anonKey: string
   /** Web Push application server key; the private half lives with the notify function. */
   vapidPublicKey: string | undefined
+  /** Local stack only (tests): the service-role key and the JWT signing secret. */
+  serviceKey?: string
+  jwtSecret?: string
 }
 
 // Public half of the local-only key pair in supabase/config.toml [edge_runtime.secrets].
@@ -53,7 +56,14 @@ function localBackend(): Backend {
     )
   }
   const env = parseEnv(out)
-  return { name: 'local', url: env.API_URL, anonKey: env.ANON_KEY, vapidPublicKey: LOCAL_VAPID_PUBLIC_KEY }
+  return {
+    name: 'local',
+    url: env.API_URL,
+    anonKey: env.ANON_KEY,
+    vapidPublicKey: LOCAL_VAPID_PUBLIC_KEY,
+    serviceKey: env.SERVICE_ROLE_KEY,
+    jwtSecret: env.JWT_SECRET,
+  }
 }
 
 function liveBackend(): Backend {

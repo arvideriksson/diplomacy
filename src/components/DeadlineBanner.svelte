@@ -1,9 +1,8 @@
 <script lang="ts">
   // Deadline countdown under the phase banner: live "time left" plus the exact local
-  // resolution time, or — once the deadline has passed with powers unready — the grace
-  // period, naming who the phase is waiting on. Renders nothing without a deadline.
-  import { onDestroy } from 'svelte'
-  import { formatCountdown, formatDeadline } from '../lib/time'
+  // resolution time, or — once the deadline has passed — the grace period, naming who
+  // the phase is waiting on. Renders nothing without a deadline.
+  import { deadlineState, formatCountdown, formatDeadline, nowStore } from '../lib/time'
 
   /** ISO time the current phase auto-resolves. Null in lobby/history/sandbox. */
   export let deadline: string | null = null
@@ -14,35 +13,25 @@
   /** Phones: the countdown already sits in the top bar — show only when it resolves. */
   export let brief: boolean = false
 
-  // Ticks every second so the countdown stays honest; cleared on destroy.
-  let now = Date.now()
-  const clock = setInterval(() => (now = Date.now()), 1000)
-  onDestroy(() => clearInterval(clock))
-
-  $: deadlineMs = deadline ? new Date(deadline).getTime() : null
-  $: msLeft = deadlineMs == null ? null : deadlineMs - now
-  $: deadlineUrgent = msLeft != null && msLeft <= 60 * 60 * 1000 // ≤ 1h
-  // Grace period: the deadline passed with powers unready, so the phase waits until the
-  // last of them submits or the grace runs out (games.grace_ends_at).
-  $: graceMsLeft = graceEndsAt ? new Date(graceEndsAt).getTime() - now : null
-  $: inGrace = msLeft != null && msLeft <= 0 && graceMsLeft! > 0 && awaiting.length > 0
-  $: deadlineAbs = formatDeadline(deadlineMs)
+  const now = nowStore(1000)
+  $: dl = deadlineState(deadline, graceEndsAt, $now)
+  $: deadlineAbs = formatDeadline(deadline)
 </script>
 
-{#if inGrace && msLeft != null}
+{#if dl.kind === 'grace'}
   <div class="deadline grace" role="status">
     <span class="grace-label">Grace period</span>
-    <span class="grace-detail">Waiting on {awaiting.join(', ')}</span>
-    <span class="countdown">{formatCountdown(graceMsLeft ?? 0)}</span>
+    {#if awaiting.length}<span class="grace-detail">Waiting on {awaiting.join(', ')}</span>{/if}
+    <span class="countdown">{formatCountdown(dl.msLeft ?? 0)}</span>
     <span class="deadline-abs">Resolves early once all orders are in</span>
   </div>
-{:else if msLeft != null && brief}
+{:else if dl.msLeft != null && brief}
   <div class="deadline brief">
     <span class="deadline-abs">Resolves {deadlineAbs}</span>
   </div>
-{:else if msLeft != null}
-  <div class="deadline row" class:urgent={deadlineUrgent}>
-    <span class="countdown">{formatCountdown(msLeft)}</span>
+{:else if dl.msLeft != null}
+  <div class="deadline row" class:urgent={dl.urgent}>
+    <span class="countdown">{formatCountdown(dl.msLeft)}</span>
     <span class="deadline-abs">· {deadlineAbs}</span>
   </div>
 {/if}

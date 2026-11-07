@@ -1,25 +1,21 @@
 <script lang="ts">
   // A live "23h 42m" to a deadline (the grace period's end once it has passed),
-  // ticking every second. Renders nothing without a deadline.
-  import { onDestroy } from 'svelte'
-  import { formatCountdown } from '../lib/time'
+  // ticking every second. Renders nothing without a deadline. `pill`: the phone top
+  // bar's boxed clock, amber during a grace period.
+  import { deadlineState, formatCountdown, nowStore } from '../lib/time'
 
   export let deadline: string | null = null
   export let graceEndsAt: string | null = null
+  export let pill: boolean = false
 
-  let now = Date.now()
-  const clock = setInterval(() => (now = Date.now()), 1000)
-  onDestroy(() => clearInterval(clock))
-
-  $: msLeft = deadline ? new Date(deadline).getTime() - now : null
-  $: graceLeft = graceEndsAt ? new Date(graceEndsAt).getTime() - now : null
-  $: inGrace = msLeft != null && msLeft <= 0 && graceLeft != null && graceLeft > 0
-  $: urgent = msLeft != null && (inGrace || msLeft <= 60 * 60 * 1000)
+  const now = nowStore(1000)
+  $: dl = deadlineState(deadline, graceEndsAt, $now)
+  $: inGrace = dl.kind === 'grace'
 </script>
 
-{#if msLeft != null}
-  <span class="countdown" class:urgent title={inGrace ? 'Grace period' : 'Time left'}>
-    {formatCountdown(inGrace ? graceLeft! : msLeft).replace(/ left$/, '')}
+{#if dl.msLeft != null}
+  <span class="countdown" class:pill class:urgent={dl.urgent} class:grace={pill && inGrace} title={inGrace ? 'Grace period' : 'Time left'}>
+    {formatCountdown(dl.msLeft, { suffix: false })}
   </span>
 {/if}
 
@@ -31,5 +27,22 @@
   }
   .urgent {
     color: var(--red);
+  }
+  .pill {
+    font-weight: 700;
+    color: inherit;
+    padding: 4px 6px;
+    font-size: 11.5px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .pill.urgent {
+    color: var(--red);
+  }
+  .pill.grace {
+    color: var(--amber);
+    border-color: var(--amber);
   }
 </style>

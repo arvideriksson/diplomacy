@@ -123,3 +123,70 @@ export function simplify(pts, tol) {
   for (let i = 1; i < pts.length - 1; i++) { const d = segDist(pts[i], pts[0], pts.at(-1)); if (d > max) { max = d; idx = i } }
   return max > tol ? [...simplify(pts.slice(0, idx + 1), tol).slice(0, -1), ...simplify(pts.slice(idx), tol)] : [pts[0], pts.at(-1)]
 }
+
+// The largest polygon of a MultiPolygon (the first of equal ones).
+export const largestPiece = (g) => g.reduce((a, b) => (area([b]) > area([a]) ? b : a))
+
+// A strip of width w along a polyline (a canal), as a polygon.
+export const channel = (pts, w) => {
+  const side = (s) => pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    return [p[0] - s * w / 2 * (b[1] - a[1]) / len, p[1] + s * w / 2 * (b[0] - a[0]) / len]
+  })
+  return poly([...side(1), ...side(-1).reverse()])
+}
+// A polyline lengthened by d at both ends, along its end segments.
+export const extendEnds = (pts, d) => {
+  const out = (p, q) => { const len = Math.hypot(p[0] - q[0], p[1] - q[1]); return [p[0] + (p[0] - q[0]) / len * d, p[1] + (p[1] - q[1]) / len * d] }
+  return [out(pts[0], pts[1]), ...pts, out(pts.at(-1), pts.at(-2))]
+}
+
+// Distance from p to a rotated rectangle (centre `at`, size w×h, `angle` in degrees); 0 inside.
+export const rectDistance = (p, { at, w, h, angle }) => {
+  const a = -angle * Math.PI / 180, dx = p[0] - at[0], dy = p[1] - at[1]
+  const u = dx * Math.cos(a) - dy * Math.sin(a), v = dx * Math.sin(a) + dy * Math.cos(a)
+  return Math.hypot(Math.max(0, Math.abs(u) - w / 2), Math.max(0, Math.abs(v) - h / 2))
+}
+
+// The best-scoring point of a 2-unit grid over polygon `piece`'s bounding box, among points
+// inside it: { p, score }, or null if no grid point is inside. Ties keep the first point found.
+export function bestGridPoint(piece, score, step = 2) {
+  const g = [piece], xs = piece[0].map((q) => q[0]), ys = piece[0].map((q) => q[1])
+  let best = null
+  for (let x = Math.min(...xs); x <= Math.max(...xs); x += step) for (let y = Math.min(...ys); y <= Math.max(...ys); y += step) {
+    if (!contains(g, [x, y])) continue
+    const s = score([x, y])
+    if (!best || s > best.score) best = { score: s, p: [x, y] }
+  }
+  return best
+}
+
+// Two ways of removing zero-width spikes (a ring running out to a point and straight back),
+// tuned to their boards; they are not interchangeable without changing the output.
+// - despikeReturns (1900, one ring): drops a vertex whose neighbours almost coincide (< 0.3
+//   apart) while it sits off them (> 0.5); four passes, never below 5 vertices. Suited to
+//   the classical board's hand-drawn edits, where spikes come back to the same point.
+// - despikeReversals (Era, a whole MultiPolygon): drops a vertex where the ring turns back on
+//   itself (direction reverses within ~6°, nearly collinear) or that repeats its neighbour,
+//   until nothing changes; then drops holes without area and polygons left degenerate. Suited
+//   to pixel-traced geometry, where spikes come back along a slightly different path.
+export const despikeReturns = (ring) => {
+  const r = ring.slice()
+  for (let pass = 0; pass < 4; pass++) for (let i = 0; i < r.length && r.length > 4; i++) {
+    const a = r[(i + r.length - 1) % r.length], b = r[i], c = r[(i + 1) % r.length]
+    if (Math.hypot(a[0] - c[0], a[1] - c[1]) < 0.3 && Math.hypot(a[0] - b[0], a[1] - b[1]) > 0.5) { r.splice(i, 1); i-- }
+  }
+  return r
+}
+export const despikeReversals = (g) => g.map((pl) => pl.map((ring) => {
+  let r = ring.slice(), changed = true
+  while (changed && r.length > 3) {
+    changed = false
+    for (let i = 0; i < r.length && r.length > 3; i++) {
+      const a = r[(i - 1 + r.length) % r.length], v = r[i], b = r[(i + 1) % r.length]
+      const ux = v[0] - a[0], uy = v[1] - a[1], wx = b[0] - v[0], wy = b[1] - v[1], lu = Math.hypot(ux, uy), lw = Math.hypot(wx, wy)
+      if (lu < 1e-6 || lw < 1e-6 || ((ux * wx + uy * wy) / (lu * lw) < -0.995 && Math.abs(ux * wy - uy * wx) < 0.05 * Math.max(lu, lw))) { r.splice(i, 1); i--; changed = true }
+    }
+  }
+  return r
+}).filter((r, j) => j === 0 || (r.length > 3 && area([[r]]) >= 0.5))).filter((pl) => pl[0].length > 3)
