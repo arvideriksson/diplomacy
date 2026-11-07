@@ -6,6 +6,7 @@ import { sharedEdges } from './lib/edges.mjs'
 import { southernLand, southernProvinces } from './south.mjs'
 import { transform, box, region, affine } from './lib/natural.mjs'
 import { geoConicEquidistant } from 'd3-geo'
+import { readFileSync } from 'node:fs'
 
 // Classical Russia is drawn far from true scale; map real places onto it with an
 // affine fit from cities to the classical supply centers and unit anchors.
@@ -43,6 +44,41 @@ const move = (P, piece, to, from) => {
 // are not adjacent); classical marks its edges with dashed lines, which are reused as is.
 const KATTEGAT = poly([[668, 586], [745, 586], [745, 622], [700, 640], [664, 660], [664, 600]])
 export const KATTEGAT_LINES = ['Path-26', 'Path-22']
+
+// Moravia: Natural Earth admin-1 regions of the Czech lands, Polish Silesia, Lower Austria and
+// Slovakia, placed by an affine fit pinned to three tripoints: CZ–AT–DE at the classical
+// Bohemia/Tyrolia/Vienna corner, CZ–PL–SK at the classical Vienna/Galicia/Budapest corner and
+// CZ–AT–SK on the Vienna–Budapest border (a fourth, Prague's north, steadies the fit). Budapest
+// and Galicia are cut with CZ–AT–SK pinned further down that border, so Galicia gives up its whole
+// notch and Budapest a clear border with Bohemia, while Vienna keeps more of its east.
+// Whatever of Vienna, Budapest and Galicia lies in the Czech lands goes to Bohemia (with Vienna's
+// Polish fringe); near the new junction, a band along the old Vienna–Budapest border is re-split
+// by country, so the March becomes their border.
+function moravia(P) {
+  const F = JSON.parse(readFileSync(new URL('../../geodata/src/central.geojson', import.meta.url), 'utf8')).features
+  const conic = geoConicEquidistant().parallels([45, 55]).rotate([-17, 0]).scale(1000).translate([0, 0])
+  const projector = (atk) => {
+    const pins = [[[13.84, 48.77], [762, 885]], [[16.94, 48.62], atk], [[18.85, 49.52], [862, 843]], [[14.82, 50.87], [735, 782]]]
+    const fit = affine(pins.map(([ll, xy]) => [conic(ll), xy]))
+    return (admin) => transform(union(...F.filter((f) => f.properties.admin === admin).map((f) => f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates)), (ll) => fit(conic(ll)))
+  }
+  // Vienna, Budapest and Galicia split by country under one fit, as { boh, vie, bud, gal }.
+  const split = (tripoint) => {
+    const reg = projector(tripoint)
+    const cz = reg('Czech Republic'), pl = reg('Poland'), sk = reg('Slovakia'), au = reg('Austria')
+    const line = sharedEdges({ vie: P.vie, bud: P.bud }).chains.filter((c) => c.id === 'vie' && c.other === 'bud').flatMap((c) => c.points).filter((p) => p[1] < tripoint[1] + 14)
+    const band = buffer(simplify(line, 0.8), 7)
+    const gain = union(intersect(P.vie, union(cz, pl)), intersect(P.bud, cz), intersect(P.gal, cz))
+    const vie = subtract(P.vie, gain), bud = subtract(P.bud, gain)
+    const land = intersect(union(vie, bud), band)
+    const toVie = intersect(land, au, bud), toBud = subtract(intersect(land, sk, vie), au)
+    return { boh: gain, vie: union(subtract(vie, toBud), toVie), bud: union(subtract(bud, toVie), toBud), gal: subtract(P.gal, gain) }
+  }
+  // Budapest and Galicia follow the lower tripoint; Vienna's border with Bohemia follows the higher one.
+  const low = split([846.1, 876.2]), high = split([851.6, 863.8])
+  const back = intersect(high.vie, low.boh)
+  P.boh = union(P.boh, subtract(low.boh, back)); P.vie = union(low.vie, back); P.bud = low.bud; P.gal = low.gal
+}
 
 export function europe(classical) {
   const P = {}
@@ -94,8 +130,9 @@ export function europe(classical) {
   const neck = poly([[440, 780], [530, 780], [530, 875], [440, 875]])
   move(P, intersect(union(strip(P, 'par', 'bur', 16), strip(P, 'pic', 'bur', 10)), neck), 'bur', ['par', 'pic'])
 
-  // Budapest takes Vienna's northern edge so it reaches Bohemia and Vienna no longer touches Galicia.
-  move(P, strip(P, 'vie', 'gal', 13), 'bud', ['vie'])
+  // Bohemia takes Moravia (and Galicia's Czech fringe), cut along real borders, so it meets
+  // Budapest and Vienna no longer touches Galicia.
+  moravia(P)
 
   // Bosnia: the southern part of Trieste (Dalmatia and Bosnia-Herzegovina) and Serbia's western margin.
   const bosnia = sidePolygon([[798, 1050], [812, 1036], [832, 1026], [854, 1024], [872, 1032], [886, 1056], [882, 1088], [866, 1106]], [[840, 1125], [770, 1080]], { amplitude: 1.8, seed: 7 })
