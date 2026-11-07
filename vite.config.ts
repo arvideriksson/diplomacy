@@ -27,9 +27,8 @@ export default defineConfig(({ command, isPreview }) => {
       // Installable app + offline shell. Supabase traffic is cross-origin and never cached;
       // the service worker only serves the built assets and the board maps.
       VitePWA({
-        // Updates are applied by src/lib/pwaUpdate.ts (checked on resume and every 30
-        // minutes, reloaded only when it can't interrupt a turn), not the plugin's
-        // reload-on-load script.
+        // Updates are applied by src/lib/pwaUpdate.ts (checked and applied only while the
+        // app is in the background), not the plugin's reload-on-load script.
         registerType: 'prompt',
         injectRegister: false,
         includeAssets: ['favicon.svg', 'pwa/apple-touch-icon.png', 'push-sw.js'],

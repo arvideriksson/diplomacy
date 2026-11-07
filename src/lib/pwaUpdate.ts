@@ -3,19 +3,14 @@
 // background keeps running the old code until a full reload — and old code can break
 // against a newer database (it did when games.ready was hidden in migration 154).
 //
-// Checks: on open, whenever the app comes back to the foreground, and every 30 minutes
-// while it's open. Applying a found update reloads the page, so it's timed to never
-// interrupt a turn: right away if the app was opened or resumed in the last few
-// seconds, otherwise the moment it's next hidden (it reloads in the background and the
-// player comes back to the new build).
+// Updates only ever apply while the app is hidden, so a reload can never land under the
+// player's finger (a reload started on the game list while they tapped into a game used
+// to drop them back on the list). Each time the app goes to the background it applies an
+// update that's already waiting, or else checks for one. An update found while visible —
+// including the browser's own check on launch — waits for the next time it's hidden.
 import { registerSW } from 'virtual:pwa-register'
 
-const CHECK_EVERY_MS = 30 * 60_000
-/** An update found this soon after opening/resuming applies at once. */
-const FRESH_MS = 10_000
-
 export function keepAppUpdated(): void {
-  let shownAt = Date.now()
   let pending = false
   let applying = false
 
@@ -29,21 +24,16 @@ export function keepAppUpdated(): void {
     immediate: true,
     onNeedRefresh() {
       pending = true
-      if (document.visibilityState === 'hidden' || Date.now() - shownAt < FRESH_MS) apply()
+      if (document.visibilityState === 'hidden') apply()
     },
     onRegisteredSW(_url, registration) {
       if (!registration) return
-      const check = () => {
-        if (navigator.onLine && !applying) registration.update().catch(() => {})
-      }
-      setInterval(() => document.visibilityState === 'visible' && check(), CHECK_EVERY_MS)
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          shownAt = Date.now()
-          check()
-        } else if (pending) {
-          apply()
-        }
+        if (document.visibilityState !== 'hidden' || applying) return
+        if (pending) apply()
+        // The worker installs on its own even if the page is frozen meanwhile; a find
+        // that finishes after that applies the next time the app is hidden.
+        else if (navigator.onLine) registration.update().catch(() => {})
       })
     },
   })
