@@ -37,6 +37,8 @@ const COMMANDS = {
   usage: { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/usage.sql'], extra: [] },
   egress: { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/egress.sql'], extra: [] },
   'ping-notify': { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/ping-notify.sql'], extra: [] },
+  // Read-only dump of one game (row + snapshot + its latest orders): `live:game <uuid>`.
+  game: { run: dumpGame, arg: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, extra: [] },
   'secrets-list': { outside: ['secrets', 'list'], extra: [] },
   'functions-list': { outside: ['functions', 'list'], extra: [] },
   secrets: { outside: () => ['secrets', 'set', '--env-file', `${root}.env.functions.local`], extra: [] },
@@ -46,6 +48,8 @@ const COMMANDS = {
 const [name, ...rest] = process.argv.slice(2)
 const command = COMMANDS[name]
 if (!command) throw new Error(`Usage: node scripts/live.mjs <${Object.keys(COMMANDS).join('|')}> [${COMMANDS.push.extra}]`)
+const arg = command.arg ? rest.shift() : undefined
+if (command.arg && !command.arg.test(arg ?? '')) throw new Error(`live ${name} needs an argument matching ${command.arg}`)
 const bad = rest.filter((a) => !command.extra.includes(a))
 if (bad.length) throw new Error(`live ${name} accepts only: ${command.extra.join(' ') || '(no flags)'}; got ${bad.join(' ')}`)
 
@@ -75,6 +79,16 @@ function rotateAdjudicatorSecret() {
   supabase('db', 'query', '--linked', `update private.engine_config set adjudicator_secret = '${secret}' where id`)
   outside('secrets', 'set', `ADJUDICATOR_SECRET=${secret}`)
   console.log(`ADJUDICATOR_SECRET rotated; sha256 ${createHash('sha256').update(secret).digest('hex')}`)
+}
+
+function dumpGame() {
+  supabase('db', 'query', '--linked', '--output', 'json',
+    `select g.id, g.name, g.phase, g.year, g.season, g.deadline, g.grace_ends_at, g.ready, g.snapshot,
+       (select jsonb_agg(jsonb_build_object('year', o.year, 'season', o.season, 'phase', o.phase,
+          'nation', o.nation, 'resolved', o.resolved, 'orders', o.orders) order by o.year desc, o.season, o.phase)
+        from (select * from public.orders o where o.game_id = g.id
+              order by o.year desc, case o.season when 'Fall' then 0 else 1 end, o.phase limit 40) o) as recent_orders
+     from public.games g where g.id = '${arg}'`)
 }
 
 console.log(`Live project: ${ref}`)

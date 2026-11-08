@@ -1,6 +1,6 @@
 // Phase dispatcher + phase progression. `adjudicate` resolves the board's current
 // phase and returns a new board advanced to the next phase that actually has work
-// (no-op retreat/build phases are skipped).
+// (no-op retreat/build phases are skipped; a dislodged unit with no retreat disbands at once).
 
 import type { MapDefinition } from '../mapDefinition'
 import type { Order } from '../orders/types'
@@ -14,7 +14,7 @@ import type {
   Season,
 } from './types'
 import { resolveMovement } from './movement'
-import { resolveRetreat } from './retreat'
+import { resolveRetreat, retreatTargets } from './retreat'
 import { resolveBuild } from './build'
 import {
   recomputeSupplyCenters,
@@ -32,15 +32,21 @@ export function adjudicate(
   switch (board.phase) {
     case 'movement': {
       const out = resolveMovement(map, board, orders as Order[])
+      // A dislodged unit with nowhere to retreat can only disband, so it is removed now
+      // rather than holding a retreat phase open for a choice nobody has.
+      const occupied = new Set(out.units.map((u) => u.territory))
+      const dislodged = out.dislodged.filter(
+        (d) => retreatTargets(map, d.unit, d.attackedFrom, occupied, out.contested).length > 0,
+      )
       const next =
-        out.dislodged.length > 0
+        dislodged.length > 0
           ? {
               phase: 'retreat' as const,
               season: board.season,
               year: board.year,
               units: out.units,
               supplyCenters: board.supplyCenters,
-              dislodged: out.dislodged,
+              dislodged,
               contested: out.contested,
             }
           : advanceAfterRetreats(map, board.season, board.year, out.units, board.supplyCenters)

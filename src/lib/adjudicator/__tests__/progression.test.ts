@@ -40,4 +40,46 @@ describe('phase progression', () => {
     ])
     expect(frames.at(-1)!.board.units.some((u) => u.territory === 'NTH')).toBe(true)
   })
+
+  describe('a dislodged unit with no retreat disbands at once', () => {
+    const U = (nation: string, type: Unit['type'], territory: string): Unit => ({ type, nation, territory })
+    const mv = (nation: string, source: string, target: string): AnyOrder => ({ type: 'Move', nation, source, target }) as AnyOrder
+    const sup = (nation: string, source: string, aux: string, target: string): AnyOrder =>
+      ({ type: 'Support', nation, source, aux, target }) as AnyOrder
+    // Paris attacked from Picardy with support from Burgundy; Brest and Gascony are full.
+    const trapped = [
+      U('france', 'army', 'PAR'), U('france', 'army', 'GAS'), U('england', 'fleet', 'BRE'),
+      U('england', 'army', 'PIC'), U('germany', 'army', 'BUR'),
+    ]
+    const attack = [mv('england', 'PIC', 'PAR'), sup('germany', 'BUR', 'PIC', 'PAR')]
+
+    it('skips the retreat phase when no dislodged unit can retreat', () => {
+      const b = boardFromUnits(classicalMap, trapped, 1901, 'Spring', 'movement')
+      const r = adjudicate(classicalMap, b, attack)
+      expect(r.newBoardState).toMatchObject({ phase: 'movement', season: 'Fall', year: 1901, dislodged: [] })
+      expect(r.newBoardState.units.filter((u) => u.nation === 'france').map((u) => u.territory)).toEqual(['GAS'])
+      expect(r.newBoardState.units.find((u) => u.territory === 'PAR')?.nation).toBe('england')
+    })
+
+    it('opens the retreat phase only for units that can retreat', () => {
+      // Plus a German army in Holland dislodged from Belgium, free to retreat to Kiel.
+      const units = [...trapped, U('germany', 'army', 'HOL'), U('england', 'army', 'BEL'), U('england', 'fleet', 'NTH')]
+      const b = boardFromUnits(classicalMap, units, 1901, 'Spring', 'movement')
+      const r = adjudicate(classicalMap, b, [...attack, mv('england', 'BEL', 'HOL'), sup('england', 'NTH', 'BEL', 'HOL')])
+      expect(r.newBoardState.phase).toBe('retreat')
+      expect(r.newBoardState.dislodged.map((d) => d.unit.territory)).toEqual(['HOL'])
+      expect(r.newBoardState.units.some((u) => u.nation === 'france' && u.territory === 'PAR')).toBe(false)
+    })
+
+    it('replays a log holding a disband for a retreat phase that is now skipped', () => {
+      const b = boardFromUnits(classicalMap, trapped, 1901, 'Spring', 'movement')
+      const rows: LogRow[] = [
+        { year: 1901, season: 'Spring', phase: 'movement', nation: 'england', orders: [attack[0]] },
+        { year: 1901, season: 'Spring', phase: 'movement', nation: 'germany', orders: [attack[1]] },
+        { year: 1901, season: 'Spring', phase: 'retreat', nation: 'france', orders: [{ type: 'Disband', nation: 'france', source: 'PAR' } as AnyOrder] },
+      ]
+      const frames = replayLog(classicalMap, b, rows)
+      expect(frames.map((f) => `${f.board.season} ${f.board.phase}`)).toEqual(['Spring movement', 'Fall movement'])
+    })
+  })
 })

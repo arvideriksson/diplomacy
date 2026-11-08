@@ -712,13 +712,17 @@ function adjudicate(map, board, orders) {
   switch (board.phase) {
     case "movement": {
       const out = resolveMovement(map, board, orders);
-      const next = out.dislodged.length > 0 ? {
+      const occupied = new Set(out.units.map((u) => u.territory));
+      const dislodged = out.dislodged.filter(
+        (d) => retreatTargets(map, d.unit, d.attackedFrom, occupied, out.contested).length > 0
+      );
+      const next = dislodged.length > 0 ? {
         phase: "retreat",
         season: board.season,
         year: board.year,
         units: out.units,
         supplyCenters: board.supplyCenters,
-        dislodged: out.dislodged,
+        dislodged,
         contested: out.contested
       } : advanceAfterRetreats(map, board.season, board.year, out.units, board.supplyCenters);
       return finalize(map, { ...board, ...next, mapId: board.mapId }, out.results);
