@@ -247,7 +247,7 @@
 
 {#if sandbox}
   {#key sandbox.id}
-    <SandboxBoard {sandbox} {map} onExit={leaveSandbox} onDeleted={leaveSandbox} focusNation={nation} />
+    <SandboxBoard {sandbox} {map} onExit={leaveSandbox} onDeleted={leaveSandbox} />
   {/key}
 {/if}
 <!-- The game stays mounted (just hidden) while a sandbox is open, so coming back is

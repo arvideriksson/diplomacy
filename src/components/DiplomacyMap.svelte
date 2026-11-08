@@ -43,9 +43,6 @@
   export let ringed: { anchor: string; dislodged?: boolean } | null = null
   /** A tap (not a drag) that lands on nothing clickable — e.g. to dismiss a selection. */
   export let onBackgroundClick: (() => void) | null = null
-  /** Open zoomed to fill the frame (cropping the long side) and centred on these dSVG
-   *  ids — phones, where the letterboxed whole board leaves units too small to tap. */
-  export let coverFocus: string[] | null = null
   /** How far (a fraction of the frame) the board may be pulled in from each edge, so a
    *  province in a corner of the board can be brought towards the middle of the screen. */
   export let overscroll: number = 0
@@ -172,43 +169,21 @@
     glideTimer = setTimeout(() => (gliding = false), 320)
   }
 
-  // Zoom that fills the frame (cropping the long side), centred on `coverFocus`.
-  function coverFit() {
-    const pts = (coverFocus ?? []).map((id) => renderer!.unitPosition(id)).filter((p): p is { x: number; y: number } => !!p)
-    const cover = Math.max(wrapW / (viewBox.width * scale), wrapH / (viewBox.height * scale))
-    // Closer still when the focus units sit together (a compact home like the British
-    // Isles), framed with a margin — but never past 3× on the way in.
-    let box = cover
-    if (pts.length) {
-      const pad = viewBox.width * 0.14
-      const bw = Math.max(...pts.map((p) => p.x)) - Math.min(...pts.map((p) => p.x)) + pad * 2
-      const bh = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)) + pad * 2
-      box = Math.min(wrapW / (bw * scale), (wrapH - padBottom) / (bh * scale), 3)
-    }
-    k = Math.min(MAX_K, Math.max(1, cover, box))
-    const c = pts.length
-      ? { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length }
-      : { x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }
-    centreOn(c)
-  }
-
   // Room kept around a framed board in the default view: the frame (18px) plus a strip of hall.
   const FRAME_ROOM = 28
 
-  // The default view: the cover fit when there is a focus (phones), otherwise the whole
-  // board, shrunk just enough for its frame to show on every side.
+  // The default view: the whole board, shrunk just enough for its frame to show on every
+  // side, and clear of `padBottom` unless keeping clear of it would shrink the board by more
+  // than a quarter (a phone held sideways), when the bottom bar floats over the board instead.
   let home = { k: 1, tx: 0, ty: 0 }
   function homeFit() {
-    if (coverFocus) {
-      minK = 1
-      coverFit()
-    } else {
-      const room = framed ? FRAME_ROOM : 0
-      const bw = viewBox.width * scale
-      const bh = viewBox.height * scale
-      k = minK = Math.max(0.5, Math.min(1, (wrapW - 2 * room) / bw, (wrapH - padBottom - 2 * room) / bh))
-      centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 })
-    }
+    const room = framed ? Math.min(FRAME_ROOM, Math.round(Math.min(wrapW, wrapH) * 0.06)) : 0
+    const bw = viewBox.width * scale
+    const bh = viewBox.height * scale
+    const fitK = (pad: number) => Math.min(1, (wrapW - 2 * room) / bw, (wrapH - pad - 2 * room) / bh)
+    const pad = fitK(padBottom) >= 0.75 * fitK(0) ? padBottom : 0
+    k = minK = Math.max(0.5, fitK(pad))
+    centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }, wrapW / 2, (wrapH - pad) / 2)
     home = { k, tx, ty }
   }
 

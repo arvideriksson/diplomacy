@@ -30,8 +30,6 @@
   export let onDeleted: () => void
   export let pressBadge: number = 0
   export let tab: GameTab = 'map'
-  /** Open the map on this nation's units (the viewer's, in a game copy). */
-  export let focusNation: string = ''
 
   $: sb = sandbox
   $: frame = sb.frames[sb.cursor]
@@ -115,7 +113,6 @@
   supplyCenters={board.supplyCenters}
   readOnly={Boolean(winner)}
   {pressBadge}
-  {focusNation}
   {notice}
   leftWidth="320px"
 >

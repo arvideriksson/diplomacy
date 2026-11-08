@@ -100,8 +100,6 @@
   export let exitLabel: string = ''
   /** Phones: the visible pane. */
   export let tab: GameTab = 'map'
-  /** God mode: whose units the phone map opens on (defaults to the whole board). */
-  export let focusNation: string = ''
   /** A passing note shown on the map (e.g. a sandbox resolution summary); tapping it
    *  opens the Orders pane. Cleared by the parent. */
   export let notice: string = ''
@@ -808,13 +806,6 @@
   // Movement: amber-flag own units that still have no order so none get forgotten.
   // Build: the same soft cue on units that may convert (optional, so no dashed ring).
   $: unorderedSlots = !canAct ? [] : phase === 'movement' ? unorderedUnitIds(ownUnits, $orders, draft?.source) : phase === 'build' ? convertMapIds(convertChoices, removeChoices) : []
-  // Phones open zoomed in on the viewer's own units; desktop opens on the whole board.
-  $: focusUnits = controlAll ? units.filter((u) => focusNation && sameNation(u.nation, focusNation)) : ownUnits
-  // A retreat opens on the dislodged units instead — that's where the decisions are.
-  $: retreatFocus = phase === 'retreat' ? myDislodged.map((d) => d.unit) : []
-  $: coverFocus = $compact
-    ? (retreatFocus.length ? retreatFocus : focusUnits.length ? focusUnits : units).map((u) => toDsvgId(u.territory))
-    : null
 
   // Map overlays per order kind: movement/retreat as arrows, builds as ghost unit
   // tokens, removes/disbands as red markers. Read-only history draws what the panel
@@ -1039,10 +1030,9 @@
         removeSlots={mapRemoveSlots}
         {unorderedSlots}
         {spotlightNation}
-        {coverFocus}
         bind:offHome={mapOffHome}
-        overscroll={$compact ? 0 : 0.3}
-        framed={!$compact}
+        overscroll={0.3}
+        framed
         padBottom={$compact ? 76 : 0}
         ringed={actionMenu}
         onBackgroundClick={canAct ? cancel : null}
