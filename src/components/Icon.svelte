@@ -29,6 +29,8 @@
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />',
     // The game sections (phone tab bar, and the map buttons for hidden sidebars).
     press: '<path d="M4 20h14a2 2 0 0 0 2-2V4H7v14a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-8h4" /><path d="M11 8h5M11 12h5M11 16h3" />',
+    // Back to the whole board: four corner marks.
+    fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />',
     map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" />',
     orders: '<circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="6" r="2.5" /><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />',
   } as const

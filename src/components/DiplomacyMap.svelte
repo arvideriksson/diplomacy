@@ -46,6 +46,14 @@
   /** Open zoomed to fill the frame (cropping the long side) and centred on these dSVG
    *  ids — phones, where the letterboxed whole board leaves units too small to tap. */
   export let coverFocus: string[] | null = null
+  /** How far (a fraction of the frame) the board may be pulled in from each edge, so a
+   *  province in a corner of the board can be brought towards the middle of the screen. */
+  export let overscroll: number = 0
+  /** Hang the board in the Congress of Berlin hall: the painting fills whatever the board
+   *  doesn't cover, and the board gets a mat and a gilt frame. */
+  export let framed: boolean = false
+  /** Out: the player has panned or zoomed away from the default view (see resetView). */
+  export let offHome: boolean = false
   /** Extra room to pan the board's bottom edge up past (px), e.g. above a floating bar. */
   export let padBottom: number = 0
 
@@ -85,7 +93,9 @@
   let panning = false
   let moved = false
   let last = { x: 0, y: 0 }
-  const MIN_K = 1
+  // Zoom-out floor: the whole board (1), or a little less when the default view leaves
+  // room for the frame (see homeFit).
+  let minK = 1
   const MAX_K = 8
 
   function useRenderer(r: DiplicityMap) {
@@ -175,18 +185,56 @@
       const bh = Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)) + pad * 2
       box = Math.min(wrapW / (bw * scale), (wrapH - padBottom) / (bh * scale), 3)
     }
-    k = Math.min(MAX_K, Math.max(MIN_K, cover, box))
+    k = Math.min(MAX_K, Math.max(1, cover, box))
     const c = pts.length
       ? { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length }
       : { x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }
     centreOn(c)
   }
 
-  // Cover fit: once, as soon as the board is laid out.
+  // Room kept around a framed board in the default view: the frame (18px) plus a strip of hall.
+  const FRAME_ROOM = 28
+
+  // The default view: the cover fit when there is a focus (phones), otherwise the whole
+  // board, shrunk just enough for its frame to show on every side.
+  let home = { k: 1, tx: 0, ty: 0 }
+  function homeFit() {
+    if (coverFocus) {
+      minK = 1
+      coverFit()
+    } else {
+      const room = framed ? FRAME_ROOM : 0
+      const bw = viewBox.width * scale
+      const bh = viewBox.height * scale
+      k = minK = Math.max(0.5, Math.min(1, (wrapW - 2 * room) / bw, (wrapH - padBottom - 2 * room) / bh))
+      centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 })
+    }
+    home = { k, tx, ty }
+  }
+
+  /** Back to the default view, gliding. */
+  export function resetView() {
+    if (!scale) return
+    glide()
+    homeFit()
+  }
+
+  // Away from the default view by more than a nudge (a few px, or a zoom step).
+  const awayFromHome = (v: { k: number; tx: number; ty: number }) =>
+    Math.abs(v.k - home.k) > 0.01 || Math.abs(v.tx - home.tx) * scale > 4 || Math.abs(v.ty - home.ty) * scale > 4
+  $: offHome = !!scale && awayFromHome({ k, tx, ty })
+
+  // Default view once the board is laid out; refitted on a resize (window, side panels)
+  // while the player hasn't moved away from it.
   let fitted = false
-  $: if (!fitted && coverFocus && renderer && scale) {
-    fitted = true
-    coverFit()
+  let fittedSize = ''
+  $: if (renderer && scale && wrapW && wrapH) {
+    const size = `${wrapW}x${wrapH}`
+    if (!fitted || (size !== fittedSize && !awayFromHome({ k, tx, ty }))) {
+      fitted = true
+      fittedSize = size
+      homeFit()
+    } else if (size !== fittedSize) fittedSize = size
   }
 
   /** Bring a unit into the clear part of the map — away from the edges, the top overlays
@@ -424,7 +472,7 @@
   // Zoom by `factor` keeping the map point under (clientX, clientY) fixed.
   function zoomAt(clientX: number, clientY: number, factor: number) {
     const { x: vx, y: vy } = pointerToView(clientX, clientY)
-    const k2 = Math.min(MAX_K, Math.max(MIN_K, k * factor))
+    const k2 = Math.min(MAX_K, Math.max(minK, k * factor))
     if (k2 === k) return
     // keep the map point under the cursor fixed
     const mx = (vx - tx) / k
@@ -508,13 +556,17 @@
     }
   }
 
-  // Keep the board in frame: a side larger than the wrapper may pan until its edge meets
-  // the wrapper's (plus `padBottom`, so content under a bottom overlay can be lifted into
-  // view); a smaller side stays centred.
-  function clampPan() {
+  // Keep the board in frame: each edge may be pulled in from the wrapper's edge by up to
+  // `margin` of the wrapper (plus `padBottom` at the bottom, so content under a bottom
+  // overlay can be lifted into view). With no margin, a side larger than the wrapper pans
+  // until its edge meets the wrapper's; a side too small for the range stays centred.
+  function clampPan(margin = overscroll) {
     if (scale) {
-      const fit = (pos: number, size: number, wrap: number, pad: number) =>
-        size >= wrap ? Math.min(0, Math.max(wrap - pad - size, pos)) : (wrap - size) / 2
+      const fit = (pos: number, size: number, wrap: number, pad: number) => {
+        const lo = wrap * (1 - margin) - pad - size
+        const hi = wrap * margin
+        return lo > hi ? (wrap - size) / 2 : Math.min(hi, Math.max(lo, pos))
+      }
       // Board edge in wrapper px: offset + scale·(t + (k−1)·min); solve back for t.
       const left = offsetX + scale * (tx + (k - 1) * viewBox.minX)
       const top = offsetY + scale * (ty + (k - 1) * viewBox.minY)
@@ -532,6 +584,7 @@
   bind:this={wrapEl}
   class="map-wrap"
   class:fill
+  class:framed
   class:grabbing={panning}
   role="application"
   aria-label="Diplomacy map"
@@ -557,7 +610,7 @@
       class="stage"
       class:gesturing
       class:gliding
-      style={`left:${offsetX}px;top:${offsetY}px;width:${viewBox.width * scale}px;height:${viewBox.height * scale}px;transform:${stageTransform}`}
+      style={`left:${offsetX}px;top:${offsetY}px;width:${viewBox.width * scale}px;height:${viewBox.height * scale}px;transform:${stageTransform};--k:${view.k}`}
     >
       <svg class="layer" viewBox={viewBoxAttr} preserveAspectRatio="none" fill={staticLayers.rootFill ?? undefined}>
         {#if baseRasters}
@@ -684,6 +737,39 @@
     border-radius: 0;
     /* letterbox margins match the app theme (dark in dark mode) instead of sea-blue */
     background: var(--bg);
+  }
+  /* The Congress of Berlin (public/art, also beside the home screen) fills the space around the
+     board, dimmed and vignetted so the board stays the brightest thing on screen. */
+  .map-wrap.framed {
+    background: #15120d;
+  }
+  .map-wrap.framed::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 70% 80% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5)),
+      url('/art/congress-of-berlin.webp') center / cover no-repeat;
+    filter: brightness(0.8) saturate(0.9);
+  }
+  @media (prefers-color-scheme: dark) {
+    .map-wrap.framed::before {
+      filter: brightness(0.42) saturate(0.85);
+    }
+  }
+  /* A cream mat inside a gilt frame, hung with a shadow. Drawn on the stage so it follows
+     pan and zoom; divided by the zoom (--k) so it keeps one on-screen thickness. */
+  .map-wrap.framed .stage {
+    /* The board's edge pixels are partly transparent (fractional edges, the scaled bitmap);
+       backing it with the mat colour keeps the dark hall from showing through as a seam. */
+    background: #ece3c6;
+    box-shadow:
+      0 0 0 calc(11px / var(--k)) #ece3c6,
+      0 0 0 calc(12px / var(--k)) rgba(0, 0, 0, 0.25),
+      0 0 0 calc(17px / var(--k)) #7d6230,
+      0 0 0 calc(18px / var(--k)) #3a2c12,
+      0 calc(26px / var(--k)) calc(60px / var(--k)) rgba(0, 0, 0, 0.7);
   }
   .map-wrap.grabbing {
     cursor: grabbing;

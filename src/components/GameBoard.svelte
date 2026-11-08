@@ -140,7 +140,9 @@
   $: $readyOverride, session.syncReady(ready)
   // (The Submit/Submitted/Resubmit/Resubmitted labels derive from these via submitState.)
 
-  let mapRef: { reveal: (dsvgId: string) => void } | undefined
+  let mapRef: { reveal: (dsvgId: string) => void; resetView: () => void } | undefined
+  // The map has been panned or zoomed away from its default view (shows the reset button).
+  let mapOffHome = false
 
   // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
   let leftOpen = false
@@ -806,7 +808,7 @@
   // Movement: amber-flag own units that still have no order so none get forgotten.
   // Build: the same soft cue on units that may convert (optional, so no dashed ring).
   $: unorderedSlots = !canAct ? [] : phase === 'movement' ? unorderedUnitIds(ownUnits, $orders, draft?.source) : phase === 'build' ? convertMapIds(convertChoices, removeChoices) : []
-  // Phones open zoomed in on the viewer's own units.
+  // Phones open zoomed in on the viewer's own units; desktop opens on the whole board.
   $: focusUnits = controlAll ? units.filter((u) => focusNation && sameNation(u.nation, focusNation)) : ownUnits
   // A retreat opens on the dislodged units instead — that's where the decisions are.
   $: retreatFocus = phase === 'retreat' ? myDislodged.map((d) => d.unit) : []
@@ -1038,6 +1040,9 @@
         {unorderedSlots}
         {spotlightNation}
         {coverFocus}
+        bind:offHome={mapOffHome}
+        overscroll={$compact ? 0 : 0.3}
+        framed={!$compact}
         padBottom={$compact ? 76 : 0}
         ringed={actionMenu}
         onBackgroundClick={canAct ? cancel : null}
@@ -1055,6 +1060,11 @@
           </button>
         {/if}
         {#if !$compact}<slot name="map-action" />{/if}
+        {#if mapOffHome}
+          <button class="glass view-reset" on:click={() => mapRef?.resetView()} title="Reset view" aria-label="Reset view">
+            <Icon name="fit" size={17} strokeWidth={2.2} />
+          </button>
+        {/if}
       </div>
 
 
@@ -1415,6 +1425,22 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 8px;
+  }
+  .view-reset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    color: var(--text-secondary);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .view-reset:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .compact .map-action {
     top: 10px;
