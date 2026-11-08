@@ -15,7 +15,8 @@ type IdleBoard = Pick<BoardState, 'phase' | 'units' | 'supplyCenters' | 'dislodg
  * - movement: only unit-less (eliminated) powers are idle; anyone with a unit can move/hold.
  * - retreat:  powers with no dislodged unit.
  * - build:    delta 0, or a surplus with no buildable home center (otherwise there's a
- *             build/disband choice to make), and no unit that may convert.
+ *             build/disband choice to make), and no unit that may convert; or every
+ *             unit must go (no allowance left), which civil disorder does without orders.
  *
  * The client uses this directly to show "Waiting…" instead of a Submit button.
  */
@@ -24,8 +25,10 @@ export function isIdle(map: MapDefinition, board: IdleBoard, nation: string): bo
 
   if (board.phase === 'build') {
     // Allowance includes variant extras (1900 Russian emergency measures).
-    const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0)
-    if (delta < 0) return false // must disband — a choice to make
+    const allowance = unitAllowance(map, nation, board.supplyCenters)
+    const delta = allowance - (unitCountByNation(board.units)[nation] ?? 0)
+    // Must disband — a choice of which, unless every unit goes (no centers left).
+    if (delta < 0) return allowance <= 0
     // A unit that may switch type (conversion) is a choice whatever is owed.
     if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false
     // A surplus is a choice only if there is somewhere to build.

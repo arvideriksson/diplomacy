@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adjudicate, boardFromUnits, replayLog } from '..'
+import { adjudicate, boardFromUnits, idleNations, replayLog } from '..'
 import type { AnyOrder, BoardState, LogRow } from '..'
 import type { Unit } from '../../types'
 import { classicalMap } from '../../maps/classical'
@@ -80,6 +80,24 @@ describe('phase progression', () => {
       ]
       const frames = replayLog(classicalMap, b, rows)
       expect(frames.map((f) => `${f.board.season} ${f.board.phase}`)).toEqual(['Spring movement', 'Fall movement'])
+    })
+  })
+
+  describe('a power left with no centers', () => {
+    // Fall: England's three home centers, plus a French army stranded in Picardy.
+    const units = [F('LON'), F('EDI'), A('LVP'), { type: 'army', nation: 'france', territory: 'PIC' } as Unit]
+
+    it('is idle in a build phase that removes all its units', () => {
+      const b = fall(units)
+      b.phase = 'build'
+      b.supplyCenters = { LON: 'england', EDI: 'england', LVP: 'england', NWY: 'england' }
+      expect(idleNations(classicalMap, b)).toContain('france')
+    })
+
+    it('loses its units even when the build phase is skipped', () => {
+      const r = adjudicate(classicalMap, fall(units), [])
+      expect(r.newBoardState).toMatchObject({ phase: 'movement', season: 'Spring', year: 1902 })
+      expect(r.newBoardState.units.some((u) => u.nation === 'france')).toBe(false)
     })
   })
 })

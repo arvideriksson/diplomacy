@@ -89,11 +89,14 @@ function advanceAfterRetreats(
   const newOwners = recomputeSupplyCenters(map, units, owners)
   // A build phase opens only when some power has a choice in it (isIdle): builds owed
   // with somewhere to build, removals owed, or (conversion) a unit that may switch type.
-  // A surplus with no free build site resolves to no change, so it is skipped like any
-  // other no-op phase.
+  // A surplus with no free build site resolves to no change, and a power left with no
+  // allowance loses every unit without a choice, so either is skipped like any other
+  // no-op phase.
   const build = { phase: 'build' as const, season: 'Fall' as const, year, units, supplyCenters: newOwners, dislodged: [], contested: [] }
   if (nationsOf(newOwners, units).some((n) => !isIdle(map, build, n))) return build
-  return { phase: 'movement', season: 'Spring', year: year + 1, units, supplyCenters: newOwners, dislodged: [], contested: [] }
+  // Skipped, but still resolved with no orders: a power that must lose every unit does.
+  const after = resolveBuild(map, { ...build, mapId: map.id }, []).units
+  return { phase: 'movement', season: 'Spring', year: year + 1, units: after, supplyCenters: newOwners, dislodged: [], contested: [] }
 }
 
 function finalize(

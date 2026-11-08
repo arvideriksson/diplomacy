@@ -696,8 +696,9 @@ function distanceToNearest(map, unit, homes) {
 function isIdle(map, board, nation) {
   if (board.phase === "retreat") return !board.dislodged.some((d) => d.unit.nation === nation);
   if (board.phase === "build") {
-    const delta = unitAllowance(map, nation, board.supplyCenters) - (unitCountByNation(board.units)[nation] ?? 0);
-    if (delta < 0) return false;
+    const allowance = unitAllowance(map, nation, board.supplyCenters);
+    const delta = allowance - (unitCountByNation(board.units)[nation] ?? 0);
+    if (delta < 0) return allowance <= 0;
     if (convertibleUnits(map, nation, board.supplyCenters, board.units).length) return false;
     return delta === 0 || buildSites(map, nation, board.supplyCenters, board.units).length === 0;
   }
@@ -755,7 +756,8 @@ function advanceAfterRetreats(map, season, year, units, owners) {
   const newOwners = recomputeSupplyCenters(map, units, owners);
   const build = { phase: "build", season: "Fall", year, units, supplyCenters: newOwners, dislodged: [], contested: [] };
   if (nationsOf(newOwners, units).some((n) => !isIdle(map, build, n))) return build;
-  return { phase: "movement", season: "Spring", year: year + 1, units, supplyCenters: newOwners, dislodged: [], contested: [] };
+  const after = resolveBuild(map, { ...build, mapId: map.id }, []).units;
+  return { phase: "movement", season: "Spring", year: year + 1, units: after, supplyCenters: newOwners, dislodged: [], contested: [] };
 }
 function finalize(map, next, results) {
   return { newBoardState: next, results, victory: victoryFor(map, next.supplyCenters) };
