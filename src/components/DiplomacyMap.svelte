@@ -176,18 +176,16 @@
   const FRAME_ON = false
   $: frameU = FRAME_ON && framed && scale ? Math.max(0.45, Math.min(1.2, (Math.min(viewBox.width, viewBox.height) * scale) / 900)) : 0
 
-  // The default view: the whole board, shrunk just enough for its frame to show on every
-  // side, and clear of `padBottom` unless keeping clear of it would shrink the board by more
+  // The default view: the whole board, filling whichever axis limits it, and clear of `padBottom` unless keeping clear of it would shrink the board by more
   // than a quarter (a phone held sideways), when the bottom bar floats over the board instead.
   let home = { k: 1, tx: 0, ty: 0 }
   let homePad = 0 // the bottom strip the default view keeps clear of
   function homeFit() {
-    // A strip of hall at the sides; the board runs to the top and bottom edges.
-    const gap = framed ? Math.min(10, Math.round(Math.min(wrapW, wrapH) * 0.02)) : 0
     const f = 2 * FRAME_DEPTH * frameU
     const bw = viewBox.width * scale + f
     const bh = viewBox.height * scale + f
-    const fitK = (pad: number) => Math.min(1, (wrapW - 2 * gap) / bw, (wrapH - pad) / bh)
+    // The board runs edge to edge on whichever axis limits it.
+    const fitK = (pad: number) => Math.min(1, wrapW / bw, (wrapH - pad) / bh)
     const pad = (homePad = fitK(padBottom) >= 0.75 * fitK(0) ? padBottom : 0)
     k = minK = Math.max(0.5, fitK(pad))
     centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }, wrapW / 2, (wrapH - pad) / 2)
