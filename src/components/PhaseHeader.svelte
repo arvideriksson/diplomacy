@@ -23,17 +23,26 @@
 </script>
 
 <div class="side-head">
-  {#if onPhaseBack}
-    <!-- Sandbox: step back/forward through the phase chain. -->
-    <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase">←</button>
-    <span class="phase-label">{shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
-    <button class="nav" on:click={onPhaseForward} disabled={!canPhaseForward} title="Next phase">→</button>
-  {:else}
-    <span class="phase-label">{shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
-  {/if}
+  <!-- Balances the slotted control on the right (e.g. hide), so the label stays centred. -->
+  {#if $$slots.default}<span class="balance" aria-hidden="true"></span>{/if}
+  <span class="phase-label">
+    {#if onPhaseBack}
+      <!-- Sandbox: step back/forward through the phase chain, either side of the label. -->
+      <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase" aria-label="Previous phase">←</button>
+    {/if}
+    {shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span>
+    {#if onPhaseForward}
+      <button class="nav" on:click={onPhaseForward} disabled={!canPhaseForward} title="Next phase" aria-label="Next phase">→</button>
+    {/if}
+  </span>
+  <slot />
 </div>
 
 <style>
+  .balance {
+    flex: none;
+    width: 32px;
+  }
   .side-head {
     display: flex;
     align-items: center;

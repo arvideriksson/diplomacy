@@ -93,7 +93,7 @@
   // Zoom-out floor: the whole board (1), or a little less when the default view leaves
   // room for the frame (see homeFit).
   let minK = 1
-  const MAX_K = 8
+  const MAX_K = 4
 
   function useRenderer(r: DiplicityMap) {
     renderer = r
@@ -169,19 +169,26 @@
     glideTimer = setTimeout(() => (gliding = false), 320)
   }
 
-  // Room kept around a framed board in the default view: the frame (18px) plus a strip of hall.
-  const FRAME_ROOM = 28
+  // The frame is part of the board: drawn on the stage in board pixels, so it zooms with
+  // the map. 18 units deep, a unit scaled to the board (about 1px on a desktop-sized board).
+  const FRAME_DEPTH = 18
+  // The frame is switched off for now; frameU stays 0 and the stage draws only a shadow.
+  const FRAME_ON = false
+  $: frameU = FRAME_ON && framed && scale ? Math.max(0.45, Math.min(1.2, (Math.min(viewBox.width, viewBox.height) * scale) / 900)) : 0
 
   // The default view: the whole board, shrunk just enough for its frame to show on every
   // side, and clear of `padBottom` unless keeping clear of it would shrink the board by more
   // than a quarter (a phone held sideways), when the bottom bar floats over the board instead.
   let home = { k: 1, tx: 0, ty: 0 }
+  let homePad = 0 // the bottom strip the default view keeps clear of
   function homeFit() {
-    const room = framed ? Math.min(FRAME_ROOM, Math.round(Math.min(wrapW, wrapH) * 0.06)) : 0
-    const bw = viewBox.width * scale
-    const bh = viewBox.height * scale
-    const fitK = (pad: number) => Math.min(1, (wrapW - 2 * room) / bw, (wrapH - pad - 2 * room) / bh)
-    const pad = fitK(padBottom) >= 0.75 * fitK(0) ? padBottom : 0
+    // A strip of hall at the sides; the board runs to the top and bottom edges.
+    const gap = framed ? Math.min(10, Math.round(Math.min(wrapW, wrapH) * 0.02)) : 0
+    const f = 2 * FRAME_DEPTH * frameU
+    const bw = viewBox.width * scale + f
+    const bh = viewBox.height * scale + f
+    const fitK = (pad: number) => Math.min(1, (wrapW - 2 * gap) / bw, (wrapH - pad) / bh)
+    const pad = (homePad = fitK(padBottom) >= 0.75 * fitK(0) ? padBottom : 0)
     k = minK = Math.max(0.5, fitK(pad))
     centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }, wrapW / 2, (wrapH - pad) / 2)
     home = { k, tx, ty }
@@ -236,14 +243,27 @@
   $: ringPx = ringAnchor ? toWrap(ringAnchor, view) : null
 
   onMount(() => {
-    if (!wrapEl) return
+    const el = wrapEl
+    if (!el) return
+    // The hall is laid out against the window, not the map area, so opening or closing a
+    // side panel slides the panel over it instead of rescaling it (see .framed::before).
+    const placeHall = () => {
+      const r = el.getBoundingClientRect()
+      el.style.setProperty('--hall-x', `${-r.left}px`)
+      el.style.setProperty('--hall-y', `${-r.top}px`)
+    }
     const ro = new ResizeObserver(([entry]) => {
       wrapW = entry.contentRect.width
       wrapH = entry.contentRect.height
+      placeHall()
       gestureTick()
     })
-    ro.observe(wrapEl)
-    return () => ro.disconnect()
+    ro.observe(el)
+    window.addEventListener('resize', placeHall)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', placeHall)
+    }
   })
 
   // ── gestures & detail raster ────────────────────────────────────────
@@ -535,18 +555,29 @@
   // `margin` of the wrapper (plus `padBottom` at the bottom, so content under a bottom
   // overlay can be lifted into view). With no margin, a side larger than the wrapper pans
   // until its edge meets the wrapper's; a side too small for the range stays centred.
+  // How far each edge may come in from the window edge, per axis. Fully zoomed out it is the
+  // strip of hall the default view leaves (so that view is the only position); it grows
+  // linearly with zoom to `overscroll` of the window at full zoom. Because the allowance
+  // only grows as you zoom in and only shrinks as you zoom out, an edge held at the limit
+  // moves the same way the whole time, never in then out again.
   function clampPan(margin = overscroll) {
     if (scale) {
-      const fit = (pos: number, size: number, wrap: number, pad: number) => {
-        const lo = wrap * (1 - margin) - pad - size
-        const hi = wrap * margin
-        return lo > hi ? (wrap - size) / 2 : Math.min(hi, Math.max(lo, pos))
+      const f = FRAME_DEPTH * frameU
+      const t = MAX_K > minK ? Math.min(1, Math.max(0, (k - minK) / (MAX_K - minK))) : 1
+      const axis = (pos: number, len: number, wrap: number, pad: number) => {
+        const room = wrap - pad
+        const unit = scale * len + 2 * f
+        const size = unit * k
+        const gap = Math.max(0, (room - unit * minK) / 2)
+        const m = gap + (Math.max(gap, margin * room) - gap) * t
+        const lo = room - size - m
+        return lo > m ? (room - size) / 2 : Math.min(m, Math.max(lo, pos))
       }
       // Board edge in wrapper px: offset + scale·(t + (k−1)·min); solve back for t.
       const left = offsetX + scale * (tx + (k - 1) * viewBox.minX)
       const top = offsetY + scale * (ty + (k - 1) * viewBox.minY)
-      tx = (fit(left, scale * k * viewBox.width, wrapW, 0) - offsetX) / scale - (k - 1) * viewBox.minX
-      ty = (fit(top, scale * k * viewBox.height, wrapH, padBottom) - offsetY) / scale - (k - 1) * viewBox.minY
+      tx = (axis(left - f * k, viewBox.width, wrapW, 0) + f * k - offsetX) / scale - (k - 1) * viewBox.minX
+      ty = (axis(top - f * k, viewBox.height, wrapH, homePad) + f * k - offsetY) / scale - (k - 1) * viewBox.minY
     }
     scheduleView()
   }
@@ -585,7 +616,7 @@
       class="stage"
       class:gesturing
       class:gliding
-      style={`left:${offsetX}px;top:${offsetY}px;width:${viewBox.width * scale}px;height:${viewBox.height * scale}px;transform:${stageTransform};--k:${view.k}`}
+      style={`left:${offsetX}px;top:${offsetY}px;width:${viewBox.width * scale}px;height:${viewBox.height * scale}px;transform:${stageTransform};--u:${frameU}px`}
     >
       <svg class="layer" viewBox={viewBoxAttr} preserveAspectRatio="none" fill={staticLayers.rootFill ?? undefined}>
         {#if baseRasters}
@@ -723,9 +754,13 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
+    /* "cover" and "center" worked out against the window (the painting is 3305×2000) and
+       shifted by the map area's own offset in it. */
+    --hall-w: max(100vw, calc(100vh * 3305 / 2000));
     background:
-      radial-gradient(ellipse 70% 80% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5)),
-      url('/art/congress-of-berlin.webp') center / cover no-repeat;
+      radial-gradient(ellipse 70% 80% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5)) var(--hall-x, 0px) var(--hall-y, 0px) / 100vw 100vh no-repeat,
+      url('/art/congress-of-berlin.webp') calc((100vw - var(--hall-w)) / 2 + var(--hall-x, 0px))
+        calc((100vh - var(--hall-w) * 2000 / 3305) / 2 + var(--hall-y, 0px)) / var(--hall-w) auto no-repeat;
     filter: brightness(0.8) saturate(0.9);
   }
   @media (prefers-color-scheme: dark) {
@@ -734,17 +769,10 @@
     }
   }
   /* A cream mat inside a gilt frame, hung with a shadow. Drawn on the stage so it follows
-     pan and zoom; divided by the zoom (--k) so it keeps one on-screen thickness. */
+     pan and zoom and scales with the board (--u, see frameU). */
+  /* No frame for now: the board just lifts off the hall with a shadow. */
   .map-wrap.framed .stage {
-    /* The board's edge pixels are partly transparent (fractional edges, the scaled bitmap);
-       backing it with the mat colour keeps the dark hall from showing through as a seam. */
-    background: #ece3c6;
-    box-shadow:
-      0 0 0 calc(11px / var(--k)) #ece3c6,
-      0 0 0 calc(12px / var(--k)) rgba(0, 0, 0, 0.25),
-      0 0 0 calc(17px / var(--k)) #7d6230,
-      0 0 0 calc(18px / var(--k)) #3a2c12,
-      0 calc(26px / var(--k)) calc(60px / var(--k)) rgba(0, 0, 0, 0.7);
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
   }
   .map-wrap.grabbing {
     cursor: grabbing;

@@ -141,6 +141,8 @@
   let mapRef: { reveal: (dsvgId: string) => void; resetView: () => void } | undefined
   // The map has been panned or zoomed away from its default view (shows the reset button).
   let mapOffHome = false
+  // Width of the floating orders card (desktop).
+  const RIGHT_W = 340
 
   // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
   let leftOpen = false
@@ -928,7 +930,15 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="game" class:compact={$compact} class:sandbox data-tab={tab}>
+<div
+  class="game"
+  class:compact={$compact}
+  class:sandbox
+  class:left-open={$wideLayout && leftShown}
+  class:right-open={!$compact && !rightHidden}
+  style="--left-w: {leftWidth}; --right-w: {RIGHT_W}px"
+  data-tab={tab}
+>
   {#if $compact}
     <GameTopBar
       {title}
@@ -967,6 +977,7 @@
         width={leftWidth}
         open={leftOpen}
         collapsed={$wideLayout && leftHidden}
+        onCollapse={$wideLayout ? toggleLeft : null}
         onClose={() => (leftOpen = false)}
       >
         <slot name="left" />
@@ -975,9 +986,9 @@
 
     <div class="map-area pane" aria-hidden={$compact && tab !== 'map'}>
       {#if !$compact && hasRail && !leftShown}
-        <!-- Left rail hidden (or a closed drawer): Leave stays one click away, on the map. -->
-        {#if onExit}
+        <!-- Left card hidden (or a closed drawer): Leave and a way back to it, on the map. -->
         <div class="map-chrome">
+          {#if onExit}
             <button
               class="glass chrome-btn"
               on:click={onExit}
@@ -986,34 +997,17 @@
             >
               <Icon name={exitLabel ? 'back' : 'home'} strokeWidth={2.2} round />
             </button>
-        </div>
-        {/if}
-      {/if}
-      {#if !$compact}
-        <!-- Edge handles: collapse / expand each sidebar from the border it sits on. -->
-        {#if hasRail}
+          {/if}
           <button
-            class="edge-handle left"
-            class:closed={!leftShown}
+            class="glass chrome-btn"
             on:click={toggleLeft}
-            title={leftShown ? 'Hide sidebar ([)' : `Show ${sandbox ? 'sidebar' : 'press'} ([)`}
-            aria-label={leftShown ? 'Hide left sidebar' : 'Show left sidebar'}
-            aria-expanded={leftShown}
+            title={`Show ${sandbox ? 'sidebar' : 'press'} ([)`}
+            aria-label={sandbox ? 'Show left sidebar' : 'Show press'}
           >
-            <Icon name="chevron-right" size={14} strokeWidth={2.4} round />
-            {#if !leftShown && pressBadge}<span class="edge-dot" aria-label="Unread press"></span>{/if}
+            <Icon name={sandbox ? 'chevron-right' : 'press'} strokeWidth={2.2} round />
+            {#if pressBadge}<span class="chrome-badge">{pressBadge}</span>{/if}
           </button>
-        {/if}
-        <button
-          class="edge-handle right"
-          class:closed={rightHidden}
-          on:click={() => (rightHidden = !rightHidden)}
-          title={rightHidden ? 'Show orders (])' : 'Hide orders (])'}
-          aria-label={rightHidden ? 'Show orders sidebar' : 'Hide orders sidebar'}
-          aria-expanded={!rightHidden}
-        >
-          <Icon name="chevron-right" size={14} strokeWidth={2.4} round />
-        </button>
+        </div>
       {/if}
       <DiplomacyMap
         bind:this={mapRef}
@@ -1120,7 +1114,11 @@
           {onPhaseForward}
           {canPhaseBack}
           {canPhaseForward}
-        />
+        >
+          <button class="side-hide" on:click={() => (rightHidden = true)} title="Hide orders (])" aria-label="Hide orders sidebar">
+            <Icon name="close" size={15} strokeWidth={2.2} round />
+          </button>
+        </PhaseHeader>
       {/if}
 
       <DeadlineBanner {deadline} {graceEndsAt} {awaiting} brief={$compact} />
@@ -1256,7 +1254,7 @@
     flex-direction: column;
     border-left: 1px solid var(--border);
     background: var(--bg-card);
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   /* Phones and portrait tablets: one pane at a time behind the tab bar. Every pane
@@ -1290,8 +1288,57 @@
     padding: 14px 16px 24px;
   }
 
-  .sidebar.collapsed {
-    display: none;
+  /* Desktop: the map fills the whole view and the sidebars are frosted cards floating over
+     the hall at its edges. Hiding one slides it away; nothing reflows, so the map (and the
+     hall behind it) never moves. */
+  .game:not(.compact) .panes {
+    display: block;
+  }
+  .game:not(.compact) .map-area {
+    position: absolute;
+    inset: 0;
+  }
+  .game:not(.compact) .sidebar {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
+    z-index: 20;
+    width: var(--right-w);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+    transition:
+      transform 0.28s cubic-bezier(0.3, 0.7, 0.2, 1),
+      opacity 0.2s ease,
+      visibility 0s;
+  }
+  .game:not(.compact) .sidebar.collapsed {
+    transform: translateX(calc(100% + 24px));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform 0.28s cubic-bezier(0.3, 0.7, 0.2, 1),
+      opacity 0.2s ease,
+      visibility 0s 0.28s;
+  }
+  /* Map overlays keep clear of an open card. */
+  .game.right-open .map-action {
+    right: calc(var(--right-w) + 28px);
+  }
+  .game:not(.compact) .map-foot {
+    left: 14px;
+    right: 14px;
+  }
+  .game.left-open .map-foot {
+    left: calc(var(--left-w) + 28px);
+  }
+  .game.right-open .map-foot {
+    right: calc(var(--right-w) + 28px);
   }
 
   /* Top-left of the map while the left rail is hidden: Leave, show-sidebar, game name.
@@ -1326,51 +1373,35 @@
   .orders-chip:hover {
     border-color: var(--border-strong);
   }
-  /* A tab on the map's edge against each sidebar: ‹ collapses it, › brings it back (the
-     chevron points the way the panel will move). Same spot in both states. */
-  .edge-handle {
+  .chrome-badge {
     position: absolute;
-    top: 50%;
-    z-index: 17;
-    width: 18px;
-    height: 56px;
-    margin-top: -28px;
+    top: -3px;
+    right: -3px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: #fff;
+    font: 700 10px/17px var(--font);
+    text-align: center;
+  }
+  .side-hide {
+    flex: none;
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     padding: 0;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
+    border: none;
+    border-radius: 10px;
+    background: none;
     color: var(--text-secondary);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
     cursor: pointer;
   }
-  .edge-handle:hover {
+  .side-hide:hover {
     color: var(--accent);
-    background: var(--bg-elevated);
-  }
-  .edge-handle.left {
-    left: 0;
-    border-left: none;
-    border-radius: 0 10px 10px 0;
-  }
-  .edge-handle.right {
-    right: 0;
-    border-right: none;
-    border-radius: 10px 0 0 10px;
-  }
-  /* Open: point outward (collapse); closed: point inward (expand). */
-  .edge-handle.left:not(.closed) :global(svg),
-  .edge-handle.right.closed :global(svg) {
-    transform: rotate(180deg);
-  }
-  .edge-dot {
-    position: absolute;
-    top: 6px;
-    right: 3px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
+    background: var(--bg-input);
   }
   /* Right sidebar hidden: the phase, unordered-unit count and a way back to it. */
   .orders-chip {
@@ -1498,12 +1529,20 @@
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
   }
+  /* Only the body scrolls: the phase header, deadline banner and toolbar above it and the
+     submit row below stay put, so a scroll bar coming and going never shifts them. */
   .side-body {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 12px;
+  }
+  .side-body > :global(*) {
+    flex-shrink: 0;
   }
   .latest {
     width: 100%;

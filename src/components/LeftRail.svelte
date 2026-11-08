@@ -20,6 +20,8 @@
   export let onClose: () => void
   /** Desktop: collapsed out of the layout. */
   export let collapsed: boolean = false
+  /** Desktop: hide the card (a button in its title bar). */
+  export let onCollapse: (() => void) | null = null
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
@@ -33,6 +35,11 @@
         </button>
       {/if}
       {#if title}<span class="game-name">{title}</span>{/if}
+      {#if onCollapse}
+        <button class="hide" on:click={onCollapse} title="Hide sidebar ([)" aria-label="Hide left sidebar">
+          <Icon name="close" size={15} strokeWidth={2.2} round />
+        </button>
+      {/if}
     </div>
   {/if}
   <div class="left-body"><slot /></div>
@@ -119,7 +126,60 @@
   .side-title .back:hover {
     border-color: var(--border-strong);
   }
-  .left-rail.collapsed {
-    display: none;
+  .side-title .hide {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .side-title .hide:hover {
+    color: var(--accent);
+    background: var(--bg-input);
+  }
+  /* Desktop: a frosted card floating over the hall at the map's left edge. It slides away
+     when hidden instead of leaving the layout, so the map behind it never moves. */
+  @media (min-width: 1101px) {
+    .left-rail {
+      position: absolute;
+      top: 14px;
+      bottom: 14px;
+      left: 14px;
+      z-index: 20;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+      transition:
+        transform 0.28s cubic-bezier(0.3, 0.7, 0.2, 1),
+        opacity 0.2s ease,
+        visibility 0s;
+    }
+    .left-rail.collapsed {
+      transform: translateX(calc(-100% - 24px));
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        transform 0.28s cubic-bezier(0.3, 0.7, 0.2, 1),
+        opacity 0.2s ease,
+        visibility 0s 0.28s;
+    }
+  }
+  @media (max-width: 1100px) {
+    .left-rail.collapsed {
+      display: none;
+    }
   }
 </style>
