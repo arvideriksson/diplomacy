@@ -1381,8 +1381,8 @@
     height: 17px;
     padding: 0 5px;
     border-radius: var(--radius-full);
-    background: var(--accent);
-    color: #fff;
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font: 700 10px/17px var(--font);
     text-align: center;
   }

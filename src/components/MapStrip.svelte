@@ -207,14 +207,14 @@
     cursor: pointer;
   }
   .strip-submit.resubmit {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
   /* Something still to order: yellow until it's all in (submitting asks first). */
   .strip-submit.incomplete {
     background: var(--amber);
   }
   .strip-submit.plain {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
   /* A sandbox's Resolve is always amber. */
   .strip-submit.sandbox {

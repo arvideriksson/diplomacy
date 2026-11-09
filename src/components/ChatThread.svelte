@@ -398,8 +398,8 @@
     height: 18px;
     padding: 0 4px;
     border-radius: var(--radius-full);
-    background: var(--accent);
-    color: var(--text-inverse);
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font-size: 10.5px;
     font-weight: 700;
     display: grid;
@@ -841,8 +841,8 @@
     height: 20px;
     padding: 0 5px;
     border-radius: var(--radius-full);
-    background: var(--accent);
-    color: var(--text-inverse);
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font-size: 11px;
     font-weight: 700;
     display: grid;

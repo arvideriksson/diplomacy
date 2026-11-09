@@ -94,8 +94,8 @@
     height: 18px;
     padding: 0 5px;
     border-radius: 999px;
-    background: var(--accent);
-    color: var(--text-inverse);
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
@@ -123,7 +123,7 @@
     color: #fff;
   }
   .badge.unsent {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
   .badge.done {
     background: var(--green);

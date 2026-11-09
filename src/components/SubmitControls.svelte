@@ -81,7 +81,7 @@
     background: var(--amber);
   }
   .actions .primary.resubmit {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
   .actions .primary.incomplete {
     background: var(--amber);

@@ -72,9 +72,9 @@
     transform: scale(0.92);
   }
   .action.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+    color: var(--on-accent);
   }
   .action.danger:not(.active) {
     color: var(--red);

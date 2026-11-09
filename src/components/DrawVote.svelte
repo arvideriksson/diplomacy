@@ -373,14 +373,14 @@
     width: 12px;
     height: 12px;
     fill: none;
-    stroke: var(--text-inverse);
+    stroke: var(--on-accent);
     stroke-width: 2.5;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
   .box.on {
-    border-color: var(--accent);
-    background: var(--accent);
+    border-color: var(--accent-fill);
+    background: var(--accent-fill);
   }
   .box.on svg {
     display: block;

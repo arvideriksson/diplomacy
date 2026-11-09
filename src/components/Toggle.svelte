@@ -49,7 +49,7 @@
   }
 
   .toggle input:checked + .toggle-track {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
 
   .toggle input:disabled + .toggle-track {

@@ -653,9 +653,9 @@
     cursor: default;
   }
   button.primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--text-inverse);
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+    color: var(--on-accent);
   }
   .board {
     position: relative;

@@ -49,6 +49,9 @@
   --accent-hover: #1d4ed8;
   --accent-subtle: rgba(37, 99, 235, 0.08);
   --accent-muted: rgba(37, 99, 235, 0.15);
+  --accent-fill: #2563eb;
+  --accent-fill-hover: #1d4ed8;
+  --on-accent: #ffffff;
 
   --amber: #d97706;
   --amber-subtle: rgba(217, 119, 6, 0.1);
@@ -98,6 +101,9 @@
     --accent-hover: #7db1f7;
     --accent-subtle: rgba(91, 155, 245, 0.1);
     --accent-muted: rgba(91, 155, 245, 0.18);
+    --accent-fill: #2563eb;
+    --accent-fill-hover: #3b74ee;
+    --on-accent: #ffffff;
 
     --amber: #f59e0b;
     --amber-subtle: rgba(245, 158, 11, 0.12);
@@ -193,13 +199,13 @@ input {
   cursor: not-allowed;
 }
 .btn-primary {
-  color: var(--text-inverse);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
   box-shadow: var(--shadow-sm);
 }
 .btn-ghost {
