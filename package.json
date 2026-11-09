@@ -32,6 +32,8 @@
     "live:egress": "node --experimental-strip-types scripts/live.mjs egress",
     "live:ping-notify": "node --experimental-strip-types scripts/live.mjs ping-notify",
     "live:game": "node --experimental-strip-types scripts/live.mjs game",
+    "live:mark-ready": "node --experimental-strip-types scripts/live.mjs mark-ready",
+    "live:rounds": "node --experimental-strip-types scripts/live.mjs rounds",
     "live:secrets-list": "node --experimental-strip-types scripts/live.mjs secrets-list",
     "live:rotate-adjudicator-secret": "node --experimental-strip-types scripts/live.mjs rotate-adjudicator-secret",
     "live:secrets": "node --experimental-strip-types scripts/live.mjs secrets",

@@ -8,6 +8,9 @@
 //   npm run live:diagnose-push             read-only: push subscriptions + recent notify replies
 //   npm run live:usage                     read-only: database / storage size and activity vs the free tier
 //   npm run live:egress                    read-only: what drives egress (rows per statement, row sizes, Realtime)
+//   npm run live:game <uuid>               read-only: one game's row, snapshot and latest orders
+//   npm run live:rounds <uuid>             read-only: every order row's author and timestamps
+//   npm run live:mark-ready <uuid>:<nation> ready one nation for its game's current round
 //   npm run live:ping-notify               database → notify call that sends nothing (health check)
 //   npm run live:secrets-list              read-only: secret names + SHA-256 digests (no values)
 //   npm run live:functions-list            read-only: deployed Edge Functions
@@ -39,6 +42,11 @@ const COMMANDS = {
   'ping-notify': { args: ['db', 'query', '--linked', '--file', 'scripts/diagnostics/ping-notify.sql'], extra: [] },
   // Read-only dump of one game (row + snapshot + its latest orders): `live:game <uuid>`.
   game: { run: dumpGame, arg: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, extra: [] },
+  // Ready one nation for its game's current round (unblock a power stuck with no choice):
+  // `live:mark-ready <uuid>:<nation>`. Doesn't fire the adjudicator; the next submit or tick does.
+  // Read-only timeline of one game's order rows (who wrote each, when): `live:rounds <uuid>`.
+  rounds: { run: dumpRounds, arg: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, extra: [] },
+  'mark-ready': { run: markReady, arg: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[a-z]+$/, extra: [] },
   'secrets-list': { outside: ['secrets', 'list'], extra: [] },
   'functions-list': { outside: ['functions', 'list'], extra: [] },
   secrets: { outside: () => ['secrets', 'set', '--env-file', `${root}.env.functions.local`], extra: [] },
@@ -89,6 +97,24 @@ function dumpGame() {
         from (select * from public.orders o where o.game_id = g.id
               order by o.year desc, case o.season when 'Fall' then 0 else 1 end, o.phase limit 40) o) as recent_orders
      from public.games g where g.id = '${arg}'`)
+}
+
+function dumpRounds() {
+  supabase('db', 'query', '--linked', '--output', 'json',
+    `select (select jsonb_build_object('settings', settings, 'created_at', created_at, 'updated_at', updated_at) from public.games where id = '${arg}') as game,
+       (select jsonb_agg(jsonb_build_object('year', year, 'season', season, 'phase', phase, 'nation', nation,
+          'n', jsonb_array_length(orders), 'by', submitted_by, 'created', created_at, 'updated', updated_at)
+          order by year, case season when 'Spring' then 0 else 1 end, case phase when 'movement' then 0 when 'retreat' then 1 else 2 end, nation)
+        from public.orders where game_id = '${arg}') as rows`)
+}
+
+function markReady() {
+  const [game, nation] = arg.split(':')
+  supabase('db', 'query', '--linked',
+    `update public.games set ready = ready || jsonb_build_object('${nation}', true)
+     where id = '${game}' and phase in ('movement','retreat','build') and resolving_at is null
+       and exists (select 1 from jsonb_each(players) p where p.value ->> 'nation' = '${nation}')
+     returning id, phase, season, year, ready`)
 }
 
 console.log(`Live project: ${ref}`)
