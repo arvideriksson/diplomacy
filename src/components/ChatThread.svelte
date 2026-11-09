@@ -350,7 +350,7 @@
     /* Incoming bubbles: a tint of the text colour over the panel, visible in both themes.
        Outgoing: the theme's accent, with its inverse text colour. */
     --bubble-in: color-mix(in srgb, var(--text) 8%, var(--bg-card));
-    --bubble-out: var(--accent);
+    --bubble-out: var(--accent-fill);
     position: relative;
     flex: 1;
     display: flex;
@@ -666,7 +666,7 @@
   }
   .row.mine .bubble {
     background: var(--bubble-out);
-    color: var(--text-inverse);
+    color: var(--on-accent);
   }
   .from {
     display: flex;
@@ -761,7 +761,7 @@
     }
   }
   .row.mine .time {
-    color: color-mix(in srgb, var(--text-inverse) 85%, transparent);
+    color: color-mix(in srgb, var(--on-accent) 85%, transparent);
   }
 
   .pending .bubble {
@@ -889,7 +889,7 @@
     border: none;
     border-radius: 50%;
     background: var(--bubble-out);
-    color: var(--text-inverse);
+    color: var(--on-accent);
     cursor: pointer;
     transition: opacity 0.15s, transform 0.15s;
   }
