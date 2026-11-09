@@ -1,5 +1,5 @@
 // Duration and deadline formatting shared by the timer settings, the deadline banner
-// and the host admin panel, plus the shared deadline state and ticking clock.
+// and the host controls, plus the shared deadline state and ticking clock.
 import { readable, type Readable } from 'svelte/store'
 
 const MINUTES_PER = { w: 10080, d: 1440, h: 60 } as const

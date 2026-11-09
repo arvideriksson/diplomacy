@@ -1,12 +1,9 @@
 <script lang="ts" context="module">
-  // Explanations shared by the lobby settings and the in-game host panel. Mid-game
-  // edits behave slightly differently, so those get an extra sentence.
+  // The lobby's explanations for each pacing setting.
   export const PACING_TIPS = {
     timers: 'How long each phase runs before its deadline. The first turn can run longer for opening negotiations.',
-    timersMidGame: 'Applies to phases opened from the next resolution onward.',
     grace:
       "If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold).",
-    graceMidGame: 'Applies to the current phase too.',
     early: 'Resolve as soon as every power has submitted, instead of waiting for the deadline.',
   } as const
 </script>
@@ -24,33 +21,27 @@
   export let grace: number | null
   export let earlyResolution: boolean
   export let disabled = false
-  /** Editing a running game (host panel) rather than the lobby. */
-  export let midGame = false
   export let onTimersChange: (t: PhaseTimers) => void
   /** First-phase length (minutes); null = the movement timer. */
   export let firstTurn: number | null = null
-  /** Lobby only: the First turn row is hidden mid-game. */
   export let onFirstTurnChange: ((v: number | null) => void) | null = null
   export let onGraceChange: (v: number | null) => void
   export let onEarlyChange: (v: boolean) => void
-
-  $: timersTip = midGame ? PACING_TIPS.timersMidGame : PACING_TIPS.timers
-  $: graceTip = midGame ? `${PACING_TIPS.grace} ${PACING_TIPS.graceMidGame}` : PACING_TIPS.grace
 </script>
 
 <div class="setting-group">
-  <span class="setting-label">Phase timers<InfoTip text={timersTip} /></span>
+  <span class="setting-label">Phase timers<InfoTip text={PACING_TIPS.timers} /></span>
   <PhaseTimerSettings
     {timers}
     {disabled}
     onChange={onTimersChange}
     {firstTurn}
-    onFirstTurnChange={midGame ? null : onFirstTurnChange}
+    {onFirstTurnChange}
   />
 </div>
 
 <div class="setting-group">
-  <span class="setting-label">Grace period<InfoTip text={graceTip} /></span>
+  <span class="setting-label">Grace period<InfoTip text={PACING_TIPS.grace} /></span>
   <GracePeriodSetting value={grace} movement={timers.movement} {disabled} onChange={onGraceChange} />
 </div>
 

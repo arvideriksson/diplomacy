@@ -3,7 +3,7 @@
   import GameBoard from './GameBoard.svelte'
   import SandboxBoard from './SandboxBoard.svelte'
   import ChatPanel from './ChatPanel.svelte'
-  import GameAdminPanel from './GameAdminPanel.svelte'
+  import HostControls from './HostControls.svelte'
   import VictoryBanner from './VictoryBanner.svelte'
   import DrawVote from './DrawVote.svelte'
   import SupplyCenterCard from './SupplyCenterCard.svelte'
@@ -31,8 +31,8 @@
 
   $: map = getMap(game.map_id)
 
-  // The creator manages a running game from an in-board panel.
-  let showAdmin = false
+  // The creator manages a running game from the Host fold at the foot of the orders tab.
+  let hostOpen = false
   $: isCreator = !!($user && game.created_by === $user.id)
   $: isActive = isOrderPhase(game.phase)
   // A finished game (the adjudicator sets phase 'complete' on a win) is view-only.
@@ -148,7 +148,7 @@
       if (log) ensureHistory().catch(() => {})
     }
   }
-  $: if (showAdmin) ensureHistory().catch(() => {})
+  $: if (hostOpen) ensureHistory().catch(() => {})
 
   // ── sandboxes copied from this game ────────────────────────────────────────
   // The open sandbox lives in the URL (?sandbox=id) so a reload or shared tab returns to
@@ -295,11 +295,6 @@
           {#if !$compact}<span>Sandbox</span>{/if}
         </button>
       {/if}
-      {#if canManage}
-        <button class="glass cog-btn" on:click={() => (showAdmin = true)} title="Manage game" aria-label="Manage game">
-          <Icon name="gear" size={17} />
-        </button>
-      {/if}
     </svelte:fragment>
 
     <svelte:fragment slot="results">
@@ -360,20 +355,20 @@
           />
         {/key}
       {/if}
+      {#if canManage && isFrontier}
+        <HostControls
+          {game}
+          bind:open={hostOpen}
+          pastRounds={past.map((f) => ({ year: f.board.year, season: f.board.season, phase: f.board.phase }))}
+          onGameUpdate={(g) => (game = g)}
+        />
+      {/if}
       </div>
     </svelte:fragment>
   </GameBoard>
   </div>
 {/if}
 
-{#if showAdmin}
-  <GameAdminPanel
-    {game}
-    pastRounds={past.map((f) => ({ year: f.board.year, season: f.board.season, phase: f.board.phase }))}
-    onClose={() => (showAdmin = false)}
-    onGameUpdate={(g) => (game = g)}
-  />
-{/if}
 
 <style>
   .game-layer {
@@ -528,27 +523,5 @@
     color: var(--red);
   }
   /* Frosted (.glass) floating button, mirrored to the supply-center card. */
-  .cog-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    color: var(--text-secondary);
-    border-radius: 12px;
-    cursor: pointer;
-    transition: color 0.12s, border-color 0.12s;
-  }
-  .cog-btn:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  .cog-btn :global(svg) {
-    transition: transform 0.3s ease;
-  }
-  .cog-btn:hover :global(svg) {
-    transform: rotate(45deg);
-  }
 </style>
 

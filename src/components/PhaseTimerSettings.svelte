@@ -11,6 +11,8 @@
   export let firstTurn: number | null = null
   /** Shows the First turn row (lobby only: it means nothing once the game has started). */
   export let onFirstTurnChange: ((v: number | null) => void) | null = null
+  /** Phase name above its options at every width (a narrow column like the sidebar). */
+  export let stacked = false
 
   const PRESETS: Record<OrderPhase, number[]> = {
     movement: [720, 1440, 2880, 4320, 10080],
@@ -89,7 +91,7 @@
   }
 </script>
 
-<div class="phase-timers">
+<div class="phase-timers" class:stacked>
   {#each PHASES as p (p.key)}
     {@const isCustom = !p.presets.includes(timers[p.key])}
     <div class="timer-row">
@@ -284,6 +286,14 @@
   .custom select:disabled {
     opacity: 0.65;
     cursor: default;
+  }
+
+  .stacked {
+    gap: 10px;
+  }
+  .stacked .timer-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   /* Phones: the phase name sits above its options so the pills get the full width,
