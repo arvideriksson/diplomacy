@@ -21,27 +21,19 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.all_powers_ready(uuid)  — from 20250101000134_sql_helpers.sql
--- all_powers_ready (re-issues 112).
+-- ═══ public.all_powers_ready(uuid)  — from 20250101000162_eliminated_never_wait.sql
 create or replace function public.all_powers_ready(p_game_id uuid)
-returns boolean as $$
-declare
-  g              public.games;
-  active_nations text[];
-  n              text;
+returns boolean
+language plpgsql security definer stable
+set search_path = public, extensions, pg_temp
+as $$
+declare g public.games;
 begin
   select * into g from public.games where id = p_game_id;
-  if g is null then return false; end if;
-
-  active_nations := public.game_nations(g.players);
-  if active_nations is null then return false; end if;
-
-  foreach n in array active_nations loop
-    if not public.is_ready(g.ready, n) then return false; end if;
-  end loop;
-  return true;
+  if g is null or public.game_nations(g.players) is null then return false; end if;
+  return cardinality(public.unready_nations(g)) = 0;
 end;
-$$ language plpgsql security definer stable;
+$$;
 
 -- ═══ public.announce_chat_channel()  — from 20250101000142_chat_channel_announce.sql
 create or replace function public.announce_chat_channel()
@@ -1515,13 +1507,13 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- ═══ public.unready_nations(games)  — from 20250101000147_push_notifications.sql
--- Nations in a game that haven't readied for the current round.
+-- ═══ public.unready_nations(games)  — from 20250101000162_eliminated_never_wait.sql
 create or replace function public.unready_nations(g public.games)
 returns text[] as $$
   select coalesce(array_agg(n), '{}')
     from unnest(public.game_nations(g.players)) n
-   where not public.is_ready(g.ready, n);
+   where n = any(public.surviving_nations(g))
+     and not public.is_ready(g.ready, n);
 $$ language sql stable;
 
 -- ═══ public.update_game_settings(uuid, jsonb)  — from 20250101000160_games_triggers.sql
