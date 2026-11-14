@@ -25,15 +25,15 @@
 <div class="side-head">
   <!-- Balances the slotted control on the right (e.g. hide), so the label stays centred. -->
   {#if $$slots.default}<span class="balance" aria-hidden="true"></span>{/if}
-  <span class="phase-label">
+  <span class="phase-label" class:nav={onPhaseBack || onPhaseForward}>
     {#if onPhaseBack}
       <!-- Sandbox: step back/forward through the phase chain, either side of the label. -->
       <button class="nav" on:click={onPhaseBack} disabled={!canPhaseBack} title="Previous phase" aria-label="Previous phase">←</button>
-    {/if}
-    {shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span>
+    {:else if onPhaseForward}<span></span>{/if}
+    <span class="label">{shownSeason} {year}<span class="pill" style={toneStyle}>{phaseMeta.label}</span></span>
     {#if onPhaseForward}
       <button class="nav" on:click={onPhaseForward} disabled={!canPhaseForward} title="Next phase" aria-label="Next phase">→</button>
-    {/if}
+    {:else if onPhaseBack}<span></span>{/if}
   </span>
   <slot />
 </div>
@@ -76,6 +76,19 @@
     font-weight: 700;
     font-size: 15px;
     letter-spacing: -0.2px;
+  }
+  /* With navigation the arrows sit at fixed spots at either end, the label centred
+     between them, so they don't shift as the label's length changes. */
+  .side-head .phase-label.nav {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 28px;
+  }
+  .label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
   }
   .pill {
     padding: 2px 9px;

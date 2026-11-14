@@ -36,14 +36,14 @@
       {#if sandbox}<span class="sb-tag">Sandbox</span>{/if}
       {title}
     </span>
-    <span class="when">
+    <span class="when" class:nav={onPhaseBack || onPhaseForward}>
       {#if onPhaseBack}
         <button class="step" on:click={onPhaseBack} disabled={!canPhaseBack} aria-label="Previous phase">‹</button>
-      {/if}
+      {:else if onPhaseForward}<span></span>{/if}
       <span class="when-text" class:past>{roundSeason({ season, phase })} {year} · {phaseLabel(phase)}</span>
       {#if onPhaseForward}
         <button class="step" on:click={onPhaseForward} disabled={!canPhaseForward} aria-label="Next phase">›</button>
-      {/if}
+      {:else if onPhaseBack}<span></span>{/if}
     </span>
   </div>
   <div class="right">
@@ -127,6 +127,18 @@
     display: inline-flex;
     align-items: center;
     gap: 2px;
+  }
+  /* Steps pinned at fixed spots, so stepping through phases with labels of different
+     lengths never moves them under the thumb. */
+  .when.nav {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) 30px;
+    width: min(100%, 250px);
+  }
+  .when.nav .when-text {
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .when-text {
     font-size: 14.5px;
