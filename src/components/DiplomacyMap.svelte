@@ -53,6 +53,10 @@
   export let offHome: boolean = false
   /** Extra room to pan the board's bottom edge up past (px), e.g. above a floating bar. */
   export let padBottom: number = 0
+  /** Strips at the left and right (px) covered by floating panels: the default view fits
+   *  the whole board between them, and panning keeps their edges as the board's limits. */
+  export let padLeft: number = 0
+  export let padRight: number = 0
 
   // Which regions are interactive. An explicit `selectable` wins; otherwise show
   // main provinces by default and reveal coasts only where highlighted.
@@ -154,7 +158,7 @@
 
   // Pan so board point `p` sits at wrapper px (x, y) — the centre of the usable area by
   // default (clamped to the board).
-  function centreOn(p: { x: number; y: number }, x = wrapW / 2, y = (wrapH - padBottom) / 2) {
+  function centreOn(p: { x: number; y: number }, x = (homeL + wrapW - homeR) / 2, y = (wrapH - padBottom) / 2) {
     tx = (x - offsetX) / scale + viewBox.minX - k * p.x
     ty = (y - offsetY) / scale + viewBox.minY - k * p.y
     clampPan()
@@ -180,15 +184,21 @@
   // than a quarter (a phone held sideways), when the bottom bar floats over the board instead.
   let home = { k: 1, tx: 0, ty: 0 }
   let homePad = 0 // the bottom strip the default view keeps clear of
+  let homeL = 0 // the side strips it keeps clear of (open panels)
+  let homeR = 0
   function homeFit() {
     const f = 2 * FRAME_DEPTH * frameU
     const bw = viewBox.width * scale + f
     const bh = viewBox.height * scale + f
     // The board runs edge to edge on whichever axis limits it.
-    const fitK = (pad: number) => Math.min(1, wrapW / bw, (wrapH - pad) / bh)
+    // Panels too wide to leave a usable board (a narrow window) float over it instead.
+    const sides = padLeft + padRight < wrapW * 0.6
+    homeL = sides ? padLeft : 0
+    homeR = sides ? padRight : 0
+    const fitK = (pad: number) => Math.min(1, (wrapW - homeL - homeR) / bw, (wrapH - pad) / bh)
     const pad = (homePad = fitK(padBottom) >= 0.75 * fitK(0) ? padBottom : 0)
-    k = minK = Math.max(0.5, fitK(pad))
-    centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }, wrapW / 2, (wrapH - pad) / 2)
+    k = minK = Math.max(0.2, fitK(pad))
+    centreOn({ x: viewBox.minX + viewBox.width / 2, y: viewBox.minY + viewBox.height / 2 }, (homeL + wrapW - homeR) / 2, (wrapH - pad) / 2)
     home = { k, tx, ty }
   }
 
@@ -209,8 +219,10 @@
   let fitted = false
   let fittedSize = ''
   $: if (renderer && scale && wrapW && wrapH) {
-    const size = `${wrapW}x${wrapH}`
+    const size = `${wrapW}x${wrapH}|${padLeft}|${padRight}`
     if (!fitted || (size !== fittedSize && !awayFromHome({ k, tx, ty }))) {
+      // A panel opening or closing over the default view glides to the new fit.
+      if (fitted && size.split('|')[0] === fittedSize.split('|')[0]) glide()
       fitted = true
       fittedSize = size
       homeFit()
@@ -226,9 +238,9 @@
     const side = 48
     const top = 90
     const bottom = Math.max(padBottom, 70) + 80
-    if (at.x < side || at.x > wrapW - side || at.y < top || at.y > wrapH - bottom) {
+    if (at.x < homeL + side || at.x > wrapW - homeR - side || at.y < top || at.y > wrapH - bottom) {
       glide()
-      centreOn(p, wrapW / 2, Math.max(top, (wrapH - bottom) / 2))
+      centreOn(p, (homeL + wrapW - homeR) / 2, Math.max(top, (wrapH - bottom) / 2))
     }
   }
 
@@ -562,20 +574,21 @@
     if (scale) {
       const f = FRAME_DEPTH * frameU
       const t = MAX_K > minK ? Math.min(1, Math.max(0, (k - minK) / (MAX_K - minK))) : 1
-      const axis = (pos: number, len: number, wrap: number, pad: number) => {
-        const room = wrap - pad
+      const axis = (at: number, len: number, wrap: number, a: number, b: number) => {
+        const pos = at - a
+        const room = wrap - a - b
         const unit = scale * len + 2 * f
         const size = unit * k
         const gap = Math.max(0, (room - unit * minK) / 2)
         const m = gap + (Math.max(gap, margin * room) - gap) * t
         const lo = room - size - m
-        return lo > m ? (room - size) / 2 : Math.min(m, Math.max(lo, pos))
+        return a + (lo > m ? (room - size) / 2 : Math.min(m, Math.max(lo, pos)))
       }
       // Board edge in wrapper px: offset + scale·(t + (k−1)·min); solve back for t.
       const left = offsetX + scale * (tx + (k - 1) * viewBox.minX)
       const top = offsetY + scale * (ty + (k - 1) * viewBox.minY)
-      tx = (axis(left - f * k, viewBox.width, wrapW, 0) + f * k - offsetX) / scale - (k - 1) * viewBox.minX
-      ty = (axis(top - f * k, viewBox.height, wrapH, homePad) + f * k - offsetY) / scale - (k - 1) * viewBox.minY
+      tx = (axis(left - f * k, viewBox.width, wrapW, homeL, homeR) + f * k - offsetX) / scale - (k - 1) * viewBox.minX
+      ty = (axis(top - f * k, viewBox.height, wrapH, 0, homePad) + f * k - offsetY) / scale - (k - 1) * viewBox.minY
     }
     scheduleView()
   }

@@ -143,6 +143,7 @@
   let mapOffHome = false
   // Width of the floating orders card (desktop).
   const RIGHT_W = 340
+  const CARD_INSET = 14 // the floating cards' gap from the window edge
 
   // Narrow screens: whether the left rail (title, Leave, chat / unit styles) drawer is open.
   let leftOpen = false
@@ -1028,6 +1029,8 @@
         overscroll={0.3}
         framed
         padBottom={$compact ? 76 : 0}
+        padLeft={$wideLayout && leftShown ? parseFloat(leftWidth) + 2 * CARD_INSET : 0}
+        padRight={!$compact && !rightHidden ? RIGHT_W + 2 * CARD_INSET : 0}
         ringed={actionMenu}
         onBackgroundClick={canAct ? cancel : null}
         onProvinceClick={canAct ? handleProvinceClick : null}
