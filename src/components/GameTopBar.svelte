@@ -38,11 +38,11 @@
     </span>
     <span class="when" class:nav={onPhaseBack || onPhaseForward}>
       {#if onPhaseBack}
-        <button class="step" on:click={onPhaseBack} disabled={!canPhaseBack} aria-label="Previous phase">‹</button>
+        <button class="step" on:click={onPhaseBack} disabled={!canPhaseBack} aria-label="Previous phase"><Icon name="back" size={18} strokeWidth={2.4} round /></button>
       {:else if onPhaseForward}<span></span>{/if}
       <span class="when-text" class:past>{roundSeason({ season, phase })} {year} · {phaseLabel(phase)}</span>
       {#if onPhaseForward}
-        <button class="step" on:click={onPhaseForward} disabled={!canPhaseForward} aria-label="Next phase">›</button>
+        <button class="step" on:click={onPhaseForward} disabled={!canPhaseForward} aria-label="Next phase"><Icon name="chevron-right" size={18} strokeWidth={2.4} round /></button>
       {:else if onPhaseBack}<span></span>{/if}
     </span>
   </div>
@@ -133,6 +133,7 @@
   .when.nav {
     display: grid;
     grid-template-columns: 30px minmax(0, 1fr) 30px;
+    align-items: center;
     width: min(100%, 250px);
   }
   .when.nav .when-text {
@@ -150,14 +151,15 @@
     color: var(--text-secondary);
   }
   .step {
+    display: grid;
+    place-items: center;
+    padding: 0;
     width: 30px;
     height: 40px;
     border: none;
     border-radius: 8px;
     background: none;
     color: var(--text);
-    font-size: 22px;
-    line-height: 1;
     cursor: pointer;
   }
   .step:disabled {
