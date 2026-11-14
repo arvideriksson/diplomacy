@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readClassical } from './lib/classical.mjs'
 import { attrs, refProvince } from './lib/xml.mjs'
-import { europe, extendSouth, fillSlivers, finalTouches, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
+import { europe, extendSouth, fillSlivers, finalTouches, desertBorders, AQABA_LINE, RENAMES, PLAYABLE_ISLANDS, KATTEGAT_LINES } from './edits.mjs'
 import { audit } from './lib/audit.mjs'
 import { drawBoard, geomPath, label, coastMark, offBoardNote, placed } from './artwork.mjs'
 import { intersect, subtract, union, poly, contains, pole, area, boundaryDistance, channel, extendEnds, rectDistance, largestPiece, bestGridPoint, despikeReturns } from '../lib/geom.mjs'
@@ -80,8 +80,9 @@ const sinaiTip = subtract(union(...leftover.filter((pl) => pl[0].every(([x, y]) 
 P.mid = union(P.mid, redSeaHead); P.egy = union(P.egy, sinaiTip)
 // As on the original 1900 board, Hejaz reaches well north of the Gulf of Aqaba and meets Sinai,
 // so Palestine stays clear of the Red Sea.
-const aqabaHead = intersect(P.pal, poly([[1300, 1530], [1300, 1482], [1318, 1483], [1331, 1481], [1340, 1478], [1349, 1479], [1358, 1477], [1367, 1475], [1376, 1476], [1386, 1472], [1420, 1470], [1420, 1530]]))
+const aqabaHead = intersect(P.pal, poly([[1300, 1530], ...AQABA_LINE, [1420, 1470], [1420, 1530]]))
 P.pal = subtract(P.pal, aqabaHead); P.hej = union(P.hej, aqabaHead)
+desertBorders(P)
 const lakes = subtract(leftover, redSeaHead, sinaiTip)
 finalTouches(P)
 // Drop zero-width remnants of merged borders, and hairline holes inside land

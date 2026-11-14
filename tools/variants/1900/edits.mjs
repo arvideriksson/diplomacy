@@ -5,6 +5,7 @@ import { union, intersect, subtract, poly, sidePolygon, buffer, simplify, wiggle
 import { sharedEdges } from './lib/edges.mjs'
 import { southernLand, southernProvinces } from './south.mjs'
 import { transform, box, region, affine } from './lib/natural.mjs'
+import { riverCourse } from './lib/rivers.mjs'
 import { geoConicEquidistant } from 'd3-geo'
 import { readFileSync } from 'node:fs'
 
@@ -16,6 +17,66 @@ function russianFrame(classical) {
   const pairs = [[[37.62, 55.75], 'mos'], [[30.3, 59.94], 'stp'], [[33.52, 44.6], 'sev'], [[21.0, 52.23], 'war'], [[26.1, 44.43], 'rum'], [[30.52, 50.45], 'ukr'], [[24.1, 56.95], 'lvn'], [[24.94, 60.17], 'fin']]
   const fit = affine(pairs.map(([ll, id]) => [conic(ll), at(id)]))
   return (ll) => fit(conic(ll))
+}
+
+// Siberia's western border below the St. Petersburg–Moscow junction runs down rivers instead
+// of oblast borders: Pinega, Northern Dvina, Yug, Unzha, Volga, Oka, Tsna, Khopyor and Don.
+// Each entry: river names, then board points near where the course starts and ends. The short
+// gaps between courses (and from the Don to the board edge) are drawn as wiggled links.
+const SIBERIAN_RIVERS = [
+  [['Pinega'], [1397, 145], [1406, 190]],
+  [['Severnaya Dvina', 'Vychegda', 'Sukhona'], [1414, 222], [1418, 240]],
+  [['Yug'], [1420, 248], [1412, 290]],
+  [['Unzha'], [1392, 290], [1394, 386]],
+  [['Volga'], [1394, 390], [1416, 420]],
+  [['Oka'], [1416, 422], [1385, 490]],
+  [['Tsna'], [1392, 484], [1405, 594]],
+  [['Khopr', 'Khoper'], [1428, 612], [1452, 680]],
+  [['Don'], [1452, 682], [1492, 672]],
+]
+const SIBERIA_JUNCTION = [1388, 130]
+
+// The whole western border of Siberia, top edge to right edge: the Arkhangelsk–Komi border
+// (the outline of `east`, the Siberian oblasts) down to the junction, then the rivers.
+function siberianBorder(east, russia) {
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
+  const ring = east.reduce((a, b) => (area([b]) > area([a]) ? b : a))[0]
+  const n = ring.length
+  const top = ring.findIndex((p, i) => p[1] >= 0 && ring[(i - 1 + n) % n][1] < 0 && p[0] > 1380 && p[0] < 1460)
+  if (top < 0) throw new Error('Siberia: no oblast border at the top edge')
+  const end = ring.reduce((m, p, i) => (d(p, SIBERIA_JUNCTION) < d(ring[m], SIBERIA_JUNCTION) ? i : m), 0)
+  const walk = (step) => { const out = []; for (let i = top; ; i = (i + step + n) % n) { out.push(ring[i]); if (i === end) return out } }
+  const [fwd, back] = [walk(1), walk(-1)]
+  let line = [[ring[top][0], -5], ...(fwd.length < back.length ? fwd : back)]
+  const link = (piece, seed) => {
+    const a = line.at(-1), b = piece[0]
+    if (d(a, b) > 3) line.push(...wiggle([a, b], { amplitude: 1.6, step: 3, seed }).slice(1, -1))
+    line.push(...piece)
+  }
+  SIBERIAN_RIVERS.forEach(([names, from, to], i) => link(riverCourse(names, from, to, russia), i + 4))
+  link([[1530, 690]], 10)
+  return line
+}
+
+// Siberia becomes everything east of `line` (top edge to right edge); land west of it that was
+// Siberian goes to St. Petersburg north of the junction, Sevastopol south of the Moscow–Sevastopol
+// border and Moscow between.
+function riverBorder(P, line) {
+  const eastOf = poly([[line[0][0], -60], ...line, [1620, line.at(-1)[1]], [1620, -60]])
+  const freed = subtract(P.sib, eastOf)
+  for (const id of ['stp', 'mos', 'sev']) P[id] = subtract(P[id], eastOf)
+  P.sib = intersect(poly([[0, 0], [1523, 0], [1523, 1620], [0, 1620]]), eastOf)
+  for (const piece of freed) {
+    if (area([piece]) < 0.5) continue
+    const r = piece[0], cy = r.reduce((s, p) => s + p[1], 0) / r.length
+    const id = cy < 132 ? 'stp' : cy > 548 ? 'sev' : 'mos'
+    P[id] = union(P[id], [piece])
+  }
+  // Crumbs cut off from their province by the new line join Siberia.
+  for (const id of ['stp', 'mos', 'sev']) {
+    const crumbs = P[id].filter((pl) => area([pl]) < 40)
+    if (crumbs.length) { P[id] = P[id].filter((pl) => area([pl]) >= 40); P.sib = union(P.sib, crumbs) }
+  }
 }
 
 const RENAMES = { hol: 'net', ruh: 'col', lvn: 'lvo', smy: 'kon', syr: 'dam', bot: 'gbo', gol: 'gly', nao: 'nat', nrg: 'nws', mao: 'mid' }
@@ -178,6 +239,8 @@ export function europe(classical) {
   for (const id of ['stp', 'mos', 'sev']) { const part = intersect(P[id], siberia); P[id] = subtract(P[id], siberia); P.sib = union(P.sib ?? [], part) }
   // The Nenets okrug (centred north of 66°N) stays with St. Petersburg, so Siberia's
   // northern edge follows their real border instead of a drawn cut.
+  // Below the St. Petersburg–Moscow junction, the oblast borders give way to rivers.
+  riverBorder(P, siberianBorder(east, russia))
 
   // Gibraltar: a small tip of Spain around the Rock and Tarifa, plus a broad strait reaching
   // into the Atlantic and the Alboran Sea, separating the Mid-Atlantic from the Western
@@ -300,6 +363,40 @@ export function fillSlivers(P, islands, width, height, tile = 160) {
     }
   }
   return union(...lakes)
+}
+
+// Palestine's southern border with Hejaz, from Sinai to above the head of the Gulf of Aqaba: as
+// on the original 1900 board, Hejaz meets Sinai and Palestine stays clear of the Red Sea.
+export const AQABA_LINE = [[1300, 1482], [1318, 1483], [1331, 1481], [1340, 1478], [1349, 1479], [1358, 1477], [1367, 1475], [1376, 1476], [1386, 1472]]
+
+// Desert borders, traced (in board units) along Natural Earth's geography regions instead of
+// modern administrative lines. Arabia is the Syrian Desert and Najd: Palestine–Arabia follows the
+// Syrian Desert's western edge (rather than the 36.4°E meridian) down to the Ma'an plateau, and
+// Hejaz–Arabia the eastern edge of the Hejaz Mountains, so Tabuk and Al-Ula are Hejaz and Taima
+// (Rashidi in 1900) Arabia. Cyrenaica begins at the Arch of the Philaeni and runs south along
+// the western edge of the Libyan Desert.
+const SYRIAN_DESERT_EDGE = [[1388, 1300], [1388, 1340], [1388, 1375], [1388, 1384], [1389, 1394], [1391, 1400], [1394, 1405], [1397, 1410], [1401, 1415], [1406, 1418], [1411, 1422], [1412, 1440], [1408, 1460]]
+const MAAN_JUNCTION = [1404, 1476]
+const HEJAZ_MOUNTAINS_EDGE = [[1403, 1500], [1405, 1523], [1409, 1528], [1417, 1538], [1421, 1543], [1426, 1547], [1432, 1550], [1438, 1553], [1444, 1557], [1453, 1564], [1461, 1571], [1469, 1580], [1495, 1609], [1512, 1626], [1560, 1660]]
+const LIBYAN_DESERT_EDGE = [[862, 1470], [864, 1500], [866, 1521], [861, 1535], [857, 1546], [851, 1568], [845, 1589], [854, 1604], [862, 1622], [867, 1650]]
+
+// Re-split the provinces in `group` along drawn lines: each [id, line, around, seed] takes what is
+// left of the group on the `around` side of its (curved, wiggled) line; `rest` gets the remainder.
+function resplit(P, group, takes, rest) {
+  let left = union(...group.map((id) => P[id]))
+  for (const [id, line, around, seed] of takes) {
+    P[id] = intersect(left, poly([...wiggle(curve(line, 3), { amplitude: 1.6, step: 3, seed }), ...around]))
+    left = subtract(left, P[id])
+  }
+  P[rest] = left
+}
+
+export function desertBorders(P) {
+  resplit(P, ['pal', 'hej', 'ara'], [
+    ['ara', [...SYRIAN_DESERT_EDGE, MAAN_JUNCTION, ...HEJAZ_MOUNTAINS_EDGE], [[1700, 1660], [1700, 1250], [1388, 1250]], 7],
+    ['hej', [...AQABA_LINE, [1395, 1474], MAAN_JUNCTION, [1440, 1478]], [[1700, 1478], [1700, 1800], [1290, 1800], [1290, 1482]], 9],
+  ], 'pal')
+  resplit(P, ['cyr', 'trp'], [['cyr', LIBYAN_DESERT_EDGE, [[867, 1700], [1300, 1700], [1300, 1440], [862, 1440]], 5]], 'trp')
 }
 
 // Tidy-ups that must run after the sliver fill.
