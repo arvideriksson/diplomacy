@@ -110,6 +110,7 @@
 
   async function saveSettings() {
     if (!game || !isAdmin) return
+    if (!settingsName.trim()) settingsName = game.name
     saving = true
     try {
       const settings: GameSettings = {
