@@ -23,7 +23,7 @@ function toVote(row: VoteRow | undefined): DrawVote {
   return row.members.length > 1 ? { kind: 'tie', members: row.members } : { kind: 'solo' }
 }
 
-/** The caller's own vote (RLS shows no one else's while the game runs). */
+/** The caller's own vote (RLS never shows anyone else's). */
 export async function fetchMyVote(gameId: string, nation: string): Promise<DrawVote> {
   const { data, error } = await supabase
     .from('draw_votes')
@@ -33,14 +33,6 @@ export async function fetchMyVote(gameId: string, nation: string): Promise<DrawV
     .maybeSingle()
   if (error) throw error
   return toVote((data as VoteRow | null) ?? undefined)
-}
-
-/** Every power's final vote — readable once the game is over. */
-export async function fetchFinalVotes(gameId: string, nations: string[]): Promise<Record<string, DrawVote>> {
-  const { data, error } = await supabase.from('draw_votes').select('nation, members').eq('game_id', gameId)
-  if (error) throw error
-  const rows = (data ?? []) as VoteRow[]
-  return Object.fromEntries(nations.map((n) => [n, toVote(rows.find((r) => r.nation === n))]))
 }
 
 /** Record the caller's vote. Resolves true when it completed an agreement (game over). */

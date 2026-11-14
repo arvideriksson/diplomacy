@@ -92,7 +92,7 @@ Resolved rounds are immutable (they form the replay log) — the one exception i
 
 ### Ending by agreement: ties and concessions
 
-Each surviving power holds one **secret** vote in `draw_votes` (`20250101000141_draw_votes.sql`): solo (the default, no row), a tie with a set of powers, or concede. The game ends when some set of survivors all vote for exactly that set and every other survivor concedes (eliminated powers count as conceding); a set of one is a win by concession. Votes are readable only by their owner until the game is `complete` (RLS; not in the realtime publication), so players can bluff about their vote. `settle_draw` ends the game — it moves no units, only stamps `phase = 'complete'` and `games.result` — and runs from `set_draw_vote` and after every `apply_resolution`, never while a resolution is in flight. A host revert clears the votes and the result.
+Each surviving power holds one **secret** vote in `draw_votes` (`20250101000141_draw_votes.sql`): solo (the default, no row), a tie with a set of powers, or concede. The game ends when some set of survivors all vote for exactly that set and every other survivor concedes (eliminated powers count as conceding); a set of one is a win by concession. Votes are readable only by their owner, even after the game ends (RLS, `20250101000163_votes_stay_secret.sql`; not in the realtime publication), so players can bluff about their vote. `settle_draw` ends the game — it moves no units, only stamps `phase = 'complete'` and `games.result` — and runs from `set_draw_vote` and after every `apply_resolution`, never while a resolution is in flight. A host revert clears the votes and the result.
 
 ### Host controls (private games, opt-in in the lobby)
 

@@ -343,17 +343,13 @@
         <SupplyCenterCard {map} supplyCenters={frame.board.supplyCenters} {nation} onHover={spotlight} />
       {/if}
       <!-- The vote acts on the live game: not shown while browsing past phases. -->
-      {#if nation && isFrontier && (isActive || isComplete) && game.phase !== 'lobby'}
-        {#key isComplete}
-          <DrawVote
-            gameId={game.id}
-            {nation}
-            {map}
-            nations={playedNations}
-            alive={survivingNations(liveBoard(), playedNations)}
-            complete={isComplete}
-          />
-        {/key}
+      {#if nation && isFrontier && isActive && game.phase !== 'lobby'}
+        <DrawVote
+          gameId={game.id}
+          {nation}
+          {map}
+          alive={survivingNations(liveBoard(), playedNations)}
+        />
       {/if}
       {#if canManage && isFrontier}
         <HostControls

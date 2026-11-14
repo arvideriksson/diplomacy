@@ -1,7 +1,6 @@
 <script lang="ts">
   // Bottom of the orders view: the player's secret vote on how the game ends — play on
-  // for the solo, share an x-way tie, or concede. Once the game is over it instead
-  // reveals how every power voted.
+  // for the solo, share an x-way tie, or concede. Votes stay secret, even after the game.
   import { onMount } from 'svelte'
   import type { MapDefinition } from '../lib/mapDefinition'
   import { victoryThreshold } from '../lib/adjudicator/resolve'
@@ -9,7 +8,7 @@
   import Flag from './Flag.svelte'
   import Icon from './Icon.svelte'
   import { errorMessage } from '../lib/errors'
-  import { fetchFinalVotes, fetchMyVote, setDrawVote, type DrawVote } from '../lib/draw'
+  import { fetchMyVote, setDrawVote, type DrawVote } from '../lib/draw'
 
   export let gameId: string
   /** The viewer's nation. */
@@ -18,10 +17,6 @@
   export let map: MapDefinition
   /** Played powers still on the board (the only ones a tie can include). */
   export let alive: string[]
-  /** Every played power (for the end-of-game reveal). */
-  export let nations: string[]
-  /** The game is over: show everyone's final vote instead of the ballot. */
-  export let complete = false
 
   $: win = victoryThreshold(map)
   const name = (n: string) => powerInfo(map, n).name
@@ -34,14 +29,12 @@
   let loading = true
   let saving = false
   let error = ''
-  let finals: Record<string, DrawVote> | null = null
   // The ballot is a rare action: folded to a one-line summary until opened.
   let open = false
 
   onMount(async () => {
     try {
-      if (complete) finals = await fetchFinalVotes(gameId, nations)
-      else reset((saved = await fetchMyVote(gameId, nation)))
+      reset((saved = await fetchMyVote(gameId, nation)))
     } catch (e) {
       error = errorMessage(e)
     }
@@ -67,13 +60,12 @@
   function describe(v: DrawVote): string {
     if (v.kind === 'solo') return 'Play for the solo'
     if (v.kind === 'concede') return 'Concede'
-    const members = v.members.filter((n) => alive.includes(n) || complete).sort((a, b) => rank(a) - rank(b))
+    const members = v.members.filter((n) => alive.includes(n)).sort((a, b) => rank(a) - rank(b))
     return `${members.length}-way tie: ${members.map(name).join(', ')}`
   }
 
   const label = (v: DrawVote): string =>
     v.kind === 'solo' ? 'Solo' : v.kind === 'concede' ? 'Concede' : `${v.members.length}-way tie`
-  const finalLabel = (v: DrawVote): string => (v.kind === 'concede' ? 'Conceded' : label(v))
 
   $: options = [
     { kind: 'solo', title: 'Play for the solo', detail: `Keep playing until someone holds ${win} centers.` },
@@ -101,87 +93,67 @@
 <!-- Flat "ledger" rows like the supply-center standings above: flush to the sidebar's
      edges, hairline dividers, a square color edge on each power. -->
 <section class="draw" aria-labelledby="draw-title">
-  {#if complete}
-    <div class="head static">
-      <h4 id="draw-title">Final votes</h4>
-    </div>
-    {#if finals}
-      <ul class="rows">
-        {#each [...nations].sort((a, b) => rank(a) - rank(b)) as n (n)}
-          <li class="power-row" style="--c:{color(n)}">
-            <span class="edge"></span>
-            <Flag powers={map} nation={n} size={22} />
-            <span class="name">{name(n)}</span>
-            <span class="verdict" class:tie={finals[n].kind === 'tie'} title={finals[n].kind === 'tie' ? describe(finals[n]) : undefined}>{finalLabel(finals[n])}</span>
-          </li>
-        {/each}
-      </ul>
-    {:else if error}
-      <p class="msg err">{error}</p>
-    {/if}
+  <button class="head" type="button" aria-expanded={open} on:click={() => (open = !open)}>
+    <h4 id="draw-title">End the game</h4>
+    <span class="sum">
+      {#if loading}…{:else if !isAlive}Eliminated{:else}Your vote: <b>{label(saved)}</b>{/if}
+    </span>
+    <span class="chevron"><Icon name="chevron-down" size={16} strokeWidth={3} round /></span>
+  </button>
+  {#if !open}
+    <!-- folded -->
+  {:else if loading}
+    <p class="msg">Loading your vote…</p>
+  {:else if !isAlive}
+    <p class="msg">You've been eliminated, so you count as conceding.</p>
   {:else}
-    <button class="head" type="button" aria-expanded={open} on:click={() => (open = !open)}>
-      <h4 id="draw-title">End the game</h4>
-      <span class="sum">
-        {#if loading}…{:else if !isAlive}Eliminated{:else}Your vote: <b>{label(saved)}</b>{/if}
-      </span>
-      <span class="chevron"><Icon name="chevron-down" size={16} strokeWidth={3} round /></span>
-    </button>
-    {#if !open}
-      <!-- folded -->
-    {:else if loading}
-      <p class="msg">Loading your vote…</p>
-    {:else if !isAlive}
-      <p class="msg">You've been eliminated, so you count as conceding.</p>
-    {:else}
-      <div role="radiogroup" aria-label="Your vote">
-        {#each options as o (o.kind)}
-          <button
-            type="button"
-            class="option"
-            class:on={kind === o.kind}
-            role="radio"
-            aria-checked={kind === o.kind}
-            on:click={() => (kind = o.kind)}
-          >
-            <span class="radio" aria-hidden="true"></span>
-            <span class="option-text">
-              <span class="option-title">{o.title}</span>
-              <span class="option-detail">{o.detail}</span>
-            </span>
-          </button>
-          {#if o.kind === 'tie' && kind === 'tie'}
-            <!-- The tie being built: you're always in it; tick the others. -->
-            <div class="members" role="group" aria-label="Powers in the tie">
-              <div class="power-row me" style="--c:{color(nation)}">
-                <span class="edge"></span>
-                <Flag powers={map} nation={nation} size={18} />
-                <span class="name">{name(nation)} <span class="you">(you)</span></span>
-                <span class="box on" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
-              </div>
-              {#each others as n (n)}
-                <button type="button" class="power-row pick" class:on={picked.includes(n)} style="--c:{color(n)}" aria-pressed={picked.includes(n)} on:click={() => toggle(n)}>
-                  <span class="edge"></span>
-                  <Flag powers={map} nation={n} size={18} />
-                  <span class="name">{name(n)}</span>
-                  <span class="box" class:on={picked.includes(n)} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
-                </button>
-              {/each}
-              <div class="tally" aria-live="polite">
-                {#if tie.length > 1}<span>Tie between</span><b>{tie.length} powers</b>{:else}<span>Pick at least one other power</span>{/if}
-              </div>
+    <div role="radiogroup" aria-label="Your vote">
+      {#each options as o (o.kind)}
+        <button
+          type="button"
+          class="option"
+          class:on={kind === o.kind}
+          role="radio"
+          aria-checked={kind === o.kind}
+          on:click={() => (kind = o.kind)}
+        >
+          <span class="radio" aria-hidden="true"></span>
+          <span class="option-text">
+            <span class="option-title">{o.title}</span>
+            <span class="option-detail">{o.detail}</span>
+          </span>
+        </button>
+        {#if o.kind === 'tie' && kind === 'tie'}
+          <!-- The tie being built: you're always in it; tick the others. -->
+          <div class="members" role="group" aria-label="Powers in the tie">
+            <div class="power-row me" style="--c:{color(nation)}">
+              <span class="edge"></span>
+              <Flag powers={map} nation={nation} size={18} />
+              <span class="name">{name(nation)} <span class="you">(you)</span></span>
+              <span class="box on" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
             </div>
-          {/if}
-        {/each}
-      </div>
+            {#each others as n (n)}
+              <button type="button" class="power-row pick" class:on={picked.includes(n)} style="--c:{color(n)}" aria-pressed={picked.includes(n)} on:click={() => toggle(n)}>
+                <span class="edge"></span>
+                <Flag powers={map} nation={n} size={18} />
+                <span class="name">{name(n)}</span>
+                <span class="box" class:on={picked.includes(n)} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" /></svg></span>
+              </button>
+            {/each}
+            <div class="tally" aria-live="polite">
+              {#if tie.length > 1}<span>Tie between</span><b>{tie.length} powers</b>{:else}<span>Pick at least one other power</span>{/if}
+            </div>
+          </div>
+        {/if}
+      {/each}
+    </div>
 
-      <div class="foot">
-        <span class="status">{saving ? 'Saving…' : same ? 'Saved' : 'Not saved yet'}</span>
-        {#if !same}<button class="link" type="button" on:click={() => reset(saved)}>Undo</button>{/if}
-        <button class="btn btn-primary btn-sm" disabled={same || !valid || saving} on:click={save}>Save vote</button>
-      </div>
-      {#if error}<p class="msg err">{error}</p>{/if}
-    {/if}
+    <div class="foot">
+      <span class="status">{saving ? 'Saving…' : same ? 'Saved' : 'Not saved yet'}</span>
+      {#if !same}<button class="link" type="button" on:click={() => reset(saved)}>Undo</button>{/if}
+      <button class="btn btn-primary btn-sm" disabled={same || !valid || saving} on:click={save}>Save vote</button>
+    </div>
+    {#if error}<p class="msg err">{error}</p>{/if}
   {/if}
 </section>
 
@@ -203,9 +175,6 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
-  }
-  .head.static {
-    cursor: default;
   }
   @media (hover: hover) {
     button.head:hover {
@@ -300,12 +269,7 @@
     color: var(--text-secondary);
   }
 
-  /* Power rows: the tie checklist and the final reveal share the standings' shape. */
-  .rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
+  /* Power rows: the tie checklist shares the standings' shape. */
   .power-row {
     display: grid;
     grid-template-columns: 3px 22px minmax(0, 1fr) auto;
@@ -399,14 +363,6 @@
   }
   .tally b {
     color: var(--text-secondary);
-  }
-  .verdict {
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  .verdict.tie {
-    font-weight: 600;
-    color: var(--accent);
   }
 
   .foot {
