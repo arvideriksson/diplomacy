@@ -3,7 +3,7 @@
   export const PACING_TIPS = {
     timers: 'How long each phase runs before its deadline. The first turn can run longer for opening negotiations.',
     grace:
-      "If anyone hasn't submitted by the deadline, the phase waits this long for them. It resolves the moment the last orders arrive, or when the grace period ends (missing units hold).",
+      "When the deadline passes with orders missing, the phase waits this long for them. Everyone sees who it's waiting on and press closes. It resolves as soon as their orders are in, or when time runs out (their units hold).",
     early: 'Resolve as soon as every power has submitted, instead of waiting for the deadline.',
   } as const
 </script>

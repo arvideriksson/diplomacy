@@ -2,7 +2,9 @@
   // Home: your games (most urgent first), open lobbies to join, games to watch, your
   // finished games and your sandboxes — flat rows split by hairlines, like the in-game
   // sidebar.
-  import { games, gamesLoaded } from '../lib/game'
+  import { games, gamesLoaded, createGame } from '../lib/game'
+  import { user, displayName } from '../lib/auth'
+  import { errorMessage } from '../lib/errors'
   import type { GameListItem } from '../lib/game'
   import { sandboxes, keptSandboxes } from '../lib/sandbox'
   import type { Sandbox } from '../lib/sandbox'
@@ -20,6 +22,21 @@
   export let onSelectGame: (game: { id: string }) => void = () => {}
   export let onOpenSandbox: (id: string) => void = () => {}
   export let onCreateSandbox: (name: string, mapId: string) => void = () => {}
+
+  // New game: straight into its lobby under a placeholder name; the host renames it there.
+  let creating = false
+  async function newGame() {
+    if (!$user || creating) return
+    creating = true
+    try {
+      const first = $displayName?.split(/[\s@]/)[0]
+      onSelectGame(await createGame(first ? `${first}'s game` : 'New game', $user.id))
+    } catch (e) {
+      alert(errorMessage(e))
+    } finally {
+      creating = false
+    }
+  }
 
   /** Rows in Watch before "All N" expands it. */
   const WATCH_PREVIEW = 5
@@ -201,13 +218,14 @@
   {#if $gamesLoaded}
     <section>
       <h2>Your games</h2>
-      {#if myGames.length}
-        <div class="list">
-          {#each myGames as g (g.id)}{@render myRow(g)}{/each}
-        </div>
-      {:else}
-        <p class="empty">You haven’t joined any games yet.</p>
-      {/if}
+      <div class="list">
+        {#each myGames as g (g.id)}{@render myRow(g)}{/each}
+        <button class="row new" type="button" on:click={newGame} disabled={creating}>
+          <span class="edge"></span>
+          {@render glyph('plus')}
+          <span class="text"><span class="name">New game</span></span>
+        </button>
+      </div>
     </section>
 
     <section>
@@ -365,6 +383,27 @@
   }
   .row:first-child {
     border-top: none;
+  }
+  button.row {
+    width: 100%;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+  }
+  .row.new {
+    min-height: 48px;
+    color: var(--accent);
+  }
+  .row.new .glyph {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+  .row.new:disabled {
+    cursor: progress;
+    opacity: 0.6;
   }
   @media (hover: hover) {
     .row:hover {

@@ -16,7 +16,6 @@
   import StatusPage from './StatusPage.svelte'
   import { errorMessage } from '../lib/errors'
   import { shortenUuid } from '../lib/shortId'
-  import { dismissable } from '../lib/actions/dismissable'
 
   export let gameId: string
   export let initialGame: GameState | null = null
@@ -193,7 +192,7 @@
     saveSettings()
   }
 
-  // ── Invite, the ⋯ menu, delete and leave ─────────────────────────────────────
+  // ── Invite, delete and leave ─────────────────────────────────────
   $: inviteLink = `${window.location.origin}/join/${shortenUuid(gameId)}`
   // Phones get the share sheet; everything else copies the link.
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator && matchMedia('(pointer: coarse)').matches
@@ -216,7 +215,6 @@
     }
   }
 
-  let menuOpen = false
   let confirming: 'delete' | 'leave' | null = null
   let removing = false
   $: others = game ? Object.keys(game.players).filter((uid) => uid !== $user?.id).length : 0
@@ -224,11 +222,6 @@
     others === 0
       ? 'The lobby closes. This can’t be undone.'
       : `The lobby closes and ${others === 1 ? 'the other player loses their seat' : `the ${others} other players lose their seats`}. This can’t be undone.`
-
-  function ask(what: 'delete' | 'leave') {
-    menuOpen = false
-    confirming = what
-  }
 
   async function handleDelete() {
     if (!game || !isAdmin) return
@@ -271,27 +264,20 @@
         {:else}
           <h1>{game.name}</h1>
         {/if}
-        <span class="sub">Lobby · {map.name}{#if game.is_private}<span class="lock" title="Private"><Icon name="lock" size={11} /></span>{/if}</span>
+        <span class="sub">{map.name}{#if game.is_private}<span class="lock" title="Private"><Icon name="lock" size={11} /></span>{/if}</span>
       </div>
       <div class="head-actions">
         <button class="btn btn-line" type="button" on:click={invite}>
           {#if copied}<Icon name="check" size={15} />Copied{:else}<Icon name="copy" size={15} /><span class="lbl">{canShare ? 'Invite' : 'Copy invite link'}</span>{/if}
         </button>
-        {#if isAdmin || isMember}
-          <div class="menu-wrap" use:dismissable={{ onDismiss: () => (menuOpen = false), enabled: menuOpen }}>
-            <button class="btn btn-line more" type="button" aria-label="More" aria-expanded={menuOpen} on:click={() => (menuOpen = !menuOpen)}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="13" cy="8" r="1.5" /></svg>
-            </button>
-            {#if menuOpen}
-              <div class="menu" role="menu">
-                {#if isAdmin}
-                  <button role="menuitem" class="danger" on:click={() => ask('delete')}>Delete game</button>
-                {:else}
-                  <button role="menuitem" class="danger" on:click={() => ask('leave')}>Leave game</button>
-                {/if}
-              </div>
-            {/if}
-          </div>
+        {#if isAdmin}
+          <button class="btn btn-line icon-btn danger" type="button" title="Delete game" aria-label="Delete game" on:click={() => (confirming = 'delete')}>
+            <Icon name="trash" size={16} />
+          </button>
+        {:else if isMember}
+          <button class="btn btn-line icon-btn danger" type="button" title="Leave game" aria-label="Leave game" on:click={() => (confirming = 'leave')}>
+            <Icon name="logout" size={16} />
+          </button>
         {/if}
       </div>
     </header>
@@ -469,40 +455,13 @@
     color: var(--text);
     font-size: 13px;
   }
-  .more {
+  .icon-btn {
     width: 36px;
     padding: 0;
   }
-  .menu-wrap {
-    position: relative;
-  }
-  .menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 6px);
-    z-index: 20;
-    min-width: 180px;
-    padding: 4px 0;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--shadow-lg);
-  }
-  .menu button {
-    display: block;
-    width: 100%;
-    padding: 9px 14px;
-    border: none;
-    background: none;
-    font: 500 14px var(--font);
-    text-align: left;
-    color: var(--text);
-    cursor: pointer;
-  }
-  .menu button:hover {
-    background: var(--bg-hover);
-  }
-  .menu .danger {
+  .icon-btn.danger:hover {
     color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 45%, var(--border-strong));
   }
 
   /* Seats beside settings. */

@@ -7,6 +7,8 @@
   import { formatMinutes } from '../lib/time'
   import Segmented from './Segmented.svelte'
   import Toggle from './Toggle.svelte'
+  import InfoTip from './InfoTip.svelte'
+  import { PACING_TIPS } from './PacingSettings.svelte'
 
   /** Only the host may change settings. */
   export let isAdmin: boolean
@@ -106,7 +108,7 @@
     ['Map', maps[mapId]?.name ?? mapId],
     ['Powers', randomNations ? 'Random' : 'Players choose'],
     ['Press', gunboat ? 'None (gunboat)' : 'Full'],
-    ['Listed publicly', isPrivate ? 'No' : 'Yes'],
+    ['Public', isPrivate ? 'No' : 'Yes'],
     ['Host controls', hostControls ? 'On' : 'Off'],
   ]
 </script>
@@ -140,16 +142,16 @@
         {/if}
       </div>
       <div class="setting">
-        <span class="label">First turn <span class="hint">for opening talks</span></span>
+        <span class="label">First turn</span>
         <Segmented label="First turn" options={firstOptions} value={firstTurn} onChange={onFirstTurnChange} />
       </div>
       <div class="setting">
-        <span class="label">Grace period <span class="hint">after a missed deadline</span></span>
+        <span class="label">Grace period<InfoTip text={PACING_TIPS.grace} /></span>
         <Segmented label="Grace period" options={graceOptions} value={grace} onChange={onGraceChange} />
       </div>
       <div class="setting line">
-        <span class="label">Resolve early when everyone is ready</span>
-        <Toggle checked={earlyResolution} label="Resolve early when everyone is ready" onChange={onEarlyChange} />
+        <span class="label">Early resolution</span>
+        <Toggle checked={earlyResolution} label="Early resolution" onChange={onEarlyChange} />
       </div>
     </div>
   </section>
@@ -166,15 +168,15 @@
         <Segmented label="Powers" options={powerOptions} value={randomNations} onChange={onRandomNationsChange} />
       </div>
       <div class="setting line">
-        <span class="label">Gunboat <span class="hint">no press</span></span>
+        <span class="label">Gunboat<InfoTip text="Press is disabled." /></span>
         <Toggle checked={gunboat} label="Gunboat" onChange={onGunboatChange} />
       </div>
       <div class="setting line">
-        <span class="label">Listed publicly{#if hostControlsLocked}<span class="hint">off while host controls are on</span>{/if}</span>
-        <Toggle checked={!isPrivate} label="Listed publicly" disabled={hostControlsLocked} onChange={onTogglePrivate} />
+        <span class="label">Public{#if hostControlsLocked}<span class="hint">off while host controls are on</span>{/if}</span>
+        <Toggle checked={!isPrivate} label="Public" disabled={hostControlsLocked} onChange={onTogglePrivate} />
       </div>
       <div class="setting line">
-        <span class="label">Host controls <span class="hint">revert, force-resolve and change timers mid-game; private games only</span></span>
+        <span class="label">Host controls<InfoTip text="Revert, force-resolve and change timers mid-game. Private games only." /></span>
         <Toggle checked={hostControls} label="Host controls" disabled={!isPrivate} onChange={onHostControlsChange} />
       </div>
     </div>

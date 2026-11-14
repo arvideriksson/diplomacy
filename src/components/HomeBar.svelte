@@ -1,38 +1,27 @@
 <script lang="ts">
-  // The home screen's top bar: the mark, New game (opens a new game's lobby right away) and the user menu.
-  import { navigate } from 'svelte-routing'
+  // The top bar outside a game: back (off the home page) on the left, the mark in the
+  // middle, the user menu on the right.
   import BrandMark from './BrandMark.svelte'
   import UserMenu from './UserMenu.svelte'
   import Icon from './Icon.svelte'
-  import { createGame } from '../lib/game'
-  import { user, displayName } from '../lib/auth'
-  import { errorMessage } from '../lib/errors'
 
-  let creating = false
-
-  // Straight into the new game's lobby under a placeholder name; the host renames it there.
-  async function create() {
-    if (!$user || creating) return
-    creating = true
-    try {
-      const first = $displayName?.split(/[\s@]/)[0]
-      const game = await createGame(first ? `${first}'s game` : 'New game', $user.id)
-      navigate(`/game/${game.id}`)
-    } catch (e) {
-      alert(errorMessage(e))
-    } finally {
-      creating = false
-    }
-  }
+  /** Set off the home page: a back button on the left. */
+  export let onBack: (() => void) | null = null
 </script>
 
 <header class="home-bar">
   <div class="inner">
+    <div class="side">
+      {#if onBack}
+        <button class="back" type="button" on:click={onBack} title="Back to games" aria-label="Back to games">
+          <Icon name="back" strokeWidth={2.2} round />
+        </button>
+      {/if}
+    </div>
     <span class="brand"><BrandMark /><span class="word">Diplomacy</span></span>
-    <button class="btn btn-primary btn-sm new" type="button" on:click={create} disabled={creating}>
-      <Icon name="plus" size={15} strokeWidth={2.4} round />New game
-    </button>
-    <UserMenu />
+    <div class="side end">
+      <UserMenu />
+    </div>
   </div>
 </header>
 
@@ -50,8 +39,10 @@
     border-bottom: 1px solid var(--border);
   }
   /* 24px gutters, lined up with the list below. */
+  /* Mark centred between two equal sides, whatever each side holds. */
   .inner {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 12px;
     max-width: 960px;
@@ -59,8 +50,31 @@
     margin: 0 auto;
     padding: 0 24px;
   }
+  .side {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .side.end {
+    justify-content: flex-end;
+  }
+  .back {
+    width: 36px;
+    height: 36px;
+    margin-left: -8px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .back:hover {
+    background: var(--bg-hover);
+  }
   .brand {
-    flex: 1;
     display: flex;
     align-items: center;
     gap: 9px;
@@ -73,10 +87,6 @@
     letter-spacing: 2.6px;
     text-transform: uppercase;
     color: var(--text);
-  }
-  .new {
-    gap: 6px;
-    height: 34px;
   }
   @media (max-width: 600px) {
     .inner {
