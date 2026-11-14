@@ -279,7 +279,7 @@
     historyOrders={frame.orders}
     historyResults={frame.results ?? []}
     onPhaseBack={phaseBack}
-    onPhaseLatest={() => (cursor = null)}
+    onPhaseLatest={isFrontier ? null : () => (cursor = null)}
     onOrdersChange={(o) => (liveOrders = o)}
     pressBadge={unread}
     onPhaseForward={phaseForward}
@@ -297,7 +297,7 @@
       {/if}
     </svelte:fragment>
 
-    <svelte:fragment slot="results">
+    <svelte:fragment slot="ending">
       {#if isComplete}
         <VictoryBanner
           winner={winner && { name: powerName(map.powers, winner.nation), centers: winner.centers, names: winner.shared?.map((n) => powerName(map.powers, n)) }}

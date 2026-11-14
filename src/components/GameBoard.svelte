@@ -1129,6 +1129,8 @@
       {/if}
 
       <div class="side-body">
+        <!-- How a finished game ended: first thing in the sidebar. -->
+        <slot name="ending" />
         {#if viewOnly && onPhaseLatest}
           <button class="btn latest" on:click={onPhaseLatest}>Back to the current phase ›</button>
         {/if}
