@@ -95,6 +95,13 @@ describe('mergeLog', () => {
     expect(merged[1].orders).toHaveLength(1)
   })
 
+  it("keeps a finished game's last round (its row reads that round, phase 'complete')", () => {
+    const cached = [row(1905, 'Spring', 'movement', 'germany')]
+    const delta = [row(1905, 'Fall', 'movement', 'germany'), row(1905, 'Fall', 'retreat', 'germany')]
+    const merged = mergeLog(cached, delta, { year: 1905, season: 'Fall' as const, phase: 'complete' })
+    expect(merged.map((r) => `${r.season} ${r.phase}`)).toEqual(['Spring movement', 'Fall movement', 'Fall retreat'])
+  })
+
   it('newestStamp picks the latest updated_at', () => {
     expect(newestStamp([])).toBeNull()
     expect(newestStamp([

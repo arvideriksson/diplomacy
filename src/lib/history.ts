@@ -6,6 +6,7 @@
 import { initialBoard, replayLog, roundRank } from './adjudicator'
 import type { LogRow, ReplayFrame } from './adjudicator'
 import type { MapDefinition } from './mapDefinition'
+import { isOrderPhase } from './phases'
 
 /** A resolved-orders row as stored in the `orders` table (one per nation per round). */
 export type ResolvedOrderRow = LogRow
@@ -36,13 +37,15 @@ export function replayFrames(
  * host revert — which deleted every later round — so the cache is cut at the delta's
  * oldest round (a later retreat/build phase may not exist in the new timeline at all).
  * Anything at or after the live round is dropped too (a revert deleted or reopened it).
+ * A finished game has no live round: its game row keeps the last round's year and season
+ * with phase 'complete', which must not cut that round's own rows.
  */
 export function mergeLog<R extends ResolvedOrderRow>(
   cached: R[],
   delta: R[],
   live: Parameters<typeof roundRank>[0],
 ): R[] {
-  const frontier = roundRank(live)
+  const frontier = isOrderPhase(live.phase) ? roundRank(live) : Infinity
   const cut = Math.min(frontier, ...delta.map(roundRank))
   return [...cached.filter((r) => roundRank(r) < cut), ...delta].filter((r) => roundRank(r) < frontier)
 }

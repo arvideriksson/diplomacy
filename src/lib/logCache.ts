@@ -9,8 +9,9 @@ import { deviceCache } from './deviceCache'
 
 type CachedLog = { rows: StampedOrderRow[]; since: string | null }
 
-/** Games kept; the least recently used beyond this are evicted. */
-const cache = deviceCache<CachedLog>('resolvedLog', 2, 20)
+/** Games kept; the least recently used beyond this are evicted. Version 3 drops logs cached
+ *  while a finished game's last round was being cut (see mergeLog). */
+const cache = deviceCache<CachedLog>('resolvedLog', 3, 20)
 
 /** Cache key: per viewer as well as per game, so a shared device never mixes accounts. */
 export const logKey = (userId: string | undefined, gameId: string) => `${userId ?? 'anon'}:${gameId}`
