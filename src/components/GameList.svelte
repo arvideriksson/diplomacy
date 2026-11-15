@@ -3,7 +3,7 @@
   // finished games and your sandboxes — flat rows split by hairlines, like the in-game
   // sidebar.
   import { games, gamesLoaded, createGame } from '../lib/game'
-  import { user, displayName } from '../lib/auth'
+  import { user, displayName, requireAccount } from '../lib/auth'
   import { errorMessage } from '../lib/errors'
   import type { GameListItem } from '../lib/game'
   import { sandboxes, keptSandboxes } from '../lib/sandbox'
@@ -26,7 +26,7 @@
   // New game: straight into its lobby under a placeholder name; the host renames it there.
   let creating = false
   async function newGame() {
-    if (!$user || creating) return
+    if (!requireAccount('to start a new game') || !$user || creating) return
     creating = true
     try {
       const first = $displayName?.split(/[\s@]/)[0]

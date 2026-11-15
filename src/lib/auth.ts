@@ -1,10 +1,10 @@
-import { writable, derived } from 'svelte/store'
+import { writable, derived, get } from 'svelte/store'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { rpc } from './rpc'
 import { disablePush } from './push'
 import { clearDeviceCaches } from './deviceCache'
-import { session as sessionStore } from './localStore'
+import { session as sessionStore, local as localStore } from './localStore'
 
 const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS ?? '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean)
 
@@ -16,6 +16,41 @@ export const isSiteAdmin = derived(user, ($user) => $user?.email ? ADMIN_EMAILS.
 /** The name a user goes by: the one they chose, else the provider's. */
 export function metaDisplayName(meta: Record<string, any> | undefined): string | undefined {
   return meta?.display_name ?? meta?.full_name ?? meta?.name ?? undefined
+}
+
+// Guest mode: browsing and watching public games without an account (read-only; the
+// database grants the `anon` role exactly that, see the guest_spectators migration).
+// Remembered on this device until they sign in or leave guest mode.
+const GUEST_KEY = 'guest-mode'
+const guestChosen = writable(localStore.readFlag(GUEST_KEY))
+/** Signed out and browsing as a guest. */
+export const isGuest = derived([session, guestChosen], ([$session, $chosen]) => !$session && $chosen)
+/** Either signed in or browsing as a guest: the app (not the sign-in page) is shown. */
+export const canBrowse = derived([session, guestChosen], ([$session, $chosen]) => !!$session || $chosen)
+
+export function continueAsGuest() {
+  localStore.writeFlag(GUEST_KEY, true)
+  guestChosen.set(true)
+}
+
+/** Back to the sign-in page. */
+export function leaveGuestMode() {
+  localStore.writeFlag(GUEST_KEY, false)
+  guestChosen.set(false)
+  signInPrompt.set(null)
+}
+
+/**
+ * Why a guest is being asked to sign in (e.g. "to join this game"), or null when no
+ * prompt is open. Set by anything a guest can't do; App shows the dialog.
+ */
+export const signInPrompt = writable<string | null>(null)
+
+/** For an action that needs an account: true when signed in, else prompts and returns false. */
+export function requireAccount(reason: string): boolean {
+  if (get(session)) return true
+  signInPrompt.set(reason)
+  return false
 }
 
 export const displayName = derived(user, ($user) => $user ? (metaDisplayName($user.user_metadata) ?? $user.email ?? null) : null)
@@ -42,6 +77,7 @@ export async function initAuth() {
 
   supabase.auth.onAuthStateChange((_event, newSession) => {
     session.set(newSession)
+    if (newSession) signInPrompt.set(null)
   })
 }
 
@@ -88,4 +124,6 @@ export async function signOut() {
   await clearDeviceCaches().catch(() => {})
   const { error } = await supabase.auth.signOut()
   if (error) throw error
+  // Signing out lands on the sign-in page, not back in guest mode.
+  leaveGuestMode()
 }

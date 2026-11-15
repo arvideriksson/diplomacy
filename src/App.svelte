@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { fade } from 'svelte/transition'
   import { Router, Route, navigate } from 'svelte-routing'
-  import { initAuth, isAuthenticated, isSiteAdmin, needsDisplayName } from './lib/auth'
+  import { initAuth, isAuthenticated, isSiteAdmin, needsDisplayName, canBrowse, isGuest, continueAsGuest } from './lib/auth'
   import { fetchGames } from './lib/game'
   import { immersive } from './lib/layout'
   import LoginButton from './components/LoginButton.svelte'
@@ -15,6 +15,7 @@
   import NameDialog from './components/NameDialog.svelte'
   import SandboxView from './components/SandboxView.svelte'
   import BrandMark from './components/BrandMark.svelte'
+  import SignInPrompt from './components/SignInPrompt.svelte'
   import { createSandbox } from './lib/sandbox'
   import { supabaseConfigured } from './lib/supabase'
   import { initPush } from './lib/push'
@@ -51,8 +52,11 @@
     fetchGames().catch(() => {})
   }
 
-  $: if ($isAuthenticated && ready) {
+  // Guests read the public games too (read-only, see the guest_spectators migration).
+  $: if ($canBrowse && ready) {
     fetchGames().catch(() => {})
+  }
+  $: if ($isAuthenticated && ready) {
     initPush().catch(() => {})
   }
 </script>
@@ -64,7 +68,7 @@
 {:else}
 <Router>
   <!-- No title bar: page chrome floats over the content. Immersive views (game, sandbox) bring their own. -->
-  {#if !$immersive && $isAuthenticated}
+  {#if !$immersive && $canBrowse}
     <FloatingChrome onBack={handleBackToList} />
     <ArtColumns />
   {/if}
@@ -81,7 +85,7 @@
         {/await}
       </Route>
     {/if}
-    {#if !$isAuthenticated && !location.pathname.startsWith('/sandbox/') && !location.pathname.startsWith('/editor')}
+    {#if (!$canBrowse || ($isGuest && location.pathname.startsWith('/join/'))) && !location.pathname.startsWith('/sandbox/') && !location.pathname.startsWith('/editor')}
       <!-- Sign-in: the Congress of Berlin (Anton von Werner, 1881; public domain) edge to
            edge, the mark and the sign-in button straight on top. -->
       <div class="auth-page" in:fade={{ duration: 200 }}>
@@ -93,6 +97,9 @@
           </div>
           <div class="login-container">
             <LoginButton />
+            {#if !location.pathname.startsWith('/join/')}
+              <button class="guest-btn" type="button" on:click={continueAsGuest}>Continue as guest</button>
+            {/if}
           </div>
         </div>
       </div>
@@ -117,6 +124,7 @@
       </Route>
     {/if}
   </main>
+  <SignInPrompt />
   {#if $needsDisplayName}
     <NameDialog firstTime />
   {/if}
@@ -239,6 +247,25 @@
     color: #1a1a1a;
     border-color: rgba(0, 0, 0, 0.15);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Secondary to Google: a quiet text button on the painting. */
+  .guest-btn {
+    padding: 8px 18px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+    opacity: 0.9;
+  }
+  .guest-btn:hover {
+    opacity: 1;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   @media (prefers-color-scheme: dark) {

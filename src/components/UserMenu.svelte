@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { user, displayName, signOut } from '../lib/auth'
+  import { user, displayName, signOut, isGuest, signInPrompt } from '../lib/auth'
   import { fade, fly } from 'svelte/transition'
   import Avatar from './Avatar.svelte'
   import Icon from './Icon.svelte'
@@ -93,9 +93,27 @@
   {#if renaming}
     <NameDialog onClose={() => (renaming = false)} />
   {/if}
+{:else if $isGuest}
+  <button class="guest-sign-in" type="button" on:click={() => signInPrompt.set('to join and create games')}>Sign in</button>
 {/if}
 
 <style>
+  .guest-sign-in {
+    padding: 7px 14px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+  }
+  .guest-sign-in:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .user-menu {
     position: relative;
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { user } from '../lib/auth'
+  import { user, isGuest, requireAccount } from '../lib/auth'
   import {
     fetchGame, fetchGames, updateGame, startGame, joinGame, leaveGame, kickPlayer,
     claimNation, deleteLobbyGame, DEFAULT_SETTINGS,
@@ -33,7 +33,7 @@
   $: isAdmin = game && $user && game.created_by === $user.id
   $: playerCount = game ? Object.keys(game.players).length : 0
   $: isMember = game && $user && !!game.players[$user.id]
-  $: canJoin = game && $user && !isMember && playerCount < maxPlayers && game.phase === 'lobby'
+  $: canJoin = game && ($user || $isGuest) && !isMember && playerCount < maxPlayers && game.phase === 'lobby'
   $: canStart = isAdmin && playerCount >= 2 && game?.phase === 'lobby'
 
   $: settingsName = game?.name ?? ''
@@ -153,6 +153,8 @@
   }
 
   async function handleJoin() {
+    // Guests see the button too; it asks them to sign in (back to this lobby afterwards).
+    if (!requireAccount('to join this game')) return
     if (!game || !$user || !canJoin) return
     joiningGame = true
     try {
